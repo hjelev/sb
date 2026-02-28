@@ -15,14 +15,18 @@ redraw_cursor() { local total=${#files[@]}; local scroll=$(( cursor - 1 - max_ro
 get_item() { [[ $cursor -gt 0 && $cursor -le ${#files[@]} ]] && echo "${files[$((cursor-1))]}" | sed 's/[$*@|=>]//g'; }
 open_file() { local item="$1"; if command -v chafa &>/dev/null && [[ "$item" =~ \.(jpg|jpeg|png|gif|bmp|webp|tiff|ico)$ ]]; then echo -ne "\033[?25h"; tput smcup; printf "\033[H"; chafa "$item" | head -n $((term_rows - 2)); printf "\033[$((term_rows));1H"; read -rsn1; tput rmcup; echo -ne "\033[?25l"; redraw_cursor; else xdg-open "$item" 2>/dev/null; fi; }
 echo -ne "\033[?25l"; get_terminal_size; update_files; draw_ui
-while true; do read -rsn1 key; [[ $key == $'\e' ]] && read -rsn2 -t 0.1 key_rest && key+="$key_rest"; case "$key" in
+while true; do read -rsn1 key; if [[ $key == $'\e' ]]; then while read -rsn1 -t 0.001 key_rest; do key+="$key_rest"; done; fi; case "$key" in
 $'\e[A') ((cursor > 1)) && ((cursor--)) && redraw_cursor ;;
 $'\e[B') ((cursor < ${#files[@]})) && ((cursor++)) && redraw_cursor ;;
+$'\e[5~') old_cursor=$cursor; ((cursor -= max_rows)); (( cursor < 1 )) && cursor=1; (( cursor != old_cursor )) && redraw_cursor ;;
+$'\e[6~') old_cursor=$cursor; ((cursor += max_rows)); (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor != old_cursor )) && redraw_cursor ;;
+$'\e[H'|$'\e[1~'|$'\e[7~'|$'\eOH') ((cursor > 1)) && cursor=1 && redraw_cursor ;;
+$'\e[F'|$'\e[4~'|$'\e[8~'|$'\eOF') ((cursor < ${#files[@]})) && cursor=${#files[@]} && redraw_cursor ;;
 $'\e[C'|$'\n') item=$(get_item); if [ -d "$item" ]; then dir_positions["$(pwd)"]=$cursor; cd "$item" 2>/dev/null; get_terminal_size; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; draw_ui; elif [ -f "$item" ]; then open_file "$item"; fi ;;
 $'\e[D') dir_positions["$(pwd)"]=$cursor; cd .. 2>/dev/null; get_terminal_size; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; draw_ui ;;
 '~') dir_positions["$(pwd)"]=$cursor; cd "$HOME" 2>/dev/null; get_terminal_size; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; draw_ui ;;
 'c') item=$(get_item); [[ "$item" != "(Empty Directory)" ]] && CLIPBOARD_PATH="$(pwd)/$item" && CLIPBOARD_NAME="$item" && redraw_cursor ;;
 'p') [[ -n "$CLIPBOARD_PATH" ]] && { dest="$CLIPBOARD_NAME"; [[ -e "$dest" ]] && { echo -ne "\033[?25h"; printf "\033[$((max_rows + 4));1H\033[K"; stty echo; read -e -i "$dest" -p "New name: " dest; stty -echo cbreak; echo -ne "\033[?25l"; }; cp -r "$CLIPBOARD_PATH" "$dest" 2>/dev/null && { update_files; draw_ui; } } ;;
-'h') echo -ne "\033[?25h"; clear; echo "↑/↓: Navigate | →/Enter: Open | ←: Back | ~: Home | c: Copy | p: Paste | q: Quit"; read -rsn1; draw_ui ;;
+'h') echo -ne "\033[?25h"; clear; echo "↑/↓: Navigate | PgUp/PgDn: Page | Home/End: Top/Bottom | →/Enter: Open | ←: Back | ~: Home | c: Copy | p: Paste | q: Quit"; read -rsn1; draw_ui ;;
 'q') break ;;
 esac; done
