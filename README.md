@@ -51,8 +51,7 @@ For Bash (`~/.bashrc`) or Zsh (`~/.zshrc`):
 sb() {
 	local tmp_file
 	tmp_file=$(mktemp)
-	# Change '/path/to/sb.sh' to the actual location (e.g., ~/sb.sh)
-	bash "$HOME/sb" --export-path "$tmp_file"
+	bash "$/usr/local/bin/sb" --export-path "$tmp_file"
 	if [ -s "$tmp_file" ]; then
 		cd "$(cat "$tmp_file")"
 	fi
