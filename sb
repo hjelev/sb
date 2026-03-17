@@ -1,4 +1,9 @@
 #!/bin/bash
+if (( BASH_VERSINFO[0] < 4 )); then
+    echo "Error: sb requires bash 4.0 or newer." >&2
+    echo "macOS ships with bash 3.2. Install a newer version with: brew install bash" >&2
+    exit 1
+fi
 EXPORT_FILE=""; [[ "$1" == "--export-path" ]] && EXPORT_FILE="$2"
 HIGHLIGHT='\033[1;44m'; BLUE='\033[1;34m'; GREEN='\033[1;32m'; CYAN='\033[1;36m'; RED='\033[1;31m'; NC='\033[0m'
 cursor=1; old_cursor=0; old_scroll=-1; files=(); metadata=(); CLIPBOARD_PATH=""; CLIPBOARD_NAME=""; declare -A dir_positions
