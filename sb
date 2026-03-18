@@ -1,10 +1,48 @@
 #!/usr/bin/env bash
+VERSION="0.1.0"
+
+usage() {
+    cat <<'EOF'
+Usage: sb [--export-path FILE] [--version] [--help]
+
+Options:
+  --export-path FILE  Write the final working directory to FILE on exit.
+  --version           Print the sb version and exit.
+  --help              Show this help text and exit.
+EOF
+}
+
 if (( BASH_VERSINFO[0] < 4 )); then
     echo "Error: sb requires bash 4.0 or newer." >&2
     echo "macOS ships with bash 3.2. Install a newer version with: brew install bash" >&2
     exit 1
 fi
-EXPORT_FILE=""; [[ "$1" == "--export-path" ]] && EXPORT_FILE="$2"
+EXPORT_FILE=""
+while (($# > 0)); do
+    case "$1" in
+        --export-path)
+            if [[ -z "${2-}" ]]; then
+                echo "Error: --export-path requires a file path." >&2
+                exit 1
+            fi
+            EXPORT_FILE="$2"
+            shift 2
+            ;;
+        --version)
+            printf "sb %s\n" "$VERSION"
+            exit 0
+            ;;
+        --help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Error: unknown option '$1'." >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+done
 HIGHLIGHT='\033[1;44m'; BLUE='\033[1;34m'; GREEN='\033[1;32m'; CYAN='\033[1;36m'; RED='\033[1;31m'; NC='\033[0m'
 cursor=1; old_cursor=0; old_scroll=-1; files=(); metadata=(); CLIPBOARD_PATH=""; CLIPBOARD_NAME=""; declare -A dir_positions
 SHOW_HIDDEN=0

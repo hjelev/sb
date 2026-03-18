@@ -26,14 +26,36 @@ A lightweight terminal file browser written in Bash.
 
 ## Installation
 
-### Option 1: Run directly
+### Option 1: One-command install
+
+Install the latest release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hjelev/sb/main/install.sh | bash
+```
+
+Install a specific version:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hjelev/sb/main/install.sh | bash -s -- --version v0.1.0
+```
+
+By default this installs `sb` into `~/.local/bin`. To use a different location:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hjelev/sb/main/install.sh | SB_INSTALL_DIR=/usr/local/bin bash
+```
+
+The installer tries the latest GitHub release first and falls back to `main` until the first release exists.
+
+### Option 2: Run directly
 
 ```bash
 chmod +x sb
 ./sb
 ```
 
-### Option 2: Install in your PATH
+### Option 3: Install in your PATH manually
 
 ```bash
 chmod +x sb
@@ -41,7 +63,7 @@ sudo cp sb /usr/local/bin/sb
 sb
 ```
 
-### Option 3: Add `sb` as a shell function (recommended)
+### Option 4: Add `sb` as a shell function
 
 If you want your terminal to `cd` into the last folder you visited after quitting `sb`, add this function to your shell config.
 
@@ -51,7 +73,7 @@ For Bash (`~/.bashrc`) or Zsh (`~/.zshrc`):
 sb() {
 	local tmp_file
 	tmp_file=$(mktemp)
-	bash "$/usr/local/bin/sb" --export-path "$tmp_file"
+	bash "/usr/local/bin/sb" --export-path "$tmp_file"
 	if [ -s "$tmp_file" ]; then
 		cd "$(cat "$tmp_file")"
 	fi
@@ -73,6 +95,12 @@ Start in the current directory:
 
 ```bash
 sb
+```
+
+Print the installed version:
+
+```bash
+sb --version
 ```
 
 Start and export your last visited directory when quitting:
@@ -101,6 +129,7 @@ After you quit (`q`), the script writes the current working directory to the exp
 - If a paste target name already exists, `sb` prompts for a new name.
 - For images (`jpg`, `png`, `gif`, etc.), `sb` uses `chafa` if available; otherwise it falls back to `xdg-open`.
 - UI adapts to terminal resize events.
+- For stable installs and upgrades, create Git tags like `v0.1.0` and publish matching GitHub Releases.
 
 ## Troubleshooting
 
