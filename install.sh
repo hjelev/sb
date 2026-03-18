@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO="hjelev/sb"
-DEFAULT_BRANCH="main"
+DEFAULT_FALLBACK_REFS=("master" "main")
 INSTALL_DIR="${SB_INSTALL_DIR:-$HOME/.local/bin}"
 VERSION=""
 REF=""
@@ -15,7 +15,7 @@ Installs sb into a directory on your PATH.
 
 Options:
   --version TAG      Install a tagged version, for example v0.1.0.
-  --ref GIT_REF      Install from a git ref such as main or a commit SHA.
+    --ref GIT_REF      Install from a git ref such as master, main, or a commit SHA.
   --install-dir DIR  Install destination. Defaults to ~/.local/bin or SB_INSTALL_DIR.
   --help             Show this help text and exit.
 
@@ -33,6 +33,23 @@ require_cmd() {
 
 latest_release_tag() {
     curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | awk -F '"' '/"tag_name"/ { print $4; exit }'
+}
+
+ref_has_script() {
+    local ref="$1"
+    local url="https://raw.githubusercontent.com/$REPO/$ref/sb"
+    curl -fsSI "$url" >/dev/null 2>&1
+}
+
+resolve_default_ref() {
+    local candidate
+    for candidate in "${DEFAULT_FALLBACK_REFS[@]}"; do
+        if ref_has_script "$candidate"; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+    return 1
 }
 
 ensure_path_hint() {
@@ -98,9 +115,11 @@ elif [[ -z "$REF" ]]; then
     if VERSION="$(latest_release_tag 2>/dev/null)" && [[ -n "$VERSION" ]]; then
         REF="$VERSION"
         printf 'Installing sb %s\n' "$VERSION"
+    elif REF="$(resolve_default_ref)"; then
+        printf 'No GitHub release found yet, installing from %s\n' "$REF"
     else
-        REF="$DEFAULT_BRANCH"
-        printf 'No GitHub release found yet, installing from %s\n' "$DEFAULT_BRANCH"
+        echo "Error: no release found and no fallback branch with sb script is accessible." >&2
+        exit 1
     fi
 fi
 

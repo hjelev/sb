@@ -31,22 +31,22 @@ A lightweight terminal file browser written in Bash.
 Install the latest release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hjelev/sb/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/hjelev/sb/refs/heads/master/install.sh | bash
 ```
 
 Install a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hjelev/sb/main/install.sh | bash -s -- --version v0.1.0
+curl -fsSL https://raw.githubusercontent.com/hjelev/sb/refs/heads/master/install.sh | bash -s -- --version v0.1.0
 ```
 
 By default this installs `sb` into `~/.local/bin`. To use a different location:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hjelev/sb/main/install.sh | SB_INSTALL_DIR=/usr/local/bin bash
+curl -fsSL https://raw.githubusercontent.com/hjelev/sb/refs/heads/master/install.sh | SB_INSTALL_DIR=/usr/local/bin bash
 ```
 
-The installer tries the latest GitHub release first and falls back to `main` until the first release exists.
+The installer tries the latest GitHub release first and falls back to `master` or `main` until the first release exists.
 
 ### Option 2: Run directly
 
