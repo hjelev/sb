@@ -21,7 +21,8 @@ A lightweight terminal file browser written in Bash.
 - Linux or Unix-like environment
 - `bash`
 - Core utils used by the script (`ls`, `cp`, `sed`, `awk`, `tput`, `stty`)
-- `xdg-open` (for opening non-image files externally)
+- Optional: `xdg-open` (for opening files in a graphical session)
+- One of `nano`, `vim`, `vi`, `less`, or another editor via `$EDITOR`/`$VISUAL` for headless servers
 - Optional: `chafa` (for inline image preview)
 
 ## Installation
@@ -157,13 +158,15 @@ After you quit (`q`), the script writes the current working directory to the exp
 ## Notes
 
 - If a paste target name already exists, `sb` prompts for a new name.
-- For images (`jpg`, `png`, `gif`, etc.), `sb` uses `chafa` if available; otherwise it falls back to `xdg-open`.
+- For images (`jpg`, `png`, `gif`, etc.), `sb` uses `chafa` if available; otherwise it falls back to the normal file-open flow.
+- On headless Linux systems, `sb` falls back to `$VISUAL`, `$EDITOR`, `sensible-editor`, `editor`, `nano`, `vim`, `vi`, `less`, or `more`.
 - UI adapts to terminal resize events.
 - For stable installs and upgrades, create Git tags like `v0.1.0` and publish matching GitHub Releases.
 
 ## Troubleshooting
 
-- If files do not open, make sure `xdg-open` is available.
+- If files do not open in a GUI session, make sure `xdg-open` is available.
+- On servers, set `$EDITOR` or install a terminal editor such as `nano` or `vim`.
 - If image preview is not shown in terminal, install `chafa`.
 - If colors/controls look wrong, try running in a standard terminal emulator with ANSI support.
 
