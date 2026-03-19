@@ -31,19 +31,28 @@ A lightweight terminal file browser written in Bash.
 Install the latest release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hjelev/sb/refs/heads/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/hjelev/sb/master/install.sh | bash
+```
+
+The installer detects Bash/Zsh and automatically adds an `sb()` shell function
+to `~/.bashrc` or `~/.zshrc` so `sb` can return you to the last visited folder.
+
+To skip shell integration:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hjelev/sb/master/install.sh | bash -s -- --no-shell-setup
 ```
 
 Install a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hjelev/sb/refs/heads/master/install.sh | bash -s -- --version v0.1.0
+curl -fsSL https://raw.githubusercontent.com/hjelev/sb/master/install.sh | bash -s -- --version v0.1.0
 ```
 
 By default this installs `sb` into `~/.local/bin`. To use a different location:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hjelev/sb/refs/heads/master/install.sh | SB_INSTALL_DIR=/usr/local/bin bash
+curl -fsSL https://raw.githubusercontent.com/hjelev/sb/master/install.sh | SB_INSTALL_DIR=/usr/local/bin bash
 ```
 
 The installer tries the latest GitHub release first and falls back to `master` or `main` until the first release exists.
@@ -63,9 +72,9 @@ sudo cp sb /usr/local/bin/sb
 sb
 ```
 
-### Option 4: Add `sb` as a shell function
+### Option 4: Add `sb` as a shell function manually
 
-If you want your terminal to `cd` into the last folder you visited after quitting `sb`, add this function to your shell config.
+If you skipped shell setup or use an unsupported shell, add this function manually.
 
 For Bash (`~/.bashrc`) or Zsh (`~/.zshrc`):
 
