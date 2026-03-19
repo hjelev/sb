@@ -57,6 +57,22 @@ curl -fsSL https://raw.githubusercontent.com/hjelev/sb/master/install.sh | SB_IN
 
 The installer tries the latest GitHub release first and falls back to `master` or `main` until the first release exists.
 
+### Uninstall
+
+Remove `sb` and shell integration:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hjelev/sb/master/install.sh | bash -s -- --uninstall
+```
+
+If you installed to a custom directory, pass the same location during uninstall:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hjelev/sb/master/install.sh | SB_INSTALL_DIR=/usr/local/bin bash -s -- --uninstall
+# or
+curl -fsSL https://raw.githubusercontent.com/hjelev/sb/master/install.sh | bash -s -- --uninstall --install-dir /usr/local/bin
+```
+
 ### Option 2: Run directly
 
 ```bash
