@@ -90,10 +90,24 @@ append_shell_integration() {
     local rc_file="$1"
     local install_path="$2"
     local marker_start="# >>> sb shell integration >>>"
+    local marker_end="# <<< sb shell integration <<<"
+    local tmp_file
 
     if [[ -f "$rc_file" ]] && grep -Fq "$marker_start" "$rc_file"; then
-        printf 'Shell integration already exists in %s\n' "$rc_file"
-        return 0
+        if [[ ! -w "$rc_file" ]]; then
+            printf 'Warning: cannot write to %s, skipping shell integration update.\n' "$rc_file" >&2
+            return 0
+        fi
+
+        tmp_file="$(mktemp)"
+        awk -v start="$marker_start" -v end="$marker_end" '
+            $0 == start { skip = 1; next }
+            $0 == end { skip = 0; next }
+            !skip { print }
+        ' "$rc_file" > "$tmp_file"
+        mv "$tmp_file" "$rc_file"
+
+        printf 'Updated existing shell integration in %s\n' "$rc_file"
     fi
 
     if [[ -e "$rc_file" && ! -w "$rc_file" ]]; then
@@ -106,6 +120,11 @@ append_shell_integration() {
 
 # >>> sb shell integration >>>
 sb() {
+    if [ "$#" -gt 0 ]; then
+        "$install_path" "$@"
+        return
+    fi
+
     local tmp_file
     tmp_file=\$(mktemp)
     "$install_path" --export-path "\$tmp_file"

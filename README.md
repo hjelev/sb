@@ -96,6 +96,11 @@ For Bash (`~/.bashrc`) or Zsh (`~/.zshrc`):
 
 ```bash
 sb() {
+	if [ "$#" -gt 0 ]; then
+		bash "/usr/local/bin/sb" "$@"
+		return
+	fi
+
 	local tmp_file
 	tmp_file=$(mktemp)
 	bash "/usr/local/bin/sb" --export-path "$tmp_file"
