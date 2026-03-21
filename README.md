@@ -50,7 +50,9 @@ Install a specific version:
 curl -fsSL https://raw.githubusercontent.com/hjelev/sb/master/install.sh | bash -s -- --version v0.1.0
 ```
 
-By default this installs `sb` into `~/.local/bin`. To use a different location:
+By default this installs `sb` into the first writable directory already on your `PATH`
+(checking `$XDG_BIN_HOME`, `~/.local/bin`, `~/bin`, then `/usr/local/bin`; falling back to `~/.local/bin`).
+To use a different location:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/hjelev/sb/master/install.sh | SB_INSTALL_DIR=/usr/local/bin bash

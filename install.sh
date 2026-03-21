@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO="hjelev/sb"
 DEFAULT_FALLBACK_REFS=("master" "main")
-INSTALL_DIR="${SB_INSTALL_DIR:-$HOME/.local/bin}"
+INSTALL_DIR="${SB_INSTALL_DIR:-}"
 VERSION=""
 REF=""
 SETUP_SHELL="${SB_SETUP_SHELL:-1}"
@@ -18,7 +18,7 @@ Installs sb into a directory on your PATH.
 Options:
   --version TAG      Install a tagged version, for example v0.1.0.
   --ref GIT_REF      Install from a git ref such as master, main, or a commit SHA.
-  --install-dir DIR  Install destination. Defaults to ~/.local/bin or SB_INSTALL_DIR.
+    --install-dir DIR  Install destination. Defaults to SB_INSTALL_DIR or first writable PATH dir.
   --no-shell-setup   Do not add the sb() shell function to your shell rc file.
     --uninstall        Remove sb from --install-dir and remove shell integration.
   --help             Show this help text and exit.
@@ -100,6 +100,46 @@ resolve_default_ref() {
         fi
     done
     return 1
+}
+
+path_contains_dir() {
+    local dir="$1"
+    case ":$PATH:" in
+        *":$dir:"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+dir_is_writable_or_creatable() {
+    local dir="$1"
+    local parent
+
+    if [[ -d "$dir" ]]; then
+        [[ -w "$dir" ]]
+        return
+    fi
+
+    parent="$(dirname "$dir")"
+    [[ -d "$parent" && -w "$parent" ]]
+}
+
+default_install_dir() {
+    local -a candidates=()
+    local dir
+
+    if [[ -n "${XDG_BIN_HOME:-}" ]]; then
+        candidates+=("$XDG_BIN_HOME")
+    fi
+    candidates+=("$HOME/.local/bin" "$HOME/bin" "/usr/local/bin")
+
+    for dir in "${candidates[@]}"; do
+        if path_contains_dir "$dir" && dir_is_writable_or_creatable "$dir"; then
+            printf '%s\n' "$dir"
+            return 0
+        fi
+    done
+
+    printf '%s\n' "$HOME/.local/bin"
 }
 
 ensure_path_hint() {
@@ -297,6 +337,10 @@ while (($# > 0)); do
             ;;
     esac
 done
+
+if [[ -z "$INSTALL_DIR" ]]; then
+    INSTALL_DIR="$(default_install_dir)"
+fi
 
 if [[ -n "$VERSION" && -n "$REF" ]]; then
     echo "Error: use either --version or --ref, not both." >&2
