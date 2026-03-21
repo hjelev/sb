@@ -137,6 +137,12 @@ Print the installed version:
 sb --version
 ```
 
+Update/reinstall `sb` in place using the installer:
+
+```bash
+sb --update
+```
+
 Start and export your last visited directory when quitting:
 
 ```bash
@@ -155,7 +161,14 @@ After you quit (`q`), the script writes the current working directory to the exp
 | `~` | Jump to `$HOME` |
 | `c` | Copy selected file/folder into clipboard |
 | `p` | Paste clipboard into current directory |
-| `h` | Show help line |
+| `m` | Move clipboard item into current directory |
+| `n` | Create a new file |
+| `N` | Create a new folder |
+| `l` | Open selected file in `less` |
+| `x` | Toggle executable permission on selected item |
+| `d` | Delete selected item |
+| `.` | Toggle hidden files |
+| `h` | Show help screen |
 | `q` | Quit |
 
 ## Notes
