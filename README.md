@@ -34,6 +34,10 @@ Install the latest release:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/hjelev/sb/master/install.sh | bash
 ```
+or
+```bash
+curl -fsSL https://bit.ly/sb-install | bash
+```
 
 The installer detects Bash/Zsh and automatically adds an `sb()` shell function
 to `~/.bashrc` or `~/.zshrc` so `sb` can return you to the last visited folder.
