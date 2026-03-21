@@ -127,27 +127,42 @@ default_install_dir() {
     local -a candidates=()
     local dir
 
-    if [[ -n "${XDG_BIN_HOME:-}" ]]; then
-        candidates+=("$XDG_BIN_HOME")
-    fi
-    candidates+=("$HOME/.local/bin" "$HOME/bin" "/usr/local/bin")
-
+    IFS=':' read -r -a candidates <<< "$PATH"
     for dir in "${candidates[@]}"; do
-        if path_contains_dir "$dir" && dir_is_writable_or_creatable "$dir"; then
+        [[ -n "$dir" && "$dir" == /* ]] || continue
+        if dir_is_writable_or_creatable "$dir"; then
             printf '%s\n' "$dir"
             return 0
         fi
     done
 
-    printf '%s\n' "$HOME/.local/bin"
+    candidates=()
+
+    if [[ -n "${XDG_BIN_HOME:-}" ]]; then
+        candidates+=("$XDG_BIN_HOME")
+    fi
+    candidates+=("$HOME/bin" "$HOME/.local/bin" "/usr/local/bin")
+
+    for dir in "${candidates[@]}"; do
+        if dir_is_writable_or_creatable "$dir"; then
+            printf '%s\n' "$dir"
+            return 0
+        fi
+    done
+
+    printf '%s\n' "$HOME/bin"
 }
 
 ensure_path_hint() {
     case ":$PATH:" in
         *":$INSTALL_DIR:"*) ;;
         *)
-            printf 'Warning: %s is not currently on your PATH.\n' "$INSTALL_DIR" >&2
-            printf 'Add this line to your shell config:\n  export PATH="%s:$PATH"\n' "$INSTALL_DIR" >&2
+            if [[ "$SETUP_SHELL" != "0" ]] && detect_shell_rc_file >/dev/null 2>&1; then
+                printf 'Note: %s is not currently on your PATH. A PATH export will be added to your shell config.\n' "$INSTALL_DIR"
+            else
+                printf 'Warning: %s is not currently on your PATH.\n' "$INSTALL_DIR" >&2
+                printf 'Add this line to your shell config:\n  export PATH="%s:$PATH"\n' "$INSTALL_DIR" >&2
+            fi
             ;;
     esac
 }
@@ -201,6 +216,9 @@ append_shell_integration() {
     mkdir -p "$(dirname "$rc_file")"
     {
         printf '\n# >>> sb shell integration >>>\n'
+        if ! path_contains_dir "$INSTALL_DIR"; then
+            printf 'export PATH="%s:$PATH"\n\n' "$INSTALL_DIR"
+        fi
         printf 'sb() {\n'
         printf '    if [ "$#" -gt 0 ]; then\n'
         printf '        "%s" "$@"\n' "$install_path"
