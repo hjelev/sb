@@ -57,6 +57,7 @@ curl -fsSL https://raw.githubusercontent.com/hjelev/sb/master/install.sh | SB_IN
 ```
 
 The installer tries the latest GitHub release first and falls back to `master` or `main` until the first release exists.
+When installing from a release tag (automatic latest release or `--version`), the installer also stamps that tag version into the installed `sb` script so `sb --version` matches the installed release.
 
 ### Uninstall
 

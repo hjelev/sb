@@ -42,6 +42,49 @@ latest_release_tag() {
     curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | awk -F '"' '/"tag_name"/ { print $4; exit }'
 }
 
+version_from_tag() {
+    local tag="$1"
+    if [[ "$tag" =~ ^v?([0-9]+(\.[0-9]+)*)$ ]]; then
+        printf '%s\n' "${BASH_REMATCH[1]}"
+        return 0
+    fi
+    return 1
+}
+
+stamp_script_version_from_tag() {
+    local script_path="$1"
+    local tag="$2"
+    local normalized_version
+    local tmp_file
+
+    if ! normalized_version="$(version_from_tag "$tag")"; then
+        printf 'Warning: could not derive script version from tag %s, leaving script VERSION unchanged.\n' "$tag" >&2
+        return 0
+    fi
+
+    tmp_file="$(mktemp)"
+    if ! awk -v version="$normalized_version" '
+        BEGIN { updated = 0 }
+        /^VERSION="/ && !updated {
+            print "VERSION=\"" version "\""
+            updated = 1
+            next
+        }
+        { print }
+        END {
+            if (!updated) {
+                exit 2
+            }
+        }
+    ' "$script_path" > "$tmp_file"; then
+        rm -f "$tmp_file"
+        printf 'Warning: failed to update VERSION in downloaded script, leaving original value.\n' >&2
+        return 0
+    fi
+
+    mv "$tmp_file" "$script_path"
+}
+
 ref_has_script() {
     local ref="$1"
     local url="https://raw.githubusercontent.com/$REPO/$ref/sb"
@@ -120,8 +163,8 @@ append_shell_integration() {
 
 # >>> sb shell integration >>>
 sb() {
-    if [ "$#" -gt 0 ]; then
-        "$install_path" "$@"
+    if [ "\$#" -gt 0 ]; then
+        "$install_path" "\$@"
         return
     fi
 
@@ -296,6 +339,11 @@ trap 'rm -f "$TMP_FILE"' EXIT
 
 DOWNLOAD_URL="https://raw.githubusercontent.com/$REPO/$REF/sb"
 curl -fsSL "$DOWNLOAD_URL" -o "$TMP_FILE"
+
+if [[ -n "$VERSION" ]]; then
+    stamp_script_version_from_tag "$TMP_FILE" "$VERSION"
+fi
+
 chmod 0755 "$TMP_FILE"
 mv "$TMP_FILE" "$INSTALL_DIR/sb"
 
