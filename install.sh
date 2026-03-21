@@ -159,25 +159,23 @@ append_shell_integration() {
     fi
 
     mkdir -p "$(dirname "$rc_file")"
-    cat >> "$rc_file" <<EOF
-
-# >>> sb shell integration >>>
-sb() {
-    if [ "\$#" -gt 0 ]; then
-        "$install_path" "\$@"
-        return
-    fi
-
-    local tmp_file
-    tmp_file=\$(mktemp)
-    "$install_path" --export-path "\$tmp_file"
-    if [ -s "\$tmp_file" ]; then
-        cd "\$(cat "\$tmp_file")"
-    fi
-    rm -f "\$tmp_file"
-}
-# <<< sb shell integration <<<
-EOF
+    {
+        printf '\n# >>> sb shell integration >>>\n'
+        printf 'sb() {\n'
+        printf '    if [ "$#" -gt 0 ]; then\n'
+        printf '        "%s" "$@"\n' "$install_path"
+        printf '        return\n'
+        printf '    fi\n\n'
+        printf '    local tmp_file\n'
+        printf '    tmp_file=$(mktemp)\n'
+        printf '    "%s" --export-path "$tmp_file"\n' "$install_path"
+        printf '    if [ -s "$tmp_file" ]; then\n'
+        printf '        cd "$(cat "$tmp_file")"\n'
+        printf '    fi\n'
+        printf '    rm -f "$tmp_file"\n'
+        printf '}\n'
+        printf '# <<< sb shell integration <<<\n'
+    } >> "$rc_file"
 
     printf 'Added shell integration to %s\n' "$rc_file"
     printf 'Reload with: source %s\n' "$rc_file"
