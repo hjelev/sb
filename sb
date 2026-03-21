@@ -47,7 +47,7 @@ HIGHLIGHT='\033[1;44m'; BLUE='\033[1;34m'; YELLOW='\033[1;38;5;229m'; AMBER='\03
 cursor=1; old_cursor=0; old_scroll=-1; files=(); metadata=(); CLIPBOARD_PATH=""; CLIPBOARD_NAME=""; declare -A dir_positions
 SHOW_HIDDEN=0
 init_platform() { OS_NAME=$(uname -s 2>/dev/null); OPEN_CMD="xdg-open"; LS_CMD="ls"; LS_GROUP_DIRS=0; (( BASH_VERSINFO[0] >= 4 )) && READ_TIMEOUT="0.001" || READ_TIMEOUT="1"; [[ "$OS_NAME" == "Darwin" ]] && OPEN_CMD="open" && command -v gls &>/dev/null && LS_CMD="gls"; "$LS_CMD" -F --group-directories-first -d . >/dev/null 2>&1 && LS_GROUP_DIRS=1; }
-HELP_SECTION='\033[1;35m'; HELP_KEY='\033[1;34m'; HELP_ACCENT='\033[1;36m'
+HELP_SECTION=''; HELP_KEY=''; HELP_ACCENT=''
 init_platform
 orig_stty=$(stty -g)
 cleanup() { echo -ne "\033[?25h"; stty "$orig_stty"; [[ -n "$EXPORT_FILE" ]] && pwd > "$EXPORT_FILE"; clear; }
