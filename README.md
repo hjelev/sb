@@ -1,4 +1,4 @@
-# Simple Browser (`sb`)
+# Shell Buddy (`sb`)
 
 A lightweight terminal file browser written in Bash.
 
