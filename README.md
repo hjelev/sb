@@ -177,7 +177,6 @@ After you quit (`q`), the script writes the current working directory to the exp
 - For images (`jpg`, `png`, `gif`, etc.), `sb` uses `chafa` if available; otherwise it falls back to the normal file-open flow.
 - On headless Linux systems, `sb` falls back to `$VISUAL`, `$EDITOR`, `sensible-editor`, `editor`, `nano`, `vim`, `vi`, `less`, or `more`.
 - UI adapts to terminal resize events.
-- For stable installs and upgrades, create Git tags like `v0.1.0` and publish matching GitHub Releases.
 
 ## Troubleshooting
 
