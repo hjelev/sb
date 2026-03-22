@@ -11,9 +11,10 @@ A lightweight terminal file browser written in Bash.
 - Open directory or file with `→` or `Enter`
 - Go back with `←`
 - Jump to home directory with `~`
-- Copy (`c`), paste (`p`), and move (`m`) files/directories
+- Multi-select items with `Space` (highlighted in magenta); `c`, `m`, and `d` operate on the whole selection
+- Copy (`c`), paste (`p`), and move (`m`) files/directories — single item or multi-select
 - Create a new file (`n`) or folder (`N`)
-- Delete selected item with confirmation (`d`)
+- Delete selected item(s) with confirmation (`d`)
 - Toggle executable permission on selected item (`x`)
 - Open selected file in `less` (`l`)
 - Toggle hidden files (`.`)
@@ -195,7 +196,8 @@ After you quit (`q`), the script writes the current working directory to the exp
 
 ## Notes
 
-- If a paste target name already exists, `sb` prompts for a new name.
+- **Multi-select:** Press `Space` to toggle selection on any item — it is highlighted in magenta and marked with `*`. Press `c`, `m`, or `d` to copy, move, or delete all selected items at once. Selection is cleared automatically when navigating into a different directory.
+- If a paste target name already exists, `sb` prompts for a new name for each conflicting item.
 - For images (`jpg`, `png`, `gif`, etc.), `sb` uses `chafa` if available; otherwise it falls back to the normal file-open flow.
 - On headless Linux systems, `sb` falls back to `$VISUAL`, `$EDITOR`, `sensible-editor`, `editor`, `nano`, `vim`, `vi`, `less`, or `more`.
 - UI adapts to terminal resize events.
