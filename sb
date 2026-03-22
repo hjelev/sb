@@ -50,7 +50,7 @@ while (($# > 0)); do
             ;;
     esac
 done
-HIGHLIGHT='\033[1;44m'; BLUE='\033[1;34m'; YELLOW='\033[1;38;5;229m'; AMBER='\033[1;38;5;172m'; GREEN='\033[1;32m'; CYAN='\033[1;36m'; RED='\033[1;31m'; NC='\033[0m'; SELECT='\033[1;97;45m'
+HIGHLIGHT='\033[1;44m'; BLUE='\033[1;34m'; YELLOW='\033[1;38;5;229m'; AMBER='\033[1;38;5;172m'; GREEN='\033[1;32m'; CYAN='\033[1;36m'; RED='\033[1;31m'; NC='\033[0m'; SELECT='\033[48;5;66m'
 cursor=1; old_cursor=0; old_scroll=-1; scroll_offset=0; files=(); metadata=(); CLIPBOARD_PATH=""; CLIPBOARD_NAME=""; CLIPBOARD_MULTI=(); CLIPBOARD_MOVE=0; declare -A dir_positions; declare -A selected
 SHOW_HIDDEN=0
 init_platform() { OS_NAME=$(uname -s 2>/dev/null); OPEN_CMD="xdg-open"; LS_CMD="ls"; LS_GROUP_DIRS=0; (( BASH_VERSINFO[0] >= 4 )) && READ_TIMEOUT="0.001" || READ_TIMEOUT="1"; [[ "$OS_NAME" == "Darwin" ]] && OPEN_CMD="open" && command -v gls &>/dev/null && LS_CMD="gls"; "$LS_CMD" -F --group-directories-first -d . >/dev/null 2>&1 && LS_GROUP_DIRS=1; }
