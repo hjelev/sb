@@ -175,17 +175,20 @@ After you quit (`q`), the script writes the current working directory to the exp
 | Key | Action |
 |-----|--------|
 | `↑` / `↓` | Move selection |
+| `PgUp` / `PgDn` | Jump by one page |
+| `Home` / `End` | Jump to top / bottom |
 | `→` or `Enter` | Open directory / file |
 | `←` | Go to parent directory |
 | `~` | Jump to `$HOME` |
-| `c` | Copy selected file/folder into clipboard |
-| `p` | Paste clipboard into current directory |
-| `m` | Move clipboard item into current directory |
+| `Space` | Toggle item selection (multi-select) |
+| `c` | Copy selected item(s) into clipboard |
+| `p` | Paste clipboard item(s) into current directory |
+| `m` | Move selected item(s) into current directory |
 | `n` | Create a new file |
 | `N` | Create a new folder |
 | `l` | Open selected file in `less` |
 | `x` | Toggle executable permission on selected item |
-| `d` | Delete selected item |
+| `d` | Delete selected item(s) |
 | `.` | Toggle hidden files |
 | `h` | Show help screen |
 | `q` | Quit |
