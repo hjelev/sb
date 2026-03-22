@@ -6,15 +6,28 @@ A lightweight terminal file browser written in Bash.
 
 ## Features
 
-- Arrow-key navigation (`↑/↓`) through files and folders
+- Fast keyboard navigation (`↑/↓`) through files and folders
+- Page navigation with `PgUp`/`PgDn` and quick jump with `Home`/`End`
 - Open directory or file with `→` or `Enter`
 - Go back with `←`
 - Jump to home directory with `~`
-- Copy (`c`) and paste (`p`) files/directories
+- Copy (`c`), paste (`p`), and move (`m`) files/directories
+- Create a new file (`n`) or folder (`N`)
+- Delete selected item with confirmation (`d`)
+- Toggle executable permission on selected item (`x`)
+- Open selected file in `less` (`l`)
+- Toggle hidden files (`.`)
+- Built-in help screen (`h`)
 - Preserves cursor position per directory while navigating
-- Optional image preview in terminal (via `chafa`)
 - Displays owner, permissions, size, and modified time
+- Optional image preview in terminal (via `chafa`)
+- Auto-fallback opening behavior for GUI and headless systems
+- UI adapts to terminal resize events
 - Optional export of final directory path on exit
+
+## Screenshot
+
+![Shell Buddy screenshot](shell_buddy_sceen_shot.png)
 
 ## Requirements
 
