@@ -60,7 +60,7 @@ while (($# > 0)); do
             ;;
     esac
 done
-HIGHLIGHT='\033[1;44m'; BLUE='\033[1;34m'; YELLOW='\033[1;38;5;229m'; AMBER='\033[1;38;5;172m'; GREEN='\033[1;32m'; CYAN='\033[1;36m'; RED='\033[1;31m'; NC='\033[0m'; SELECT='\033[48;5;66m'; STATUS_LABEL='\033[38;5;244m'; STATUS_VALUE='\033[1;97m'
+HIGHLIGHT='\033[1;44m'; BLUE='\033[1;34m'; YELLOW='\033[1;38;5;229m'; AMBER='\033[1;38;5;172m'; GREEN='\033[1;32m'; CYAN='\033[1;36m'; RED='\033[1;31m'; NC='\033[0m'; SELECT='\033[48;5;66m'; STATUS_LABEL='\033[38;5;244m'; STATUS_VALUE='\033[1;97m'; HIDDEN_FILE='\033[0m'; HIDDEN_DIR='\033[38;5;67m'
 ICON_DIR='📁'; ICON_LINK='🔗'; ICON_FILE='📄'; ICON_EXEC='🛠'; ICON_IMAGE='🖼'; ICON_VIDEO='🎬'; ICON_AUDIO='🎵'; ICON_ARCHIVE='📦'; ICON_SCRIPT='📜'; ICON_CODE='💻'
 cursor=1; old_cursor=0; old_scroll=-1; scroll_offset=0; files=(); metadata=(); file_icons=(); CLIPBOARD_PATH=""; CLIPBOARD_NAME=""; CLIPBOARD_MULTI=(); CLIPBOARD_MOVE=0; declare -A dir_positions; declare -A selected
 SHOW_HIDDEN=0
@@ -92,7 +92,7 @@ get_terminal_size() { term_rows=$(tput lines); term_cols=$(tput cols); max_rows=
 required_term_cols() { echo $((BASE_MIN_COLS + NAME_COL_WIDTH)); }
 is_terminal_too_narrow() { (( term_cols < BASE_MIN_COLS + NAME_COL_WIDTH )); }
 draw_too_narrow_message() { local required_cols; required_cols=$(required_term_cols); local msg="Terminal too narrow: need at least ${required_cols} columns (current: ${term_cols}). Resize terminal to continue."; printf "\033[H\033[2J\033[?25l"; printf "\033[1;1H%b\n\n" "${AMBER}$msg${NC}"; printf "Use [ and ] to shrink/grow name column. Press q to quit.\n"; }
-get_color() { local f="$1"; [[ "$f" == */ ]] && echo -n "$BLUE" && return; [[ "$f" == *@ ]] && echo -n "$CYAN" && return; [[ "$f" == *\* ]] && echo -n "$GREEN" && return; [[ "$f" =~ \.(zip|tar|gz|rar|7z)$ ]] && echo -n "$RED" && return; echo -n "$STATUS_VALUE"; }
+get_color() { local f="$1"; local clean_f clean_no_suffix base_name; clean_f=$(echo "$f" | sed 's/[$*@|=>]//g'); clean_no_suffix="${clean_f%/}"; base_name="${clean_no_suffix##*/}"; if [[ "$base_name" == .* ]]; then [[ "$f" == */ ]] && echo -n "$HIDDEN_DIR" && return; echo -n "$HIDDEN_FILE" && return; fi; [[ "$f" == */ ]] && echo -n "$BLUE" && return; [[ "$f" == *@ ]] && echo -n "$CYAN" && return; [[ "$f" == *\* ]] && echo -n "$GREEN" && return; [[ "$f" =~ \.(zip|tar|gz|rar|7z)$ ]] && echo -n "$RED" && return; echo -n "$STATUS_VALUE"; }
 list_entries() { local -a ls_args=(-F); (( SHOW_HIDDEN )) && ls_args+=(-A); (( LS_GROUP_DIRS )) && ls_args+=(--group-directories-first); "$LS_CMD" "${ls_args[@]}" 2>/dev/null; }
 is_gui_session() { [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" || -n "${MIR_SOCKET:-}" || "$OS_NAME" == "Darwin" ]]; }
 restore_browser_ui() { stty -echo cbreak -ixon; printf "\033[2J\033[1;1H\033[?25l"; get_terminal_size; show_loading_status; update_files; draw_ui; }
