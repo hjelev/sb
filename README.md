@@ -20,7 +20,9 @@ A lightweight terminal file browser written in Bash.
 - Edit selected file in terminal editor (`e`)
 - Open selected file/folder in GUI associated app (`o`)
 - Toggle hidden files (`.`)
+- Adjust name column width with `[` and `]`
 - Built-in help screen (`h`)
+- Bookmark shortcuts via env vars (`0-9`) and bookmark list screen (`b`)
 - Preserves cursor position per directory while navigating
 - Displays owner, permissions, size, and modified time
 - Optional image preview in terminal (via `chafa`)
@@ -189,6 +191,7 @@ After you quit (`q`), the script writes the current working directory to the exp
 | `→` or `Enter` | Enter directory / open file in `less` |
 | `←` | Go to parent directory |
 | `~` | Jump to `$HOME` |
+| `0-9` | Jump to `SB_BOOKMARK_0..SB_BOOKMARK_9` |
 | `Space` | Toggle item selection (multi-select) |
 | `c` | Copy selected item(s) into clipboard |
 | `p` | Paste clipboard item(s) into current directory |
@@ -201,7 +204,9 @@ After you quit (`q`), the script writes the current working directory to the exp
 | `x` | Toggle executable permission on selected item |
 | `d` | Delete selected item(s) |
 | `.` | Toggle hidden files |
+| `[` / `]` | Decrease / increase name column width |
 | `h` | Show help screen |
+| `b` | Show configured bookmarks from environment |
 | `q` | Quit |
 
 ## Notes
@@ -209,6 +214,7 @@ After you quit (`q`), the script writes the current working directory to the exp
 - **Multi-select:** Press `Space` to toggle selection on any item — it is highlighted in magenta and marked with `*`. Press `c`, `m`, or `d` to copy, move, or delete all selected items at once. Selection is cleared automatically when navigating into a different directory.
 - If a paste target name already exists, `sb` prompts for a new name for each conflicting item.
 - For images (`jpg`, `png`, `gif`, etc.), `sb` uses `chafa` if available; otherwise it falls back to the normal file-open flow.
+- **Bookmarks:** Configure with environment variables named `SB_BOOKMARK_0` through `SB_BOOKMARK_9` (for example `export SB_BOOKMARK_1="$HOME/Downloads"`). Press `0-9` to jump directly, or `b` to view configured bookmarks.
 - On headless Linux systems, `sb` falls back to `$VISUAL`, `$EDITOR`, `sensible-editor`, `editor`, `nano`, `vim`, `vi`, `less`, or `more`.
 - UI adapts to terminal resize events.
 
