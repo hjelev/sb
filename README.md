@@ -171,6 +171,12 @@ Start and export your last visited directory when quitting:
 sb --export-path /tmp/last_dir.txt
 ```
 
+Start with a custom initial name-column width:
+
+```bash
+sb -w 28
+```
+
 After you quit (`q`), the script writes the current working directory to the export file.
 
 ## Keybindings
