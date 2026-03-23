@@ -11,8 +11,8 @@ A lightweight terminal file browser written in Bash.
 - Open directory with `→` or `Enter`; open files in `less`
 - Go back with `←`
 - Jump to home directory with `~`
-- Multi-select items with `Space` (highlighted in magenta); `c`, `m`, and `d` operate on the whole selection
-- Copy (`c`), paste (`p`), and move (`m`) files/directories — single item or multi-select
+- Multi-select items with `Insert` (highlighted in magenta); `c`, `m`, and `d` operate on the whole selection
+- Copy (`c`), paste (`v`), and move (`m`) files/directories — single item or multi-select
 - Create a new file (`n`) or folder (`N`)
 - Delete selected item(s) with confirmation (`d`)
 - Toggle executable permission on selected item (`x`)
@@ -192,10 +192,10 @@ After you quit (`q`), the script writes the current working directory to the exp
 | `←` | Go to parent directory |
 | `~` | Jump to `$HOME` |
 | `0-9` | Jump to `SB_BOOKMARK_0..SB_BOOKMARK_9` |
-| `Space` | Toggle item selection (multi-select) |
+| `Insert` | Toggle item selection (multi-select) |
 | `*` | Select or deselect all items |
 | `c` | Copy selected item(s) into clipboard |
-| `p` | Paste clipboard item(s) into current directory |
+| `v` | Paste clipboard item(s) into current directory |
 | `m` | Move selected item(s) into current directory |
 | `n` | Create a new file |
 | `N` | Create a new folder |
@@ -212,7 +212,7 @@ After you quit (`q`), the script writes the current working directory to the exp
 
 ## Notes
 
-- **Multi-select:** Press `Space` to toggle selection on any item — it is highlighted in magenta and marked with `*`. Press `c`, `m`, or `d` to copy, move, or delete all selected items at once. Selection is cleared automatically when navigating into a different directory.
+- **Multi-select:** Press `Insert` to toggle selection on any item — it is highlighted in magenta and marked with `*`. Press `c`, `m`, or `d` to copy, move, or delete all selected items at once. Selection is cleared automatically when navigating into a different directory.
 - If a paste target name already exists, `sb` prompts for a new name for each conflicting item.
 - For images (`jpg`, `png`, `gif`, etc.), `sb` uses `chafa` if available; otherwise it falls back to the normal file-open flow.
 - **Bookmarks:** Configure with environment variables named `SB_BOOKMARK_0` through `SB_BOOKMARK_9` (for example `export SB_BOOKMARK_1="$HOME/Downloads"`). Press `0-9` to jump directly, or `b` to view configured bookmarks.
