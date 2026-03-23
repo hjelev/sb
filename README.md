@@ -193,6 +193,7 @@ After you quit (`q`), the script writes the current working directory to the exp
 | `~` | Jump to `$HOME` |
 | `0-9` | Jump to `SB_BOOKMARK_0..SB_BOOKMARK_9` |
 | `Space` | Toggle item selection (multi-select) |
+| `*` | Select or deselect all items |
 | `c` | Copy selected item(s) into clipboard |
 | `p` | Paste clipboard item(s) into current directory |
 | `m` | Move selected item(s) into current directory |
