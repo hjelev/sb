@@ -8,7 +8,7 @@ A lightweight terminal file browser written in Bash.
 
 - Fast keyboard navigation (`↑/↓`) through files and folders
 - Page navigation with `PgUp`/`PgDn` and quick jump with `Home`/`End`
-- Open directory or file with `→` or `Enter`
+- Open directory with `→` or `Enter`; open files in `less`
 - Go back with `←`
 - Jump to home directory with `~`
 - Multi-select items with `Space` (highlighted in magenta); `c`, `m`, and `d` operate on the whole selection
@@ -17,6 +17,8 @@ A lightweight terminal file browser written in Bash.
 - Delete selected item(s) with confirmation (`d`)
 - Toggle executable permission on selected item (`x`)
 - Open selected file in `less` (`l`)
+- Edit selected file in terminal editor (`e`)
+- Open selected file/folder in GUI associated app (`o`)
 - Toggle hidden files (`.`)
 - Built-in help screen (`h`)
 - Preserves cursor position per directory while navigating
@@ -178,7 +180,7 @@ After you quit (`q`), the script writes the current working directory to the exp
 | `↑` / `↓` | Move selection |
 | `PgUp` / `PgDn` | Jump by one page |
 | `Home` / `End` | Jump to top / bottom |
-| `→` or `Enter` | Open directory / file |
+| `→` or `Enter` | Enter directory / open file in `less` |
 | `←` | Go to parent directory |
 | `~` | Jump to `$HOME` |
 | `Space` | Toggle item selection (multi-select) |
@@ -188,6 +190,8 @@ After you quit (`q`), the script writes the current working directory to the exp
 | `n` | Create a new file |
 | `N` | Create a new folder |
 | `l` | Open selected file in `less` |
+| `e` | Edit selected file in CLI editor (`$VISUAL`/`$EDITOR` fallback chain) |
+| `o` | Open selected item in GUI associated app |
 | `x` | Toggle executable permission on selected item |
 | `d` | Delete selected item(s) |
 | `.` | Toggle hidden files |
