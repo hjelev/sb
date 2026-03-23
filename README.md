@@ -13,6 +13,7 @@ A lightweight terminal file browser written in Bash.
 - Jump to home directory with `~`
 - Multi-select items with `Insert` (highlighted in magenta); `c`, `m`, and `d` operate on the whole selection
 - Copy (`c`), paste (`v`), and move (`m`) files/directories — single item or multi-select
+- Copy absolute path(s) of selected/current item to system clipboard with `C`
 - Create a new file (`n`) or folder (`N`)
 - Delete selected item(s) with confirmation (`d`)
 - Toggle executable permission on selected item (`x`)
@@ -24,6 +25,7 @@ A lightweight terminal file browser written in Bash.
 - Built-in help screen (`h`)
 - Bookmark shortcuts via env vars (`0-9`) and bookmark list screen (`b`)
 - Preserves cursor position per directory while navigating
+- Shows current directory path in the header row
 - Displays owner, permissions, size, and modified time
 - Optional image preview in terminal (via `chafa`)
 - Auto-fallback opening behavior for GUI and headless systems
@@ -40,6 +42,7 @@ A lightweight terminal file browser written in Bash.
 - `bash`
 - Core utils used by the script (`ls`, `cp`, `sed`, `awk`, `tput`, `stty`)
 - Optional: `xdg-open` (for opening files in a graphical session)
+- Optional: `wl-copy` (`wl-clipboard`) or `xclip` or `xsel` (for system clipboard path copy via `C`)
 - One of `nano`, `vim`, `vi`, `less`, or another editor via `$EDITOR`/`$VISUAL` for headless servers
 - Optional: `chafa` (for inline image preview)
 
@@ -195,6 +198,7 @@ After you quit (`q`), the script writes the current working directory to the exp
 | `Insert` | Toggle item selection (multi-select) |
 | `*` | Select or deselect all items |
 | `c` | Copy selected item(s) into clipboard |
+| `C` | Copy absolute path(s) to system clipboard |
 | `v` | Paste clipboard item(s) into current directory |
 | `m` | Move selected item(s) into current directory |
 | `n` | Create a new file |
@@ -213,6 +217,7 @@ After you quit (`q`), the script writes the current working directory to the exp
 ## Notes
 
 - **Multi-select:** Press `Insert` to toggle selection on any item — it is highlighted in magenta and marked with `*`. Press `c`, `m`, or `d` to copy, move, or delete all selected items at once. Selection is cleared automatically when navigating into a different directory.
+- Press `C` to copy absolute path(s) to your desktop clipboard (selected items, or current item if none are selected) so you can paste after exiting `sb`.
 - If a paste target name already exists, `sb` prompts for a new name for each conflicting item.
 - For images (`jpg`, `png`, `gif`, etc.), `sb` uses `chafa` if available; otherwise it falls back to the normal file-open flow.
 - **Bookmarks:** Configure with environment variables named `SB_BOOKMARK_0` through `SB_BOOKMARK_9` (for example `export SB_BOOKMARK_1="$HOME/Downloads"`). Press `0-9` to jump directly, or `b` to view configured bookmarks.
