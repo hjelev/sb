@@ -62,6 +62,8 @@ while (($# > 0)); do
 done
 HIGHLIGHT='\033[1;44m'; BLUE='\033[1;34m'; YELLOW='\033[1;38;5;229m'; AMBER='\033[1;38;5;172m'; GREEN='\033[1;32m'; CYAN='\033[1;36m'; RED='\033[1;31m'; NC='\033[0m'; SELECT='\033[48;5;66m'; STATUS_LABEL='\033[38;5;244m'; STATUS_VALUE='\033[1;97m'; HIDDEN_FILE='\033[0m'; HIDDEN_DIR='\033[38;5;67m'
 ICON_DIR='📁'; ICON_LINK='🔗'; ICON_FILE='📄'; ICON_EXEC='🛠'; ICON_IMAGE='🖼'; ICON_VIDEO='🎬'; ICON_AUDIO='🎵'; ICON_ARCHIVE='📦'; ICON_SCRIPT='📜'; ICON_CODE='💻'
+DEFAULT_META='----------|----------|-----|----------------'
+META_COL_FMT='%-12s %-11s %8s  %16s'
 cursor=1; old_cursor=0; old_scroll=-1; scroll_offset=0; files=(); metadata=(); file_icons=(); CLIPBOARD_PATH=""; CLIPBOARD_NAME=""; CLIPBOARD_MULTI=(); CLIPBOARD_MOVE=0; declare -A dir_positions; declare -A selected
 SHOW_HIDDEN=0
 SORT_MODE="name"
@@ -72,7 +74,7 @@ SORT_EXT_DESC=0
 NAME_COL_WIDTH=22
 NAME_COL_MIN=10
 NAME_COL_MAX=40
-BASE_MIN_COLS=52
+BASE_MIN_COLS=56
 if [[ -n "$NAME_COL_WIDTH_OVERRIDE" ]]; then
     if [[ "$NAME_COL_WIDTH_OVERRIDE" =~ ^[0-9]+$ ]] && (( NAME_COL_WIDTH_OVERRIDE >= NAME_COL_MIN && NAME_COL_WIDTH_OVERRIDE <= NAME_COL_MAX )); then
         NAME_COL_WIDTH=$NAME_COL_WIDTH_OVERRIDE
@@ -156,25 +158,65 @@ icon_for_list_item() {
             ;;
     esac
 }
-sort_key_for_item() {
-    local item="$1"
-    local clean_f base ext key size mtime
-    clean_f="$item"
-    case "${clean_f: -1}" in
-        '/'|'@'|'*'|'|'|'='|'>') clean_f="${clean_f:0:${#clean_f}-1}" ;;
-    esac
-    base="${clean_f##*/}"
-    case "$SORT_MODE" in
-        name) key="${base,,}" ;;
-        date) mtime=$(stat -c %Y -- "$clean_f" 2>/dev/null || echo 0); key=$(printf "%020d" "$mtime") ;;
-        size) size=$(stat -c %s -- "$clean_f" 2>/dev/null || echo 0); key=$(printf "%020d" "$size") ;;
-        ext) ext="${base##*.}"; [[ "$base" == "$ext" ]] && ext=""; key="${ext,,}|${base,,}" ;;
-        *) key="${base,,}" ;;
-    esac
-    printf "%s" "$key"
-}
 SORT_RESULT=()
-sort_items_by_mode() { local -a keyed=(); local item key; SORT_RESULT=(); (( $# == 0 )) && return; for item in "$@"; do key=$(sort_key_for_item "$item"); keyed+=("$key"$'\t'"$item"); done; case "$SORT_MODE" in name) if (( SORT_NAME_DESC )); then mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1fr | cut -f2-); else mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1f | cut -f2-); fi ;; date) if (( SORT_DATE_DESC )); then mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1nr | cut -f2-); else mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1n | cut -f2-); fi ;; size) if (( SORT_SIZE_DESC )); then mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1nr | cut -f2-); else mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1n | cut -f2-); fi ;; ext) if (( SORT_EXT_DESC )); then mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1fr | cut -f2-); else mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1f | cut -f2-); fi ;; *) mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1f | cut -f2-) ;; esac; }
+sort_items_by_mode() {
+    local -a keyed=()
+    local item key base ext size mtime clean_item last_char
+    SORT_RESULT=()
+    (( $# == 0 )) && return
+
+    # Build keyed array inline to avoid per-item command substitutions
+    for item in "$@"; do
+        case "$SORT_MODE" in
+            name)
+                base="${item##*/}"
+                base="${base%/}"  # strip trailing slash for dirs
+                key="${base,,}"
+                ;;
+            date)
+                # Strip ls suffix from item before stat
+                clean_item="$item"
+                last_char="${clean_item: -1}"
+                case "$last_char" in
+                    '/'|'@'|'*'|'|'|'='|'>') clean_item="${clean_item:0:${#clean_item}-1}" ;;
+                esac
+                mtime=$(stat -c %Y -- "$clean_item" 2>/dev/null || echo 0)
+                key=$(printf "%020d" "$mtime")
+                ;;
+            size)
+                # Strip ls suffix from item before stat
+                clean_item="$item"
+                last_char="${clean_item: -1}"
+                case "$last_char" in
+                    '/'|'@'|'*'|'|'|'='|'>') clean_item="${clean_item:0:${#clean_item}-1}" ;;
+                esac
+                size=$(stat -c %s -- "$clean_item" 2>/dev/null || echo 0)
+                key=$(printf "%020d" "$size")
+                ;;
+            ext)
+                base="${item##*/}"
+                base="${base%/}"
+                ext="${base##*.}"
+                [[ "$base" == "$ext" ]] && ext=""
+                key="${ext,,}|${base,,}"
+                ;;
+            *)
+                base="${item##*/}"
+                base="${base%/}"
+                key="${base,,}"
+                ;;
+        esac
+        keyed+=("$key"$'\t'"$item")
+    done
+
+    case "$SORT_MODE" in
+        name) if (( SORT_NAME_DESC )); then mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1fr | cut -f2-); else mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1f | cut -f2-); fi ;;
+        date) if (( SORT_DATE_DESC )); then mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1nr | cut -f2-); else mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1n | cut -f2-); fi ;;
+        size) if (( SORT_SIZE_DESC )); then mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1nr | cut -f2-); else mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1n | cut -f2-); fi ;;
+        ext) if (( SORT_EXT_DESC )); then mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1fr | cut -f2-); else mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1f | cut -f2-); fi ;;
+        *) mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1f | cut -f2-) ;;
+    esac
+}
 sort_files_by_mode() {
     local -a dirs=() non_dirs=() sorted_dirs=() sorted_non_dirs=()
     local f clean_f
@@ -194,20 +236,22 @@ sort_files_by_mode() {
 get_sort_display() { local mode_label="Name"; local is_desc=0; case "$SORT_MODE" in name) mode_label="Name"; is_desc=$SORT_NAME_DESC ;; date) mode_label="Date"; is_desc=$SORT_DATE_DESC ;; size) mode_label="Size"; is_desc=$SORT_SIZE_DESC ;; ext) mode_label="Ext"; is_desc=$SORT_EXT_DESC ;; esac; if (( is_desc )); then printf "%s↓" "$mode_label"; else printf "%s↑" "$mode_label"; fi; }
 build_item_meta() {
     local clean_f="$1"
-    [[ -e "$clean_f" || -L "$clean_f" ]] && LC_TIME=C ls -ldh "$clean_f" 2>/dev/null | awk '{printf "%s|%s|%s|%3s %2s %5s", $3, $1, $5, $6, $7, $8}' && return
-    printf "%s" "----------|----------|-----|------------"
+    [[ -e "$clean_f" || -L "$clean_f" ]] && LC_TIME=C ls -ldh --time-style=long-iso "$clean_f" 2>/dev/null | awk '{printf "%s|%s|%s|%s %s", $3, $1, $5, $6, $7}' && return
+    printf "%s" "$DEFAULT_META"
 }
 populate_display_data_bulk() {
     local -a clean_items=()
     local f clean_f lower_name last_char
-    local i idx=0
-    local perms owner size mon day stamp
-    local default_meta="----------|----------|-----|------------"
+    local i idx
+    local perms owner size date time
+    local default_meta="$DEFAULT_META"
+    local -A item_to_idx
 
     file_icons=()
     metadata=()
 
-    for f in "${files[@]}"; do
+    for i in "${!files[@]}"; do
+        f="${files[$i]}"
         metadata+=("$default_meta")
         if [[ "$f" == "(Empty Directory)" ]]; then
             file_icons+=("$ICON_DIR")
@@ -249,24 +293,28 @@ populate_display_data_bulk() {
         fi
 
         clean_items+=("$clean_f")
+        item_to_idx["$clean_f"]=$i
     done
 
     (( ${#clean_items[@]} == 0 )) && return
 
-    while IFS= read -r line; do
-        read -r perms _ owner _ size mon day stamp _ <<< "$line"
-        [[ -z "$owner" || -z "$perms" || -z "$size" || -z "$mon" || -z "$day" || -z "$stamp" ]] && { ((idx++)); continue; }
-
-        # Find next non-empty placeholder slot to keep alignment with clean_items order.
-        for (( i=idx; i<${#files[@]}; i++ )); do
-            [[ "${files[$i]}" == "(Empty Directory)" ]] && continue
-            if [[ "${metadata[$i]}" == "$default_meta" ]]; then
-                metadata[$i]="${owner}|${perms}|${size}|${mon} ${day} ${stamp}"
-                idx=$((i + 1))
-                break
-            fi
-        done
-    done < <(LC_TIME=C "$LS_CMD" -ldh -- "${clean_items[@]}" 2>/dev/null)
+    while IFS='|' read -r perms owner size date time filename; do
+        [[ -z "$owner" || -z "$perms" || -z "$size" || -z "$date" || -z "$time" || -z "$filename" ]] && continue
+        
+        # Match by filename to handle ls output being in any order
+        if [[ -n "${item_to_idx[$filename]}" ]]; then
+            idx=${item_to_idx[$filename]}
+            metadata[$idx]="${owner}|${perms}|${size}|${date} ${time}"
+        fi
+    done < <(LC_TIME=C "$LS_CMD" -ldh --time-style=long-iso -- "${clean_items[@]}" 2>/dev/null | awk '{
+        perms=$1; owner=$3; size=$5; date=$6; time=$7
+        filename=""
+        for(i=8;i<=NF;i++) {
+            if(i>8) filename=filename" "
+            filename=filename$i
+        }
+        printf "%s|%s|%s|%s|%s|%s\n", perms, owner, size, date, time, filename
+    }')
 }
 ensure_row_data() {
     local idx="$1"
@@ -275,21 +323,23 @@ ensure_row_data() {
     [[ -z "$f_name" ]] && return
     [[ "$f_name" == "(Empty Directory)" ]] && {
         file_icons[$idx]="$ICON_DIR"
-        metadata[$idx]="----------|----------|-----|------------"
+        metadata[$idx]="$DEFAULT_META"
         return
     }
     if [[ -z "${file_icons[$idx]+x}" ]]; then
         file_icons[$idx]="$(icon_for_list_item "$f_name")"
     fi
-    [[ -z "${metadata[$idx]+x}" ]] && metadata[$idx]="----------|----------|-----|------------"
+    [[ -z "${metadata[$idx]+x}" ]] && metadata[$idx]="$DEFAULT_META"
 }
 update_files() {
     files=()
+    metadata=()
+    file_icons=()
     mapfile -t files < <(list_entries)
     sort_files_by_mode
     if [[ ${#files[@]} -eq 0 ]]; then
         files=("(Empty Directory)")
-        metadata=("----------|----------|-----|------------")
+        metadata=("$DEFAULT_META")
         file_icons=("$ICON_DIR")
     else
         populate_display_data_bulk
@@ -313,13 +363,13 @@ draw_line() {
     printf "\033[${row};1H\033[K"
     if (( idx + 1 == cursor )); then
         printf "%1s%s" "$sel_mark" "$file_icon"
-        printf "\033[5G${HIGHLIGHT}%-*s %-12s %-11s %8s  %12s${NC}" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"
+        printf "\033[5G${HIGHLIGHT}%-*s $META_COL_FMT${NC}" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"
     elif [[ -n "${selected[$idx]+x}" ]]; then
         printf "%1s%s" "$sel_mark" "$file_icon"
-        printf "\033[5G${SELECT}%-*s %-12s %-11s %8s  %12s${NC}" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"
+        printf "\033[5G${SELECT}%-*s $META_COL_FMT${NC}" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"
     else
         printf "%1s%s${NC}" "$sel_mark" "$file_icon"
-        printf "$(get_color "$f_name")\033[5G%-*s${NC} %-12s %-11s %8s  %12s" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"
+        printf "$(get_color "$f_name")\033[5G%-*s${NC} $META_COL_FMT" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"
     fi
 }
 fit_status_path() { local path="$1"; local fixed_part="$2"; local available=$((term_cols - ${#fixed_part})); (( available < 0 )) && available=0; if (( ${#path} <= available )); then printf "%s" "$path"; elif (( available <= 3 )); then printf "%s" "${path:0:available}"; else printf "...%s" "${path: -$((available - 3))}"; fi; }
@@ -365,12 +415,12 @@ draw_ui() {
             IFS='|' read -r m_owner m_perms m_size m_mod <<< "$meta"
             owner_display="${m_owner:0:12}"
             if (( idx + 1 == cursor )); then
-                buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${HIGHLIGHT}$(printf "%-*s %-12s %-11s %8s  %12s" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod")${NC}"
+                buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${HIGHLIGHT}$(printf "%-*s $META_COL_FMT" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod")${NC}"
             elif [[ -n "${selected[$idx]+x}" ]]; then
-                buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${SELECT}$(printf "%-*s %-12s %-11s %8s  %12s" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod")${NC}"
+                buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${SELECT}$(printf "%-*s $META_COL_FMT" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod")${NC}"
             else
                 buffer+="$(printf "%1s%s${NC}" "$sel_mark" "$file_icon")$(get_color "$f_name")\033[5G$(printf "%-*s" "$NAME_COL_WIDTH" "$display_name")${NC}"
-                buffer+=$(printf " %-12s %-11s %8s  %12s" "$owner_display" "$m_perms" "$m_size" "$m_mod")
+                buffer+=$(printf " $META_COL_FMT" "$owner_display" "$m_perms" "$m_size" "$m_mod")
             fi
         fi
     done
@@ -390,7 +440,6 @@ redraw_cursor() { local previous_scroll=$scroll_offset; ensure_cursor_visible; i
 get_item() {
     [[ $cursor -gt 0 && $cursor -le ${#files[@]} ]] && strip_ls_suffix "${files[$((cursor-1))]}"
 }
-open_file() { local item="$1"; if command -v chafa &>/dev/null && [[ "$item" =~ \.(jpg|jpeg|png|gif|bmp|webp|tiff|ico)$ ]]; then echo -ne "\033[?25h"; tput smcup; printf "\033[H"; chafa "$item" | head -n $((term_rows - 2)); printf "\033[$((term_rows));1H"; read -rsn1; tput rmcup; echo -ne "\033[?25l"; redraw_cursor; else open_external "$item"; fi; }
 preview_image_in_terminal() { local item="$1"; echo -ne "\033[?25h"; tput smcup; printf "\033[H"; chafa "$item" | head -n $((term_rows - 2)); printf "\033[$((term_rows));1H"; read -rsn1; tput rmcup; echo -ne "\033[?25l"; redraw_cursor; }
 open_file() { local item="$1"; if command -v chafa &>/dev/null && [[ "$item" =~ \.(jpg|jpeg|png|gif|bmp|webp|tiff|ico)$ ]]; then preview_image_in_terminal "$item"; else open_external "$item"; fi; }
 open_with_less() { local item="$1"; [[ -f "$item" ]] || return; if command -v chafa &>/dev/null && [[ "$item" =~ \.(jpg|jpeg|png|gif|bmp|webp|tiff|ico)$ ]]; then preview_image_in_terminal "$item"; else run_interactive_command less -- "$item"; fi; }
@@ -404,13 +453,28 @@ create_dir_item() { local name=""; echo -ne "\033[?25h"; printf "\033[$((max_row
 move_clipboard_item() { [[ -z "$CLIPBOARD_PATH" ]] && { redraw_cursor; return; }; local dest="$CLIPBOARD_NAME"; [[ -e "$dest" ]] && { echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -i "$dest" -p "Move as: " dest; stty -echo cbreak -ixon; echo -ne "\033[?25l"; }; [[ -z "$dest" ]] && { redraw_cursor; return; }; mv -- "$CLIPBOARD_PATH" "$dest" 2>/dev/null && { CLIPBOARD_PATH=""; CLIPBOARD_NAME=""; update_files; draw_ui; } || redraw_cursor; }
 toggle_selection() { local idx=$(( cursor - 1 )); local item; item=$(get_item); [[ -z "$item" || "$item" == "(Empty Directory)" ]] && return; if [[ -n "${selected[$idx]+x}" ]]; then unset 'selected[$idx]'; else selected[$idx]=1; fi; }
 clear_selection() { selected=(); }
-toggle_select_all() { local total=${#files[@]}; local all_selected=1; for (( i=0; i<total; i++ )); do local f="${files[$i]}"; f=$(echo "$f" | sed 's/[$*@|=>]//g'); [[ -z "$f" || "$f" == "(Empty Directory)" ]] && continue; [[ -n "${selected[$i]+x}" ]] || all_selected=0; done; if (( all_selected )); then clear_selection; else for (( i=0; i<total; i++ )); do local f="${files[$i]}"; f=$(echo "$f" | sed 's/[$*@|=>]//g'); [[ -z "$f" || "$f" == "(Empty Directory)" ]] || selected[$i]=1; done; fi; draw_ui; }
+toggle_select_all() {
+    local total=${#files[@]}
+    local all_selected=1
+    for (( i=0; i<total; i++ )); do
+        [[ "${files[$i]}" == "(Empty Directory)" ]] && continue
+        [[ -n "${selected[$i]+x}" ]] || { all_selected=0; break; }
+    done
+    if (( all_selected )); then
+        clear_selection
+    else
+        for (( i=0; i<total; i++ )); do
+            [[ "${files[$i]}" == "(Empty Directory)" ]] || selected[$i]=1
+        done
+    fi
+    draw_ui
+}
 toggle_executable() { local item="$1"; [[ -z "$item" || "$item" == "(Empty Directory)" ]] && return; if [[ -x "$item" ]]; then chmod a-x -- "$item" 2>/dev/null; else chmod u+x -- "$item" 2>/dev/null; fi; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui; }
 delete_item() { local item="$1"; [[ -z "$item" || "$item" == "(Empty Directory)" ]] && return; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -r -p "Delete '$item'? [y/N]: " confirm; stty -echo cbreak -ixon; echo -ne "\033[?25l"; get_terminal_size; printf "\033[2J\033[H"; if [[ "$confirm" =~ ^[Yy]$ ]]; then rm -rf -- "$item" 2>/dev/null; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; fi; draw_ui; }
-delete_selected() { local -a items=(); for idx in "${!selected[@]}"; do local f="${files[$idx]}"; f=$(echo "$f" | sed 's/[$*@|=>]//g'); [[ -n "$f" && "$f" != "(Empty Directory)" ]] && items+=("$f"); done; [[ ${#items[@]} -eq 0 ]] && return; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -r -p "Delete ${#items[@]} selected item(s)? [y/N]: " confirm; stty -echo cbreak -ixon; echo -ne "\033[?25l"; get_terminal_size; printf "\033[2J\033[H"; if [[ "$confirm" =~ ^[Yy]$ ]]; then for f in "${items[@]}"; do rm -rf -- "$f" 2>/dev/null; done; clear_selection; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; fi; draw_ui; }
-copy_selected() { local -a items=(); for idx in "${!selected[@]}"; do local f="${files[$idx]}"; f=$(echo "$f" | sed 's/[$*@|=>]//g'); [[ -n "$f" && "$f" != "(Empty Directory)" ]] && items+=("$(pwd)/$f"); done; [[ ${#items[@]} -eq 0 ]] && return; CLIPBOARD_MULTI=("${items[@]}"); CLIPBOARD_PATH=""; CLIPBOARD_NAME="${#items[@]} items"; redraw_cursor; }
-move_selected() { local -a items=(); for idx in "${!selected[@]}"; do local f="${files[$idx]}"; f=$(echo "$f" | sed 's/[$*@|=>]//g'); [[ -n "$f" && "$f" != "(Empty Directory)" ]] && items+=("$(pwd)/$f"); done; [[ ${#items[@]} -eq 0 ]] && return; CLIPBOARD_MULTI=("${items[@]}"); CLIPBOARD_MOVE=1; CLIPBOARD_PATH=""; CLIPBOARD_NAME="${#items[@]} items"; redraw_cursor; }
-copy_paths_to_system_clipboard() { local -a items=(); if (( ${#selected[@]} > 0 )); then for idx in "${!selected[@]}"; do local f="${files[$idx]}"; f=$(echo "$f" | sed 's/[$*@|=>]//g'); [[ -n "$f" && "$f" != "(Empty Directory)" ]] && items+=("$(pwd)/$f"); done; else local item; item=$(get_item); if [[ -n "$item" && "$item" != "(Empty Directory)" ]]; then items+=("$(pwd)/$item"); else items+=("$(pwd)"); fi; fi; (( ${#items[@]} > 0 )) || return 1; local payload; payload=$(printf "%s\n" "${items[@]}"); if command -v wl-copy &>/dev/null; then printf "%s" "$payload" | wl-copy; elif command -v xclip &>/dev/null; then printf "%s" "$payload" | xclip -selection clipboard; elif command -v xsel &>/dev/null; then printf "%s" "$payload" | xsel --clipboard --input; elif command -v pbcopy &>/dev/null; then printf "%s" "$payload" | pbcopy; else return 2; fi; return 0; }
+delete_selected() { local -a items=(); for idx in "${!selected[@]}"; do local f="${files[$idx]}"; local last="${f: -1}"; case "$last" in '/'|'@'|'*'|'|'|'='|'>') f="${f:0:${#f}-1}" ;; esac; [[ -n "$f" && "$f" != "(Empty Directory)" ]] && items+=("$f"); done; [[ ${#items[@]} -eq 0 ]] && return; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -r -p "Delete ${#items[@]} selected item(s)? [y/N]: " confirm; stty -echo cbreak -ixon; echo -ne "\033[?25l"; get_terminal_size; printf "\033[2J\033[H"; if [[ "$confirm" =~ ^[Yy]$ ]]; then for f in "${items[@]}"; do rm -rf -- "$f" 2>/dev/null; done; clear_selection; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; fi; draw_ui; }
+copy_selected() { local -a items=(); for idx in "${!selected[@]}"; do local f="${files[$idx]}"; local last="${f: -1}"; case "$last" in '/'|'@'|'*'|'|'|'='|'>') f="${f:0:${#f}-1}" ;; esac; [[ -n "$f" && "$f" != "(Empty Directory)" ]] && items+=("$(pwd)/$f"); done; [[ ${#items[@]} -eq 0 ]] && return; CLIPBOARD_MULTI=("${items[@]}"); CLIPBOARD_PATH=""; CLIPBOARD_NAME="${#items[@]} items"; redraw_cursor; }
+move_selected() { local -a items=(); for idx in "${!selected[@]}"; do local f="${files[$idx]}"; local last="${f: -1}"; case "$last" in '/'|'@'|'*'|'|'|'='|'>') f="${f:0:${#f}-1}" ;; esac; [[ -n "$f" && "$f" != "(Empty Directory)" ]] && items+=("$(pwd)/$f"); done; [[ ${#items[@]} -eq 0 ]] && return; CLIPBOARD_MULTI=("${items[@]}"); CLIPBOARD_MOVE=1; CLIPBOARD_PATH=""; CLIPBOARD_NAME="${#items[@]} items"; redraw_cursor; }
+copy_paths_to_system_clipboard() { local -a items=(); if (( ${#selected[@]} > 0 )); then for idx in "${!selected[@]}"; do local f="${files[$idx]}"; local last="${f: -1}"; case "$last" in '/'|'@'|'*'|'|'|'='|'>') f="${f:0:${#f}-1}" ;; esac; [[ -n "$f" && "$f" != "(Empty Directory)" ]] && items+=("$(pwd)/$f"); done; else local item; item=$(get_item); if [[ -n "$item" && "$item" != "(Empty Directory)" ]]; then items+=("$(pwd)/$item"); else items+=("$(pwd)"); fi; fi; (( ${#items[@]} > 0 )) || return 1; local payload; payload=$(printf "%s\n" "${items[@]}"); if command -v wl-copy &>/dev/null; then printf "%s" "$payload" | wl-copy; elif command -v xclip &>/dev/null; then printf "%s" "$payload" | xclip -selection clipboard; elif command -v xsel &>/dev/null; then printf "%s" "$payload" | xsel --clipboard --input; elif command -v pbcopy &>/dev/null; then printf "%s" "$payload" | pbcopy; else return 2; fi; return 0; }
 echo -ne "\033[?25l"; get_terminal_size; show_loading_status; update_files; draw_ui
 while true; do
 IFS= read -rsN1 key
