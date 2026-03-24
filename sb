@@ -465,7 +465,132 @@ open_in_gui() { local item="$1"; if is_gui_session; then command -v "$OPEN_CMD" 
 open_in_editor() { local item="$1"; [[ -f "$item" ]] && open_in_terminal_editor "$item"; }
 jump_to_bookmark() { local key="$1"; local var_name="SB_BOOKMARK_${key}"; local target="${!var_name-}"; [[ -z "$target" ]] && return; target="${target/#\~/$HOME}"; [[ -d "$target" ]] || return; dir_positions["$(pwd)"]=$cursor; cd "$target" 2>/dev/null || return; clear_selection; get_terminal_size; show_loading_status; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui; }
 show_bookmarks() { echo -ne "\033[?25h"; clear; printf "%b" "${HELP_ACCENT}Shell Buddy Bookmarks${NC}\n\n"; local key var_name target found=0; for key in 1 2 3 4 5 6 7 8 9 0; do var_name="SB_BOOKMARK_${key}"; target="${!var_name-}"; [[ -z "$target" ]] && continue; found=1; target="${target/#\~/$HOME}"; if [[ -d "$target" ]]; then printf "%b" "  ${HELP_KEY}${key}${NC}  ${target}\n"; else printf "%b" "  ${HELP_KEY}${key}${NC}  ${target} ${AMBER}(missing dir)${NC}\n"; fi; done; (( found )) || printf "%b" "No bookmarks found. Export variables like SB_BOOKMARK_1=\"$HOME/Downloads\"\n"; printf "%b" "\nConfigure bookmarks by exporting SB_BOOKMARK_0..SB_BOOKMARK_9 in your shell profile.\n"; printf "\n%b" "${HELP_ACCENT}Press any key to return...${NC}"; read -rsn1; draw_ui; }
-show_help() { echo -ne "\033[?25h"; clear; printf "%b" "${HELP_ACCENT}Shell Buddy${NC} "; printf "%b" "${VERSION}\n\n"; printf "%b" "${HELP_SECTION}Navigation${NC}\n"; printf "%b" "  ${HELP_KEY}Up/Down arrows${NC}   Move selection\n"; printf "%b" "  ${HELP_KEY}PgUp/PgDn${NC}        Jump by one page\n"; printf "%b" "  ${HELP_KEY}Home/End${NC}         Jump to top/bottom\n"; printf "%b" "  ${HELP_KEY}Right/Enter${NC}      Enter directory / less file\n"; printf "%b" "  ${HELP_KEY}Left${NC}             Go to parent directory\n"; printf "%b" "  ${HELP_KEY}~${NC}                Go to home directory\n"; printf "%b" "  ${HELP_KEY}0-9${NC}              Jump to SB_BOOKMARK_0..9\n"; printf "%b" "  ${HELP_KEY}b${NC}                Show configured bookmarks\n\n"; printf "%b" "${HELP_SECTION}File Actions${NC}\n"; printf "%b" "  ${HELP_KEY}n${NC}                Create file\n"; printf "%b" "  ${HELP_KEY}N${NC}                Create folder\n"; printf "%b" "  ${HELP_KEY}Insert/Space${NC}     Toggle item selection\n"; printf "%b" "  ${HELP_KEY}*${NC}                Select / deselect all\n"; printf "%b" "  ${HELP_KEY}c${NC}                Copy selected item(s)\n"; printf "%b" "  ${HELP_KEY}C${NC}                Copy absolute path(s) to system clipboard\n"; printf "%b" "  ${HELP_KEY}v${NC}                Paste copied item(s)\n"; printf "%b" "  ${HELP_KEY}m${NC}                Move selected item(s)\n"; printf "%b" "  ${HELP_KEY}e${NC}                Edit selected file (CLI editor)\n"; printf "%b" "  ${HELP_KEY}o${NC}                Open selected item in GUI app\n"; printf "%b" "  ${HELP_KEY}l${NC}                Open selected file in less\n"; printf "%b" "  ${HELP_KEY}x${NC}                Toggle executable permission\n"; printf "%b" "  ${HELP_KEY}d${NC}                Delete selected item(s)\n\n"; printf "%b" "${HELP_SECTION}Sorting${NC}\n"; printf "%b" "  ${HELP_KEY}Ctrl+N${NC}           Sort by name (toggle asc/desc)\n"; printf "%b" "  ${HELP_KEY}Ctrl+D${NC}           Sort by date (toggle asc/desc)\n"; printf "%b" "  ${HELP_KEY}Ctrl+S${NC}           Sort by size (toggle asc/desc)\n"; printf "%b" "  ${HELP_KEY}Ctrl+X${NC}           Sort by extension (toggle asc/desc)\n\n"; printf "%b" "${HELP_SECTION}View${NC}\n"; printf "%b" "  ${HELP_KEY}[ / ]${NC}            Decrease / increase name column\n"; printf "%b" "  ${HELP_KEY}.${NC}                Toggle hidden files\n"; printf "%b" "  ${HELP_KEY}h${NC}                Show this help\n"; printf "%b" "  ${HELP_KEY}q${NC}                Quit\n\n"; printf "%b" "${HELP_ACCENT}Press any key to return...${NC}"; read -rsn1; draw_ui; }
+show_help() {
+    echo -ne "\033[?25h"
+    clear
+
+    local rows cols divider left_width right_width i total_width
+    rows=$(tput lines)
+    cols=$(tput cols)
+    divider=" │ "
+    # Fixed width: content (key 12 + sep 2 + desc 21 = 35) + 3 extra = 38 per column
+    left_width=38
+    right_width=38
+    total_width=$(( left_width + ${#divider} + right_width ))
+    # Never exceed terminal width
+    (( total_width > cols )) && left_width=$(( (cols - ${#divider}) / 2 )) && right_width=$(( cols - left_width - ${#divider} )) && total_width=$cols
+
+    printf "%b" "${HELP_ACCENT}Shell Buddy${NC} ${VERSION}\n"
+    for (( i=0; i<total_width; i++ )); do printf "─"; done
+    printf "\n"
+
+    # Ultra-compact fallback for very short terminals.
+    if (( rows < 15 || cols < 70 )); then
+        printf "%b" "${HELP_SECTION}Navigation${NC}  ${HELP_KEY}Up/Down${NC} move, ${HELP_KEY}Enter${NC} open, ${HELP_KEY}Left${NC} parent, ${HELP_KEY}~${NC} home\n"
+        printf "%b" "${HELP_SECTION}Select${NC}      ${HELP_KEY}Insert/Space${NC} toggle, ${HELP_KEY}*${NC} all, ${HELP_KEY}c${NC} copy, ${HELP_KEY}m${NC} move, ${HELP_KEY}v${NC} paste\n"
+        printf "%b" "${HELP_SECTION}Files${NC}       ${HELP_KEY}n${NC} file, ${HELP_KEY}N${NC} folder, ${HELP_KEY}e${NC} edit, ${HELP_KEY}o${NC} open, ${HELP_KEY}l${NC} less, ${HELP_KEY}d${NC} delete, ${HELP_KEY}x${NC} chmod\n"
+        printf "%b" "${HELP_SECTION}Sort${NC}        ${HELP_KEY}Ctrl+N${NC} name, ${HELP_KEY}Ctrl+D${NC} date, ${HELP_KEY}Ctrl+S${NC} size, ${HELP_KEY}Ctrl+X${NC} ext\n"
+        printf "%b" "${HELP_SECTION}View${NC}        ${HELP_KEY}.${NC} hidden, ${HELP_KEY}[ / ]${NC} name width, ${HELP_KEY}b${NC} bookmarks, ${HELP_KEY}h${NC} help, ${HELP_KEY}q${NC} quit\n\n"
+        printf "%b" "${HELP_ACCENT}Press any key to return...${NC}"
+        local _hk
+        IFS= read -rsN1 _hk
+        [[ "$_hk" == $'\e' ]] && while IFS= read -rsN1 -t "$READ_TIMEOUT" _hk; do :; done
+        draw_ui
+        return
+    fi
+
+    local -a left_col=(
+        "Navigation"
+        "Up/Down      Move selection"
+        "PgUp/PgDn    Jump by page"
+        "Home/End     Jump top/bottom"
+        "Right/Enter  Enter dir / less"
+        "Left         Go to parent dir"
+        "~            Go to home dir"
+        "0-9          Jump to bookmark"
+        "b            Show bookmarks"
+        ""
+        "Selection + Files"
+        "Insert/Space    Toggle selection"
+        "*            Select/deselect all"
+        "c            Copy selected"
+        "m            Move selected"
+        "v            Paste copied"
+        "C            Copy absolute path(s)"
+        "r            Rename item"
+        "n / N        New file / folder"
+    )
+
+    local -a right_col=(
+        "Open + Edit"
+        "e            Edit in CLI editor"
+        "o            Open in GUI app"
+        "l            Open in less"
+        "x            Toggle executable bit"
+        "d            Delete selected"
+        ""
+        "Sort"
+        "Ctrl+N       Sort by name"
+        "Ctrl+D       Sort by date"
+        "Ctrl+S       Sort by size"
+        "Ctrl+X       Sort by extension"
+        ""
+        "View"
+        ".            Toggle hidden files"
+        "[ / ]        Name width - / +"
+        "h            Show help"
+        "q            Quit"
+    )
+
+    format_help_cell() {
+        local cell="$1"
+        local width="$2"
+        local key_col=12
+        local desc_col key desc trimmed
+
+        (( width < 1 )) && return
+        desc_col=$((width - key_col - 2))
+        (( desc_col < 0 )) && desc_col=0
+
+        if [[ -z "$cell" ]]; then
+            printf "%-*s" "$width" ""
+            return
+        fi
+
+        if [[ "$cell" != *"  "* ]]; then
+            trimmed="${cell:0:width}"
+            printf "%b%-*s%b" "$HELP_SECTION" "$width" "$trimmed" "$NC"
+            return
+        fi
+
+        key="${cell%%  *}"
+        desc="${cell#"$key"}"
+        while [[ "$desc" == ' '* ]]; do desc="${desc# }"; done
+        key="${key:0:key_col}"
+        desc="${desc:0:desc_col}"
+
+        printf "%b%-*s%b  %-*s" "$STATUS_VALUE" "$key_col" "$key" "$NC" "$desc_col" "$desc"
+    }
+
+    local max_lines left_line right_line left_out right_out
+    max_lines=${#left_col[@]}
+    (( ${#right_col[@]} > max_lines )) && max_lines=${#right_col[@]}
+
+    for (( i=0; i<max_lines; i++ )); do
+        left_line="${left_col[$i]}"
+        right_line="${right_col[$i]}"
+        left_out="${left_line:0:left_width}"
+        right_out="${right_line:0:right_width}"
+        printf "%b%s%b\n" "$(format_help_cell "$left_out" "$left_width")" "$divider" "$(format_help_cell "$right_out" "$right_width")"
+    done
+
+    printf "\n%b" "${HELP_ACCENT}Press any key to return...${NC}"
+    local _hk
+    IFS= read -rsN1 _hk
+    [[ "$_hk" == $'\e' ]] && while IFS= read -rsN1 -t "$READ_TIMEOUT" _hk; do :; done
+    draw_ui
+}
+rename_item() { local item="$1" newname=""; [[ -z "$item" || "$item" == "(Empty Directory)" ]] && return; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -i "$item" -p "Rename: " newname; stty -echo cbreak -ixon; echo -ne "\033[?25l"; [[ -z "$newname" || "$newname" == "$item" ]] && { redraw_cursor; return; }; mv -- "$item" "$newname" 2>/dev/null && { update_files; draw_ui; } || redraw_cursor; }
 create_file_item() { local name=""; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -p "New file name: " name; stty -echo cbreak -ixon; echo -ne "\033[?25l"; [[ -z "$name" ]] && { redraw_cursor; return; }; touch -- "$name" 2>/dev/null && { update_files; draw_ui; } || redraw_cursor; }
 create_dir_item() { local name=""; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -p "New folder name: " name; stty -echo cbreak -ixon; echo -ne "\033[?25l"; [[ -z "$name" ]] && { redraw_cursor; return; }; mkdir -p -- "$name" 2>/dev/null && { update_files; draw_ui; } || redraw_cursor; }
 move_clipboard_item() { [[ -z "$CLIPBOARD_PATH" ]] && { redraw_cursor; return; }; local dest="$CLIPBOARD_NAME"; [[ -e "$dest" ]] && { echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -i "$dest" -p "Move as: " dest; stty -echo cbreak -ixon; echo -ne "\033[?25l"; }; [[ -z "$dest" ]] && { redraw_cursor; return; }; mv -- "$CLIPBOARD_PATH" "$dest" 2>/dev/null && { CLIPBOARD_PATH=""; CLIPBOARD_NAME=""; update_files; draw_ui; } || redraw_cursor; }
@@ -530,6 +655,7 @@ $'\x18') SORT_MODE="ext"; SORT_EXT_DESC=$((1 - SORT_EXT_DESC)); clear_selection;
 'l') item=$(get_item); open_with_less "$item" ;;
 'e') item=$(get_item); open_in_editor "$item" ;;
 'o') item=$(get_item); open_in_gui "$item" ;;
+'r') item=$(get_item); rename_item "$item" ;;
 'n') create_file_item ;;
 'N') create_dir_item ;;
 'h') show_help ;;
