@@ -458,7 +458,7 @@ redraw_cursor() { local previous_scroll=$scroll_offset; ensure_cursor_visible; i
 get_item() {
     [[ $cursor -gt 0 && $cursor -le ${#files[@]} ]] && strip_ls_suffix "${files[$((cursor-1))]}"
 }
-preview_image_in_terminal() { local item="$1"; echo -ne "\033[?25h"; tput smcup; printf "\033[H"; chafa "$item" | head -n $((term_rows - 2)); printf "\033[$((term_rows));1H"; read -rsn1; tput rmcup; echo -ne "\033[?25l"; redraw_cursor; }
+preview_image_in_terminal() { local item="$1"; echo -ne "\033[?25h"; tput smcup; printf "\033[H"; chafa "$item" | head -n $((term_rows - 2)); printf "\033[$((term_rows));1H"; IFS= read -rsn1 _tmp; [[ "$_tmp" == $'\e' ]] && while IFS= read -rsN1 -t "$READ_TIMEOUT" _tmp; do :; done; tput rmcup; echo -ne "\033[?25l"; redraw_cursor; }
 open_file() { local item="$1"; if command -v chafa &>/dev/null && [[ "$item" =~ \.(jpg|jpeg|png|gif|bmp|webp|tiff|ico)$ ]]; then preview_image_in_terminal "$item"; else open_external "$item"; fi; }
 open_with_less() { local item="$1"; [[ -f "$item" ]] || return; if command -v chafa &>/dev/null && [[ "$item" =~ \.(jpg|jpeg|png|gif|bmp|webp|tiff|ico)$ ]]; then preview_image_in_terminal "$item"; elif command -v glow &>/dev/null && [[ "$item" =~ \.(md|markdown)$ ]]; then run_interactive_command glow -p -- "$item"; elif command -v bat &>/dev/null; then run_interactive_command bat --paging=always -- "$item"; else run_interactive_command less -- "$item"; fi; }
 open_in_gui() { local item="$1"; if is_gui_session; then command -v "$OPEN_CMD" &>/dev/null && "$OPEN_CMD" "$item" >/dev/null 2>&1 && return 0; [[ "$OPEN_CMD" != "xdg-open" ]] && command -v xdg-open &>/dev/null && xdg-open "$item" >/dev/null 2>&1 && return 0; [[ "$OPEN_CMD" != "open" ]] && command -v open &>/dev/null && open "$item" >/dev/null 2>&1 && return 0; fi; show_open_error "$item"; return 1; }
@@ -619,6 +619,7 @@ fzf_jump() {
     draw_ui
     [[ $fzf_exit -eq 0 && -n "$selected" && -f "$selected" ]] && open_with_less "$selected"
 }
+jump_to_path() { local newpath=""; echo -ne "\033[?25h"; printf "\033[1;1H\033[K"; stty echo; read -e -i "$(pwd)" -p "» " newpath; stty -echo cbreak -ixon; echo -ne "\033[?25l"; [[ -z "$newpath" ]] && { draw_ui; return; }; newpath="${newpath/#\~/$HOME}"; if [[ -d "$newpath" ]]; then dir_positions["$(pwd)"]=$cursor; cd "$newpath" 2>/dev/null || { draw_ui; return; }; clear_selection; get_terminal_size; show_loading_status; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui; else draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Not a directory: $newpath${NC}"; fi; }
 create_file_item() { local name=""; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -p "New file name: " name; stty -echo cbreak -ixon; echo -ne "\033[?25l"; [[ -z "$name" ]] && { redraw_cursor; return; }; touch -- "$name" 2>/dev/null && { update_files; draw_ui; } || redraw_cursor; }
 create_dir_item() { local name=""; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -p "New folder name: " name; stty -echo cbreak -ixon; echo -ne "\033[?25l"; [[ -z "$name" ]] && { redraw_cursor; return; }; mkdir -p -- "$name" 2>/dev/null && { update_files; draw_ui; } || redraw_cursor; }
 move_clipboard_item() { [[ -z "$CLIPBOARD_PATH" ]] && { redraw_cursor; return; }; local dest="$CLIPBOARD_NAME"; [[ -e "$dest" ]] && { echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -i "$dest" -p "Move as: " dest; stty -echo cbreak -ixon; echo -ne "\033[?25l"; }; [[ -z "$dest" ]] && { redraw_cursor; return; }; mv -- "$CLIPBOARD_PATH" "$dest" 2>/dev/null && { CLIPBOARD_PATH=""; CLIPBOARD_NAME=""; update_files; draw_ui; } || redraw_cursor; }
@@ -685,6 +686,7 @@ $'\x18') SORT_MODE="ext"; SORT_EXT_DESC=$((1 - SORT_EXT_DESC)); clear_selection;
 'o') item=$(get_item); open_in_gui "$item" ;;
 'r') item=$(get_item); rename_item "$item" ;;
 'f') fzf_jump ;;
+$'\t') jump_to_path ;;
 'n') create_file_item ;;
 'N') create_dir_item ;;
 'h') show_help ;;
