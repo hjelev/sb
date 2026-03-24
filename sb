@@ -513,6 +513,7 @@ show_help() {
         "0-9          Jump to bookmark"
         "b            Show bookmarks"
         "f            fzf fuzzy jump"
+        "F            Search with ripgrep"
         ""
         "Selection + Files"
         "Insert/Space    Toggle selection"
@@ -619,6 +620,34 @@ fzf_jump() {
     draw_ui
     [[ $fzf_exit -eq 0 && -n "$selected" && -f "$selected" ]] && open_with_less "$selected"
 }
+rg_search() {
+    command -v rg &>/dev/null || return
+    local query
+    echo -ne "\033[?25h"
+    printf "\033[$((max_rows + 3));1H\033[K"
+    stty echo
+    read -e -p "Search: " query
+    stty -echo cbreak -ixon
+    echo -ne "\033[?25l"
+    [[ -z "$query" ]] && { redraw_cursor; return; }
+    
+    stty "$orig_stty"
+    clear
+    local selected rg_exit
+    selected=$(rg "$query" --with-filename --line-number --color=never 2>/dev/null | fzf --prompt="Results: " --height=100% --reverse 2>/dev/null)
+    rg_exit=$?
+    stty -echo cbreak -ixon
+    echo -ne "\033[?25l"
+    get_terminal_size
+    
+    if [[ $rg_exit -eq 0 && -n "$selected" ]]; then
+        local filepath="${selected%%:*}"
+        [[ -f "$filepath" ]] && open_with_less "$filepath"
+    fi
+    
+    show_loading_status
+    draw_ui
+}
 jump_to_path() { local newpath=""; echo -ne "\033[?25h"; printf "\033[1;1H\033[K"; stty echo; read -e -i "$(pwd)" -p "» " newpath; stty -echo cbreak -ixon; echo -ne "\033[?25l"; [[ -z "$newpath" ]] && { draw_ui; return; }; newpath="${newpath/#\~/$HOME}"; if [[ -d "$newpath" ]]; then dir_positions["$(pwd)"]=$cursor; cd "$newpath" 2>/dev/null || { draw_ui; return; }; clear_selection; get_terminal_size; show_loading_status; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui; else draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Not a directory: $newpath${NC}"; fi; }
 create_file_item() { local name=""; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -p "New file name: " name; stty -echo cbreak -ixon; echo -ne "\033[?25l"; [[ -z "$name" ]] && { redraw_cursor; return; }; touch -- "$name" 2>/dev/null && { update_files; draw_ui; } || redraw_cursor; }
 create_dir_item() { local name=""; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -p "New folder name: " name; stty -echo cbreak -ixon; echo -ne "\033[?25l"; [[ -z "$name" ]] && { redraw_cursor; return; }; mkdir -p -- "$name" 2>/dev/null && { update_files; draw_ui; } || redraw_cursor; }
@@ -686,6 +715,7 @@ $'\x18') SORT_MODE="ext"; SORT_EXT_DESC=$((1 - SORT_EXT_DESC)); clear_selection;
 'o') item=$(get_item); open_in_gui "$item" ;;
 'r') item=$(get_item); rename_item "$item" ;;
 'f') fzf_jump ;;
+'F') rg_search ;;
 $'\t') jump_to_path ;;
 'n') create_file_item ;;
 'N') create_dir_item ;;
