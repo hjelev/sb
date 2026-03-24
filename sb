@@ -92,7 +92,32 @@ get_terminal_size() { term_rows=$(tput lines); term_cols=$(tput cols); max_rows=
 required_term_cols() { echo $((BASE_MIN_COLS + NAME_COL_WIDTH)); }
 is_terminal_too_narrow() { (( term_cols < BASE_MIN_COLS + NAME_COL_WIDTH )); }
 draw_too_narrow_message() { local required_cols; required_cols=$(required_term_cols); local msg="Terminal too narrow: need at least ${required_cols} columns (current: ${term_cols}). Resize terminal to continue."; printf "\033[H\033[2J\033[?25l"; printf "\033[1;1H%b\n\n" "${AMBER}$msg${NC}"; printf "Use [ and ] to shrink/grow name column. Press q to quit.\n"; }
-get_color() { local f="$1"; local clean_f clean_no_suffix base_name; clean_f=$(echo "$f" | sed 's/[$*@|=>]//g'); clean_no_suffix="${clean_f%/}"; base_name="${clean_no_suffix##*/}"; if [[ "$base_name" == .* ]]; then [[ "$f" == */ ]] && echo -n "$HIDDEN_DIR" && return; echo -n "$HIDDEN_FILE" && return; fi; [[ "$f" == */ ]] && echo -n "$BLUE" && return; [[ "$f" == *@ ]] && echo -n "$CYAN" && return; [[ "$f" == *\* ]] && echo -n "$GREEN" && return; [[ "$f" =~ \.(zip|tar|gz|rar|7z)$ ]] && echo -n "$RED" && return; echo -n "$STATUS_VALUE"; }
+strip_ls_suffix() {
+    local item="$1"
+    local last_char
+    [[ "$item" == "(Empty Directory)" ]] && { printf "%s" "$item"; return; }
+    last_char="${item: -1}"
+    case "$last_char" in
+        '/'|'@'|'*'|'|'|'='|'>') printf "%s" "${item:0:${#item}-1}" ;;
+        *) printf "%s" "$item" ;;
+    esac
+}
+get_color() {
+    local f="$1"
+    local clean_f clean_no_suffix base_name
+    clean_f=$(strip_ls_suffix "$f")
+    clean_no_suffix="${clean_f%/}"
+    base_name="${clean_no_suffix##*/}"
+    if [[ "$base_name" == .* ]]; then
+        [[ "$f" == */ ]] && echo -n "$HIDDEN_DIR" && return
+        echo -n "$HIDDEN_FILE" && return
+    fi
+    [[ "$f" == */ ]] && echo -n "$BLUE" && return
+    [[ "$f" == *@ ]] && echo -n "$CYAN" && return
+    [[ "$f" == *\* ]] && echo -n "$GREEN" && return
+    [[ "$f" =~ \.(zip|tar|gz|rar|7z)$ ]] && echo -n "$RED" && return
+    echo -n "$STATUS_VALUE"
+}
 list_entries() { local -a ls_args=(-F); (( SHOW_HIDDEN )) && ls_args+=(-A); (( LS_GROUP_DIRS )) && ls_args+=(--group-directories-first); "$LS_CMD" "${ls_args[@]}" 2>/dev/null; }
 is_gui_session() { [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" || -n "${MIR_SOCKET:-}" || "$OS_NAME" == "Darwin" ]]; }
 restore_browser_ui() { stty -echo cbreak -ixon; printf "\033[2J\033[1;1H\033[?25l"; get_terminal_size; show_loading_status; update_files; draw_ui; }
@@ -102,20 +127,224 @@ show_loading_status() { printf "\033[%d;1H\033[KLoading \033[5m...\033[0m" $((ma
 open_in_terminal_editor() { local item="$1" editor_name; local -a editors=(); [[ -n "${VISUAL:-}" ]] && editors+=("${VISUAL%% *}"); [[ -n "${EDITOR:-}" ]] && editors+=("${EDITOR%% *}"); editors+=(sensible-editor editor nano vim vi less more); for editor_name in "${editors[@]}"; do [[ -n "$editor_name" ]] || continue; command -v "$editor_name" >/dev/null 2>&1 || continue; run_interactive_command "$editor_name" "$item" && return 0; done; return 1; }
 open_external() { local item="$1"; if is_gui_session; then command -v "$OPEN_CMD" &>/dev/null && "$OPEN_CMD" "$item" >/dev/null 2>&1 && return 0; [[ "$OPEN_CMD" != "xdg-open" ]] && command -v xdg-open &>/dev/null && xdg-open "$item" >/dev/null 2>&1 && return 0; [[ "$OPEN_CMD" != "open" ]] && command -v open &>/dev/null && open "$item" >/dev/null 2>&1 && return 0; fi; open_in_terminal_editor "$item" && return 0; show_open_error "$item"; return 1; }
 icon_for_item() { local path="$1"; local lower_name="${2,,}"; if [[ -d "$path" ]]; then printf "%s" "$ICON_DIR"; elif [[ -L "$path" ]]; then printf "%s" "$ICON_LINK"; elif [[ -x "$path" && -f "$path" ]]; then printf "%s" "$ICON_EXEC"; else case "$lower_name" in *.jpg|*.jpeg|*.png|*.gif|*.bmp|*.webp|*.tiff|*.ico|*.svg) printf "%s" "$ICON_IMAGE" ;; *.mp4|*.mkv|*.avi|*.mov|*.webm|*.flv|*.m4v) printf "%s" "$ICON_VIDEO" ;; *.mp3|*.wav|*.ogg|*.flac|*.aac|*.m4a) printf "%s" "$ICON_AUDIO" ;; *.zip|*.tar|*.tar.gz|*.tgz|*.bz2|*.xz|*.rar|*.7z|*.gz) printf "%s" "$ICON_ARCHIVE" ;; *.sh|*.bash|*.zsh|*.fish|*.py|*.js|*.ts|*.rb|*.pl|*.php) printf "%s" "$ICON_SCRIPT" ;; *.c|*.h|*.cpp|*.hpp|*.go|*.rs|*.java|*.kt|*.swift|*.cs|*.json|*.yaml|*.yml|*.toml|*.ini|*.conf|*.md|*.txt) printf "%s" "$ICON_CODE" ;; *) printf "%s" "$ICON_FILE" ;; esac; fi; }
-sort_key_for_item() { local item="$1"; local clean_f base ext key size mtime; clean_f=$(echo "$item" | sed 's/[$*@|=>]//g'); base="${clean_f##*/}"; case "$SORT_MODE" in name) key="${base,,}" ;; date) mtime=$(stat -c %Y -- "$clean_f" 2>/dev/null || echo 0); key=$(printf "%020d" "$mtime") ;; size) size=$(stat -c %s -- "$clean_f" 2>/dev/null || echo 0); key=$(printf "%020d" "$size") ;; ext) ext="${base##*.}"; [[ "$base" == "$ext" ]] && ext=""; key="${ext,,}|${base,,}" ;; *) key="${base,,}" ;; esac; printf "%s" "$key"; }
+icon_for_list_item() {
+    local item="$1"
+    local clean_f lower_name
+    clean_f=$(strip_ls_suffix "$item")
+    lower_name="${clean_f##*/}"
+    lower_name="${lower_name,,}"
+    case "$item" in
+        */) printf "%s" "$ICON_DIR" ;;
+        *@) printf "%s" "$ICON_LINK" ;;
+        *\*) printf "%s" "$ICON_EXEC" ;;
+        *)
+            case "$lower_name" in
+                *.jpg|*.jpeg|*.png|*.gif|*.bmp|*.webp|*.tiff|*.ico|*.svg) printf "%s" "$ICON_IMAGE" ;;
+                *.mp4|*.mkv|*.avi|*.mov|*.webm|*.flv|*.m4v) printf "%s" "$ICON_VIDEO" ;;
+                *.mp3|*.wav|*.ogg|*.flac|*.aac|*.m4a) printf "%s" "$ICON_AUDIO" ;;
+                *.zip|*.tar|*.tar.gz|*.tgz|*.bz2|*.xz|*.rar|*.7z|*.gz) printf "%s" "$ICON_ARCHIVE" ;;
+                *.sh|*.bash|*.zsh|*.fish|*.py|*.js|*.ts|*.rb|*.pl|*.php) printf "%s" "$ICON_SCRIPT" ;;
+                *.c|*.h|*.cpp|*.hpp|*.go|*.rs|*.java|*.kt|*.swift|*.cs|*.json|*.yaml|*.yml|*.toml|*.ini|*.conf|*.md|*.txt) printf "%s" "$ICON_CODE" ;;
+                *) printf "%s" "$ICON_FILE" ;;
+            esac
+            ;;
+    esac
+}
+sort_key_for_item() {
+    local item="$1"
+    local clean_f base ext key size mtime
+    clean_f=$(strip_ls_suffix "$item")
+    base="${clean_f##*/}"
+    case "$SORT_MODE" in
+        name) key="${base,,}" ;;
+        date) mtime=$(stat -c %Y -- "$clean_f" 2>/dev/null || echo 0); key=$(printf "%020d" "$mtime") ;;
+        size) size=$(stat -c %s -- "$clean_f" 2>/dev/null || echo 0); key=$(printf "%020d" "$size") ;;
+        ext) ext="${base##*.}"; [[ "$base" == "$ext" ]] && ext=""; key="${ext,,}|${base,,}" ;;
+        *) key="${base,,}" ;;
+    esac
+    printf "%s" "$key"
+}
 SORT_RESULT=()
 sort_items_by_mode() { local -a keyed=(); local item key; SORT_RESULT=(); (( $# == 0 )) && return; for item in "$@"; do key=$(sort_key_for_item "$item"); keyed+=("$key"$'\t'"$item"); done; case "$SORT_MODE" in name) if (( SORT_NAME_DESC )); then mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1fr | cut -f2-); else mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1f | cut -f2-); fi ;; date) if (( SORT_DATE_DESC )); then mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1nr | cut -f2-); else mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1n | cut -f2-); fi ;; size) if (( SORT_SIZE_DESC )); then mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1nr | cut -f2-); else mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1n | cut -f2-); fi ;; ext) if (( SORT_EXT_DESC )); then mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1fr | cut -f2-); else mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1f | cut -f2-); fi ;; *) mapfile -t SORT_RESULT < <(printf '%s\n' "${keyed[@]}" | sort -t $'\t' -k1,1f | cut -f2-) ;; esac; }
-sort_files_by_mode() { local -a dirs=() non_dirs=() sorted_dirs=() sorted_non_dirs=(); local f clean_f; for f in "${files[@]}"; do clean_f=$(echo "$f" | sed 's/[$*@|=>]//g'); if [[ -d "$clean_f" ]]; then dirs+=("$f"); else non_dirs+=("$f"); fi; done; sort_items_by_mode "${dirs[@]}"; sorted_dirs=("${SORT_RESULT[@]}"); sort_items_by_mode "${non_dirs[@]}"; sorted_non_dirs=("${SORT_RESULT[@]}"); files=("${sorted_dirs[@]}" "${sorted_non_dirs[@]}"); }
+sort_files_by_mode() {
+    local -a dirs=() non_dirs=() sorted_dirs=() sorted_non_dirs=()
+    local f clean_f
+    for f in "${files[@]}"; do
+        if [[ "$f" == */ ]]; then
+            dirs+=("$f")
+        else
+            non_dirs+=("$f")
+        fi
+    done
+    sort_items_by_mode "${dirs[@]}"
+    sorted_dirs=("${SORT_RESULT[@]}")
+    sort_items_by_mode "${non_dirs[@]}"
+    sorted_non_dirs=("${SORT_RESULT[@]}")
+    files=("${sorted_dirs[@]}" "${sorted_non_dirs[@]}")
+}
 get_sort_display() { local mode_label="Name"; local is_desc=0; case "$SORT_MODE" in name) mode_label="Name"; is_desc=$SORT_NAME_DESC ;; date) mode_label="Date"; is_desc=$SORT_DATE_DESC ;; size) mode_label="Size"; is_desc=$SORT_SIZE_DESC ;; ext) mode_label="Ext"; is_desc=$SORT_EXT_DESC ;; esac; if (( is_desc )); then printf "%s↓" "$mode_label"; else printf "%s↑" "$mode_label"; fi; }
-update_files() { files=(); metadata=(); file_icons=(); mapfile -t files < <(list_entries); sort_files_by_mode; for f in "${files[@]}"; do clean_f=$(echo "$f" | sed 's/[$*@|=>]//g'); base_name="${clean_f##*/}"; icon="$(icon_for_item "$clean_f" "$base_name")"; [[ -e "$clean_f" || -L "$clean_f" ]] && meta=$(LC_TIME=C ls -ldh "$clean_f" 2>/dev/null | awk '{printf "%s|%s|%s|%3s %2s %5s", $3, $1, $5, $6, $7, $8}') || meta="----------|----------|-----|------------"; metadata+=("$meta"); file_icons+=("$icon"); done; if [[ ${#files[@]} -eq 0 ]]; then files=("(Empty Directory)"); metadata=("----------|----------|-----|------------"); file_icons=("$ICON_DIR"); fi; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; }
+build_item_meta() {
+    local clean_f="$1"
+    [[ -e "$clean_f" || -L "$clean_f" ]] && LC_TIME=C ls -ldh "$clean_f" 2>/dev/null | awk '{printf "%s|%s|%s|%3s %2s %5s", $3, $1, $5, $6, $7, $8}' && return
+    printf "%s" "----------|----------|-----|------------"
+}
+populate_display_data_bulk() {
+    local -a clean_items=()
+    local f clean_f
+    local i idx=0
+    local perms owner size mon day stamp
+    local default_meta="----------|----------|-----|------------"
+
+    file_icons=()
+    metadata=()
+
+    for f in "${files[@]}"; do
+        file_icons+=("$(icon_for_list_item "$f")")
+        metadata+=("$default_meta")
+        [[ "$f" == "(Empty Directory)" ]] && continue
+        clean_f=$(strip_ls_suffix "$f")
+        clean_items+=("$clean_f")
+    done
+
+    (( ${#clean_items[@]} == 0 )) && return
+
+    while IFS= read -r line; do
+        read -r perms _ owner _ size mon day stamp _ <<< "$line"
+        [[ -z "$owner" || -z "$perms" || -z "$size" || -z "$mon" || -z "$day" || -z "$stamp" ]] && { ((idx++)); continue; }
+
+        # Find next non-empty placeholder slot to keep alignment with clean_items order.
+        for (( i=idx; i<${#files[@]}; i++ )); do
+            [[ "${files[$i]}" == "(Empty Directory)" ]] && continue
+            if [[ "${metadata[$i]}" == "$default_meta" ]]; then
+                metadata[$i]="${owner}|${perms}|${size}|${mon} ${day} ${stamp}"
+                idx=$((i + 1))
+                break
+            fi
+        done
+    done < <(LC_TIME=C "$LS_CMD" -ldh -- "${clean_items[@]}" 2>/dev/null)
+}
+ensure_row_data() {
+    local idx="$1"
+    local f_name clean_f base_name
+    f_name="${files[$idx]}"
+    [[ -z "$f_name" ]] && return
+    [[ "$f_name" == "(Empty Directory)" ]] && {
+        file_icons[$idx]="$ICON_DIR"
+        metadata[$idx]="----------|----------|-----|------------"
+        return
+    }
+    if [[ -z "${file_icons[$idx]+x}" ]]; then
+        file_icons[$idx]="$(icon_for_list_item "$f_name")"
+    fi
+    [[ -z "${metadata[$idx]+x}" ]] && metadata[$idx]="----------|----------|-----|------------"
+}
+update_files() {
+    files=()
+    mapfile -t files < <(list_entries)
+    sort_files_by_mode
+    if [[ ${#files[@]} -eq 0 ]]; then
+        files=("(Empty Directory)")
+        metadata=("----------|----------|-----|------------")
+        file_icons=("$ICON_DIR")
+    else
+        populate_display_data_bulk
+    fi
+    (( cursor > ${#files[@]} )) && cursor=${#files[@]}
+}
 ensure_cursor_visible() { local total=${#files[@]}; local max_scroll=$(( total - max_rows )); (( max_scroll < 0 )) && max_scroll=0; if (( cursor < scroll_offset + 1 )); then scroll_offset=$(( cursor - 1 )); elif (( cursor > scroll_offset + max_rows )); then scroll_offset=$(( cursor - max_rows )); fi; (( scroll_offset < 0 )) && scroll_offset=0; (( scroll_offset > max_scroll )) && scroll_offset=$max_scroll; }
-draw_line() { local idx=$1; local row=$2; local f_name="${files[$idx]}"; local display_name="${f_name:0:NAME_COL_WIDTH}"; local file_icon="${file_icons[$idx]:-$ICON_FILE}"; local meta="${metadata[$idx]}"; IFS='|' read -r m_owner m_perms m_size m_mod <<< "$meta"; local owner_display="${m_owner:0:12}"; local sel_mark=" "; [[ -n "${selected[$idx]+x}" ]] && sel_mark="*"; printf "\033[${row};1H\033[K"; if (( idx + 1 == cursor )); then printf "%1s%s" "$sel_mark" "$file_icon"; printf "\033[5G${HIGHLIGHT}%-*s %-12s %-11s %8s  %12s${NC}" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"; elif [[ -n "${selected[$idx]+x}" ]]; then printf "%1s%s" "$sel_mark" "$file_icon"; printf "\033[5G${SELECT}%-*s %-12s %-11s %8s  %12s${NC}" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"; else printf "%1s%s${NC}" "$sel_mark" "$file_icon"; printf "$(get_color "$f_name")\033[5G%-*s${NC} %-12s %-11s %8s  %12s" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"; fi; }
+draw_line() {
+    local idx=$1
+    local row=$2
+    local f_name display_name file_icon meta owner_display sel_mark m_owner m_perms m_size m_mod
+    ensure_row_data "$idx"
+    f_name="${files[$idx]}"
+    display_name="${f_name:0:NAME_COL_WIDTH}"
+    file_icon="${file_icons[$idx]:-$ICON_FILE}"
+    meta="${metadata[$idx]}"
+    IFS='|' read -r m_owner m_perms m_size m_mod <<< "$meta"
+    owner_display="${m_owner:0:12}"
+    sel_mark=" "
+    [[ -n "${selected[$idx]+x}" ]] && sel_mark="*"
+    printf "\033[${row};1H\033[K"
+    if (( idx + 1 == cursor )); then
+        printf "%1s%s" "$sel_mark" "$file_icon"
+        printf "\033[5G${HIGHLIGHT}%-*s %-12s %-11s %8s  %12s${NC}" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"
+    elif [[ -n "${selected[$idx]+x}" ]]; then
+        printf "%1s%s" "$sel_mark" "$file_icon"
+        printf "\033[5G${SELECT}%-*s %-12s %-11s %8s  %12s${NC}" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"
+    else
+        printf "%1s%s${NC}" "$sel_mark" "$file_icon"
+        printf "$(get_color "$f_name")\033[5G%-*s${NC} %-12s %-11s %8s  %12s" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"
+    fi
+}
 fit_status_path() { local path="$1"; local fixed_part="$2"; local available=$((term_cols - ${#fixed_part})); (( available < 0 )) && available=0; if (( ${#path} <= available )); then printf "%s" "$path"; elif (( available <= 3 )); then printf "%s" "${path:0:available}"; else printf "...%s" "${path: -$((available - 3))}"; fi; }
 draw_status_line() { local hidden_status="Off"; (( SHOW_HIDDEN )) && hidden_status="On"; local sel_count=${#selected[@]}; local total=${#files[@]}; local digits=${#total}; local clip_value="${CLIPBOARD_NAME:-None}"; local sel_progress sort_display fixed_display; sel_progress=$(printf "%*d/%d" "$digits" "$sel_count" "$total"); sort_display=$(get_sort_display); fixed_display="${STATUS_LABEL}[${NC} ${STATUS_VALUE}${sel_progress}${NC} ${STATUS_LABEL}Selected${NC} ${STATUS_LABEL}]${NC}    ${STATUS_LABEL}S:${NC} ${STATUS_VALUE}${sort_display}${NC}    ${STATUS_LABEL}H:${NC} ${STATUS_VALUE}${hidden_status}${NC}    ${STATUS_LABEL}Clip:${NC} ${STATUS_VALUE}${clip_value}${NC}"; printf "\033[%d;1H\033[K" $((max_rows + 4)); printf "%b%b" "$fixed_display" "$NC"; }
 scroll_list_once() { local direction="$1"; local top=3; local bottom=$((max_rows + 2)); local old_idx=$((old_cursor - 1)); local new_idx=$((cursor - 1)); printf "\033[%d;%dr" "$top" "$bottom"; if [[ "$direction" == "down" ]]; then printf "\033[%d;1H\033[M" "$top"; if (( old_idx >= scroll_offset && old_idx < scroll_offset + max_rows )); then draw_line "$old_idx" $((bottom - 1)); fi; if (( new_idx >= scroll_offset && new_idx < scroll_offset + max_rows )); then draw_line "$new_idx" "$bottom"; fi; else printf "\033[%d;1H\033[L" "$top"; if (( new_idx >= scroll_offset && new_idx < scroll_offset + max_rows )); then draw_line "$new_idx" "$top"; fi; if (( old_idx >= scroll_offset && old_idx < scroll_offset + max_rows )); then draw_line "$old_idx" $((top + 1)); fi; fi; printf "\033[r"; draw_status_line; }
-draw_ui() { if is_terminal_too_narrow; then draw_too_narrow_message; return; fi; local total=${#files[@]}; ensure_cursor_visible; local hidden_status="Off"; (( SHOW_HIDDEN )) && hidden_status="On"; local sel_count=${#selected[@]}; local digits=${#total}; local clip_value="${CLIPBOARD_NAME:-None}"; local sel_progress sort_display fixed_display header_prefix header_path; local buffer=""; buffer+=$'\e[H\e[?25l'; buffer+=$'\e[1;1H\e[K'; header_prefix="» "; header_path=$(fit_status_path "$(pwd)" "$header_prefix"); buffer+=$(printf "%b%b%b\n" "${STATUS_LABEL}${header_prefix}${NC}" "${STATUS_VALUE}${header_path}" "${NC}"); buffer+=$'\e[2;1H'; for (( i=0; i<term_cols-1; i++ )); do buffer+="─"; done; buffer+=$'\n'; for (( i=0; i<max_rows; i++ )); do local idx=$((scroll_offset + i)); local row=$((i + 3)); buffer+=$'\e['$row$';1H\e[K'; if (( idx < total )); then local f_name="${files[$idx]}"; local display_name="${f_name:0:NAME_COL_WIDTH}"; local file_icon="${file_icons[$idx]:-$ICON_FILE}"; local meta="${metadata[$idx]}"; local sel_mark=" "; [[ -n "${selected[$idx]+x}" ]] && sel_mark="*"; IFS='|' read -r m_owner m_perms m_size m_mod <<< "$meta"; local owner_display="${m_owner:0:12}"; if (( idx + 1 == cursor )); then buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${HIGHLIGHT}$(printf "%-*s %-12s %-11s %8s  %12s" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod")${NC}"; elif [[ -n "${selected[$idx]+x}" ]]; then buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${SELECT}$(printf "%-*s %-12s %-11s %8s  %12s" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod")${NC}"; else buffer+="$(printf "%1s%s${NC}" "$sel_mark" "$file_icon")$(get_color "$f_name")\033[5G$(printf "%-*s" "$NAME_COL_WIDTH" "$display_name")${NC}"; buffer+=$(printf " %-12s %-11s %8s  %12s" "$owner_display" "$m_perms" "$m_size" "$m_mod"); fi; fi; done; buffer+=$'\e['$((max_rows + 3))$';1H'; for (( i=0; i<term_cols-1; i++ )); do buffer+="─"; done; sel_progress=$(printf "%*d/%d" "$digits" "$sel_count" "$total"); sort_display=$(get_sort_display); fixed_display="${STATUS_LABEL}[${NC} ${STATUS_VALUE}${sel_progress}${NC} ${STATUS_LABEL}Selected${NC} ${STATUS_LABEL}]${NC}    ${STATUS_LABEL}S:${NC} ${STATUS_VALUE}${sort_display}${NC}    ${STATUS_LABEL}H:${NC} ${STATUS_VALUE}${hidden_status}${NC}    ${STATUS_LABEL}Clip:${NC} ${STATUS_VALUE}${clip_value}${NC}"; buffer+=$'\e['$((max_rows + 4))$';1H\e[K'; buffer+="$fixed_display${NC}"; printf "%b" "$buffer"; old_cursor=$cursor; old_scroll=$scroll_offset; }
+draw_ui() {
+    if is_terminal_too_narrow; then
+        draw_too_narrow_message
+        return
+    fi
+    local total=${#files[@]}
+    ensure_cursor_visible
+    local hidden_status="Off"
+    (( SHOW_HIDDEN )) && hidden_status="On"
+    local sel_count=${#selected[@]}
+    local digits=${#total}
+    local clip_value="${CLIPBOARD_NAME:-None}"
+    local sel_progress sort_display fixed_display header_prefix header_path
+    local buffer=""
+
+    buffer+=$'\e[H\e[?25l'
+    buffer+=$'\e[1;1H\e[K'
+    header_prefix="» "
+    header_path=$(fit_status_path "$(pwd)" "$header_prefix")
+    buffer+=$(printf "%b%b%b\n" "${STATUS_LABEL}${header_prefix}${NC}" "${STATUS_VALUE}${header_path}" "${NC}")
+    buffer+=$'\e[2;1H'
+    for (( i=0; i<term_cols-1; i++ )); do buffer+="─"; done
+    buffer+=$'\n'
+
+    for (( i=0; i<max_rows; i++ )); do
+        local idx=$((scroll_offset + i))
+        local row=$((i + 3))
+        buffer+=$'\e['$row$';1H\e[K'
+        if (( idx < total )); then
+            local f_name display_name file_icon meta sel_mark owner_display m_owner m_perms m_size m_mod
+            ensure_row_data "$idx"
+            f_name="${files[$idx]}"
+            display_name="${f_name:0:NAME_COL_WIDTH}"
+            file_icon="${file_icons[$idx]:-$ICON_FILE}"
+            meta="${metadata[$idx]}"
+            sel_mark=" "
+            [[ -n "${selected[$idx]+x}" ]] && sel_mark="*"
+            IFS='|' read -r m_owner m_perms m_size m_mod <<< "$meta"
+            owner_display="${m_owner:0:12}"
+            if (( idx + 1 == cursor )); then
+                buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${HIGHLIGHT}$(printf "%-*s %-12s %-11s %8s  %12s" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod")${NC}"
+            elif [[ -n "${selected[$idx]+x}" ]]; then
+                buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${SELECT}$(printf "%-*s %-12s %-11s %8s  %12s" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod")${NC}"
+            else
+                buffer+="$(printf "%1s%s${NC}" "$sel_mark" "$file_icon")$(get_color "$f_name")\033[5G$(printf "%-*s" "$NAME_COL_WIDTH" "$display_name")${NC}"
+                buffer+=$(printf " %-12s %-11s %8s  %12s" "$owner_display" "$m_perms" "$m_size" "$m_mod")
+            fi
+        fi
+    done
+
+    buffer+=$'\e['$((max_rows + 3))$';1H'
+    for (( i=0; i<term_cols-1; i++ )); do buffer+="─"; done
+    sel_progress=$(printf "%*d/%d" "$digits" "$sel_count" "$total")
+    sort_display=$(get_sort_display)
+    fixed_display="${STATUS_LABEL}[${NC} ${STATUS_VALUE}${sel_progress}${NC} ${STATUS_LABEL}Selected${NC} ${STATUS_LABEL}]${NC}    ${STATUS_LABEL}S:${NC} ${STATUS_VALUE}${sort_display}${NC}    ${STATUS_LABEL}H:${NC} ${STATUS_VALUE}${hidden_status}${NC}    ${STATUS_LABEL}Clip:${NC} ${STATUS_VALUE}${clip_value}${NC}"
+    buffer+=$'\e['$((max_rows + 4))$';1H\e[K'
+    buffer+="$fixed_display${NC}"
+    printf "%b" "$buffer"
+    old_cursor=$cursor
+    old_scroll=$scroll_offset
+}
 redraw_cursor() { local previous_scroll=$scroll_offset; ensure_cursor_visible; if (( scroll_offset == previous_scroll + 1 && cursor == old_cursor + 1 )); then scroll_list_once down; old_cursor=$cursor; old_scroll=$scroll_offset; return; fi; if (( scroll_offset == previous_scroll - 1 && cursor == old_cursor - 1 )); then scroll_list_once up; old_cursor=$cursor; old_scroll=$scroll_offset; return; fi; if (( scroll_offset != previous_scroll )); then draw_ui; return; fi; if (( old_cursor > 0 && old_cursor != cursor )); then local old_idx=$(( old_cursor - 1 )); if (( old_idx >= scroll_offset && old_idx < scroll_offset + max_rows )); then draw_line "$old_idx" $((old_idx - scroll_offset + 3)); fi; fi; local new_idx=$(( cursor - 1 )); if (( new_idx >= scroll_offset && new_idx < scroll_offset + max_rows )); then draw_line "$new_idx" $((new_idx - scroll_offset + 3)); fi; draw_status_line; old_cursor=$cursor; old_scroll=$scroll_offset; }
-get_item() { [[ $cursor -gt 0 && $cursor -le ${#files[@]} ]] && echo "${files[$((cursor-1))]}" | sed 's/[$*@|=>]//g'; }
+get_item() {
+    [[ $cursor -gt 0 && $cursor -le ${#files[@]} ]] && strip_ls_suffix "${files[$((cursor-1))]}"
+}
 open_file() { local item="$1"; if command -v chafa &>/dev/null && [[ "$item" =~ \.(jpg|jpeg|png|gif|bmp|webp|tiff|ico)$ ]]; then echo -ne "\033[?25h"; tput smcup; printf "\033[H"; chafa "$item" | head -n $((term_rows - 2)); printf "\033[$((term_rows));1H"; read -rsn1; tput rmcup; echo -ne "\033[?25l"; redraw_cursor; else open_external "$item"; fi; }
 preview_image_in_terminal() { local item="$1"; echo -ne "\033[?25h"; tput smcup; printf "\033[H"; chafa "$item" | head -n $((term_rows - 2)); printf "\033[$((term_rows));1H"; read -rsn1; tput rmcup; echo -ne "\033[?25l"; redraw_cursor; }
 open_file() { local item="$1"; if command -v chafa &>/dev/null && [[ "$item" =~ \.(jpg|jpeg|png|gif|bmp|webp|tiff|ico)$ ]]; then preview_image_in_terminal "$item"; else open_external "$item"; fi; }
