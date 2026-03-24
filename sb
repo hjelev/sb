@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-VERSION="0.4.0"
+VERSION=""
 
 usage() {
     cat <<'EOF'
@@ -313,6 +313,9 @@ populate_display_data_bulk() {
             if(i>8) filename=filename" "
             filename=filename$i
         }
+        # Strip " -> target" part for symlinks
+        idx=index(filename, " ->")
+        if(idx>0) filename=substr(filename, 1, idx-1)
         printf "%s|%s|%s|%s|%s|%s\n", perms, owner, size, date, time, filename
     }')
 }
