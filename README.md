@@ -11,7 +11,7 @@ A lightweight terminal file browser written in Bash.
 - Open directory with `→` or `Enter`; open files in `less`
 - Go back with `←`
 - Jump to home directory with `~`
-- Multi-select items with `Insert` (highlighted in magenta); `c`, `m`, and `d` operate on the whole selection
+- Multi-select items with `Insert` or `Space` (highlighted in magenta); `c`, `m`, and `d` operate on the whole selection
 - Copy (`c`), paste (`v`), and move (`m`) files/directories — single item or multi-select
 - Copy absolute path(s) of selected/current item to system clipboard with `C`
 - Create a new file (`n`) or folder (`N`)
@@ -196,7 +196,7 @@ After you quit (`q`), the script writes the current working directory to the exp
 | `←` | Go to parent directory |
 | `~` | Jump to `$HOME` |
 | `0-9` | Jump to `SB_BOOKMARK_0..SB_BOOKMARK_9` |
-| `Insert` | Toggle item selection (multi-select) |
+| `Insert` / `Space` | Toggle item selection (multi-select) |
 | `*` | Select or deselect all items |
 | `c` | Copy selected item(s) into clipboard |
 | `C` | Copy absolute path(s) to system clipboard |
@@ -221,7 +221,7 @@ After you quit (`q`), the script writes the current working directory to the exp
 
 ## Notes
 
-- **Multi-select:** Press `Insert` to toggle selection on any item — it is highlighted in magenta and marked with `*`. Press `c`, `m`, or `d` to copy, move, or delete all selected items at once. Selection is cleared automatically when navigating into a different directory.
+- **Multi-select:** Press `Insert` or `Space` to toggle selection on any item — it is highlighted in magenta and marked with `*`. Press `c`, `m`, or `d` to copy, move, or delete all selected items at once. Selection is cleared automatically when navigating into a different directory.
 - Press `C` to copy absolute path(s) to your desktop clipboard (selected items, or current item if none are selected) so you can paste after exiting `sb`.
 - If a paste target name already exists, `sb` prompts for a new name for each conflicting item.
 - For images (`jpg`, `png`, `gif`, etc.), `sb` uses `chafa` if available; otherwise it falls back to the normal file-open flow.
