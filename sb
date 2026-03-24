@@ -83,7 +83,7 @@ if [[ -n "$NAME_COL_WIDTH_OVERRIDE" ]]; then
         exit 1
     fi
 fi
-init_platform() { OS_NAME=$(uname -s 2>/dev/null); OPEN_CMD="xdg-open"; LS_CMD="ls"; LS_GROUP_DIRS=0; (( BASH_VERSINFO[0] >= 4 )) && READ_TIMEOUT="0.001" || READ_TIMEOUT="1"; [[ "$OS_NAME" == "Darwin" ]] && OPEN_CMD="open" && command -v gls &>/dev/null && LS_CMD="gls"; "$LS_CMD" -F --group-directories-first -d . >/dev/null 2>&1 && LS_GROUP_DIRS=1; }
+init_platform() { OS_NAME=$(uname -s 2>/dev/null); OPEN_CMD="xdg-open"; LS_CMD="ls"; LS_GROUP_DIRS=0; STAT_FMT_MTIME="-c %Y"; STAT_FMT_SIZE="-c %s"; (( BASH_VERSINFO[0] >= 4 )) && READ_TIMEOUT="0.001" || READ_TIMEOUT="1"; [[ "$OS_NAME" == "Darwin" ]] && OPEN_CMD="open" && command -v gls &>/dev/null && LS_CMD="gls"; [[ "$OS_NAME" == "Darwin" && "$LS_CMD" == "ls" ]] && STAT_FMT_MTIME="-f %m" && STAT_FMT_SIZE="-f %z"; "$LS_CMD" -F --group-directories-first -d . >/dev/null 2>&1 && LS_GROUP_DIRS=1; }
 HELP_SECTION=''; HELP_KEY="$STATUS_VALUE"; HELP_ACCENT="$STATUS_VALUE"
 init_platform
 orig_stty=$(stty -g)
@@ -180,7 +180,7 @@ sort_items_by_mode() {
                 case "$last_char" in
                     '/'|'@'|'*'|'|'|'='|'>') clean_item="${clean_item:0:${#clean_item}-1}" ;;
                 esac
-                mtime=$(stat -c %Y -- "$clean_item" 2>/dev/null || echo 0)
+                mtime=$(stat $STAT_FMT_MTIME -- "$clean_item" 2>/dev/null || echo 0)
                 key=$(printf "%020d" "$mtime")
                 ;;
             size)
@@ -190,7 +190,7 @@ sort_items_by_mode() {
                 case "$last_char" in
                     '/'|'@'|'*'|'|'|'='|'>') clean_item="${clean_item:0:${#clean_item}-1}" ;;
                 esac
-                size=$(stat -c %s -- "$clean_item" 2>/dev/null || echo 0)
+                size=$(stat $STAT_FMT_SIZE -- "$clean_item" 2>/dev/null || echo 0)
                 key=$(printf "%020d" "$size")
                 ;;
             ext)
@@ -236,7 +236,12 @@ sort_files_by_mode() {
 get_sort_display() { local mode_label="Name"; local is_desc=0; case "$SORT_MODE" in name) mode_label="Name"; is_desc=$SORT_NAME_DESC ;; date) mode_label="Date"; is_desc=$SORT_DATE_DESC ;; size) mode_label="Size"; is_desc=$SORT_SIZE_DESC ;; ext) mode_label="Ext"; is_desc=$SORT_EXT_DESC ;; esac; if (( is_desc )); then printf "%s↓" "$mode_label"; else printf "%s↑" "$mode_label"; fi; }
 build_item_meta() {
     local clean_f="$1"
-    [[ -e "$clean_f" || -L "$clean_f" ]] && LC_TIME=C ls -ldh --time-style=long-iso "$clean_f" 2>/dev/null | awk '{printf "%s|%s|%s|%s %s", $3, $1, $5, $6, $7}' && return
+    if [[ -e "$clean_f" || -L "$clean_f" ]]; then
+        if [[ "$OS_NAME" == "Darwin" && "$LS_CMD" == "ls" ]]; then
+            LC_TIME=C stat -f '%Su|%Sp|%z|%Sm' -t '%Y-%m-%d %H:%M' -- "$clean_f" 2>/dev/null && return
+        fi
+        LC_TIME=C ls -ldh --time-style=long-iso -- "$clean_f" 2>/dev/null | awk '{printf "%s|%s|%s|%s %s", $3, $1, $5, $6, $7}' && return
+    fi
     printf "%s" "$DEFAULT_META"
 }
 populate_display_data_bulk() {
@@ -298,26 +303,36 @@ populate_display_data_bulk() {
 
     (( ${#clean_items[@]} == 0 )) && return
 
-    while IFS='|' read -r perms owner size date time filename; do
-        [[ -z "$owner" || -z "$perms" || -z "$size" || -z "$date" || -z "$time" || -z "$filename" ]] && continue
-        
-        # Match by filename to handle ls output being in any order
-        if [[ -n "${item_to_idx[$filename]}" ]]; then
-            idx=${item_to_idx[$filename]}
-            metadata[$idx]="${owner}|${perms}|${size}|${date} ${time}"
-        fi
-    done < <(LC_TIME=C "$LS_CMD" -ldh --time-style=long-iso -- "${clean_items[@]}" 2>/dev/null | awk '{
-        perms=$1; owner=$3; size=$5; date=$6; time=$7
-        filename=""
-        for(i=8;i<=NF;i++) {
-            if(i>8) filename=filename" "
-            filename=filename$i
-        }
-        # Strip " -> target" part for symlinks
-        idx=index(filename, " ->")
-        if(idx>0) filename=substr(filename, 1, idx-1)
-        printf "%s|%s|%s|%s|%s|%s\n", perms, owner, size, date, time, filename
-    }')
+    if [[ "$OS_NAME" == "Darwin" && "$LS_CMD" == "ls" ]]; then
+        while IFS='|' read -r owner perms size date time filename; do
+            [[ -z "$owner" || -z "$perms" || -z "$size" || -z "$date" || -z "$time" || -z "$filename" ]] && continue
+            if [[ -n "${item_to_idx[$filename]}" ]]; then
+                idx=${item_to_idx[$filename]}
+                metadata[$idx]="${owner}|${perms}|${size}|${date} ${time}"
+            fi
+        done < <(LC_TIME=C stat -f '%Su|%Sp|%z|%Sm|%N' -t '%Y-%m-%d|%H:%M' -- "${clean_items[@]}" 2>/dev/null)
+    else
+        while IFS='|' read -r perms owner size date time filename; do
+            [[ -z "$owner" || -z "$perms" || -z "$size" || -z "$date" || -z "$time" || -z "$filename" ]] && continue
+
+            # Match by filename to handle ls output being in any order
+            if [[ -n "${item_to_idx[$filename]}" ]]; then
+                idx=${item_to_idx[$filename]}
+                metadata[$idx]="${owner}|${perms}|${size}|${date} ${time}"
+            fi
+        done < <(LC_TIME=C "$LS_CMD" -ldh --time-style=long-iso -- "${clean_items[@]}" 2>/dev/null | awk '{
+            perms=$1; owner=$3; size=$5; date=$6; time=$7
+            filename=""
+            for(i=8;i<=NF;i++) {
+                if(i>8) filename=filename" "
+                filename=filename$i
+            }
+            # Strip " -> target" part for symlinks
+            idx=index(filename, " ->")
+            if(idx>0) filename=substr(filename, 1, idx-1)
+            printf "%s|%s|%s|%s|%s|%s\n", perms, owner, size, date, time, filename
+        }')
+    fi
 }
 ensure_row_data() {
     local idx="$1"
