@@ -105,7 +105,10 @@ strip_ls_suffix() {
 get_color() {
     local f="$1"
     local clean_f clean_no_suffix base_name
-    clean_f=$(strip_ls_suffix "$f")
+    clean_f="$f"
+    case "${clean_f: -1}" in
+        '/'|'@'|'*'|'|'|'='|'>') clean_f="${clean_f:0:${#clean_f}-1}" ;;
+    esac
     clean_no_suffix="${clean_f%/}"
     base_name="${clean_no_suffix##*/}"
     if [[ "$base_name" == .* ]]; then
@@ -130,7 +133,10 @@ icon_for_item() { local path="$1"; local lower_name="${2,,}"; if [[ -d "$path" ]
 icon_for_list_item() {
     local item="$1"
     local clean_f lower_name
-    clean_f=$(strip_ls_suffix "$item")
+    clean_f="$item"
+    case "${clean_f: -1}" in
+        '/'|'@'|'*'|'|'|'='|'>') clean_f="${clean_f:0:${#clean_f}-1}" ;;
+    esac
     lower_name="${clean_f##*/}"
     lower_name="${lower_name,,}"
     case "$item" in
@@ -153,7 +159,10 @@ icon_for_list_item() {
 sort_key_for_item() {
     local item="$1"
     local clean_f base ext key size mtime
-    clean_f=$(strip_ls_suffix "$item")
+    clean_f="$item"
+    case "${clean_f: -1}" in
+        '/'|'@'|'*'|'|'|'='|'>') clean_f="${clean_f:0:${#clean_f}-1}" ;;
+    esac
     base="${clean_f##*/}"
     case "$SORT_MODE" in
         name) key="${base,,}" ;;
@@ -190,7 +199,7 @@ build_item_meta() {
 }
 populate_display_data_bulk() {
     local -a clean_items=()
-    local f clean_f
+    local f clean_f lower_name last_char
     local i idx=0
     local perms owner size mon day stamp
     local default_meta="----------|----------|-----|------------"
@@ -199,10 +208,46 @@ populate_display_data_bulk() {
     metadata=()
 
     for f in "${files[@]}"; do
-        file_icons+=("$(icon_for_list_item "$f")")
         metadata+=("$default_meta")
-        [[ "$f" == "(Empty Directory)" ]] && continue
-        clean_f=$(strip_ls_suffix "$f")
+        if [[ "$f" == "(Empty Directory)" ]]; then
+            file_icons+=("$ICON_DIR")
+            continue
+        fi
+
+        clean_f="$f"
+        last_char="${clean_f: -1}"
+        case "$last_char" in
+            '/')
+                file_icons+=("$ICON_DIR")
+                clean_f="${clean_f:0:${#clean_f}-1}"
+                ;;
+            '@')
+                file_icons+=("$ICON_LINK")
+                clean_f="${clean_f:0:${#clean_f}-1}"
+                ;;
+            '*')
+                file_icons+=("$ICON_EXEC")
+                clean_f="${clean_f:0:${#clean_f}-1}"
+                ;;
+            '|'|'='|'>')
+                clean_f="${clean_f:0:${#clean_f}-1}"
+                ;;
+        esac
+
+        if [[ "$last_char" != '/' && "$last_char" != '@' && "$last_char" != '*' ]]; then
+            lower_name="${clean_f##*/}"
+            lower_name="${lower_name,,}"
+            case "$lower_name" in
+                *.jpg|*.jpeg|*.png|*.gif|*.bmp|*.webp|*.tiff|*.ico|*.svg) file_icons+=("$ICON_IMAGE") ;;
+                *.mp4|*.mkv|*.avi|*.mov|*.webm|*.flv|*.m4v) file_icons+=("$ICON_VIDEO") ;;
+                *.mp3|*.wav|*.ogg|*.flac|*.aac|*.m4a) file_icons+=("$ICON_AUDIO") ;;
+                *.zip|*.tar|*.tar.gz|*.tgz|*.bz2|*.xz|*.rar|*.7z|*.gz) file_icons+=("$ICON_ARCHIVE") ;;
+                *.sh|*.bash|*.zsh|*.fish|*.py|*.js|*.ts|*.rb|*.pl|*.php) file_icons+=("$ICON_SCRIPT") ;;
+                *.c|*.h|*.cpp|*.hpp|*.go|*.rs|*.java|*.kt|*.swift|*.cs|*.json|*.yaml|*.yml|*.toml|*.ini|*.conf|*.md|*.txt) file_icons+=("$ICON_CODE") ;;
+                *) file_icons+=("$ICON_FILE") ;;
+            esac
+        fi
+
         clean_items+=("$clean_f")
     done
 
@@ -225,7 +270,7 @@ populate_display_data_bulk() {
 }
 ensure_row_data() {
     local idx="$1"
-    local f_name clean_f base_name
+    local f_name
     f_name="${files[$idx]}"
     [[ -z "$f_name" ]] && return
     [[ "$f_name" == "(Empty Directory)" ]] && {
