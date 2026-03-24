@@ -86,6 +86,7 @@ fi
 init_platform() { OS_NAME=$(uname -s 2>/dev/null); OPEN_CMD="xdg-open"; LS_CMD="ls"; LS_GROUP_DIRS=0; STAT_FMT_MTIME="-c %Y"; STAT_FMT_SIZE="-c %s"; (( BASH_VERSINFO[0] >= 4 )) && READ_TIMEOUT="0.001" || READ_TIMEOUT="1"; [[ "$OS_NAME" == "Darwin" ]] && OPEN_CMD="open" && command -v gls &>/dev/null && LS_CMD="gls"; [[ "$OS_NAME" == "Darwin" && "$LS_CMD" == "ls" ]] && STAT_FMT_MTIME="-f %m" && STAT_FMT_SIZE="-f %z"; "$LS_CMD" -F --group-directories-first -d . >/dev/null 2>&1 && LS_GROUP_DIRS=1; }
 HELP_SECTION=''; HELP_KEY="$STATUS_VALUE"; HELP_ACCENT="$STATUS_VALUE"
 init_platform
+USER_HOST="${USER:-$(id -un 2>/dev/null)}@$(hostname -s 2>/dev/null || hostname 2>/dev/null || printf 'unknown')"
 orig_stty=$(stty -g)
 cleanup() { echo -ne "\033[?25h"; stty "$orig_stty"; [[ -n "$EXPORT_FILE" ]] && pwd > "$EXPORT_FILE"; clear; }
 handle_resize() { get_terminal_size; old_cursor=-1; old_scroll=-1; stty -echo cbreak -ixon; printf "\033[2J\033[1;1H"; draw_ui; }
@@ -410,7 +411,7 @@ draw_ui() {
 
     buffer+=$'\e[H\e[?25l'
     buffer+=$'\e[1;1H\e[K'
-    header_prefix="» "
+    header_prefix="${USER_HOST} » "
     header_path=$(fit_status_path "$(pwd)" "$header_prefix")
     buffer+=$(printf "%b%b%b\n" "${STATUS_LABEL}${header_prefix}${NC}" "${STATUS_VALUE}${header_path}" "${NC}")
     buffer+=$'\e[2;1H'
@@ -703,7 +704,7 @@ jump_to_path() {
     # Make Tab accept the line in this prompt, then restore the previous binding.
     old_tab_binding=$(bind -p 2>/dev/null | awk '/"\\C-i":/{print; exit}')
     bind '"\C-i": accept-line' 2>/dev/null
-    read -e -i "$(pwd)" -p "» " newpath
+    read -e -i "$(pwd)" -p "${USER_HOST} » " newpath
     if [[ -n "$old_tab_binding" ]]; then
         bind "$old_tab_binding" 2>/dev/null
     else
