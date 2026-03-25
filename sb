@@ -17,7 +17,7 @@ EOF
 
 update_self() { curl -fsSL "${SB_INSTALLER_URL:-https://raw.githubusercontent.com/hjelev/sb/master/install.sh}" | bash -s -- --install-dir "$(cd "$(dirname "$(command -v -- "$0" 2>/dev/null || printf '%s' "$0")")" && pwd -P)";}
 show_integrations() {
-    local -a integrations=("git" "chafa" "glow" "csvlens" "jnv" "bat" "fzf" "rg" "delta")
+    local -a integrations=("git" "chafa" "glow" "csvlens" "jnv" "ouch" "bat" "fzf" "rg" "delta")
     printf "%b" "${CYAN}Available Integrations:\n\n${NC}"
     for tool in "${integrations[@]}"; do
         if command -v "$tool" &>/dev/null; then
@@ -33,6 +33,7 @@ show_integrations() {
     printf "  ${YELLOW}glow${NC}        - Markdown preview\n"
     printf "  ${YELLOW}csvlens${NC}     - Delimited file preview (.csv, .tsv, .tab, .psv, .dsv)\n"
     printf "  ${YELLOW}jnv${NC}         - JSON preview (.json, .jsonl, .ndjson, .geojson)\n"
+    printf "  ${YELLOW}ouch${NC}        - Archive content preview via 'ouch list'\n"
     printf "  ${YELLOW}bat${NC}         - Syntax highlighting for code files\n"
     printf "  ${YELLOW}fzf${NC}         - Fuzzy finder for directory/file jumping\n"
     printf "  ${YELLOW}rg${NC}          - Ripgrep for fast text search\n"
@@ -506,7 +507,32 @@ get_item() {
 preview_image_in_terminal() { local item="$1"; echo -ne "\033[?25h"; tput smcup; printf "\033[H"; chafa "$item" | head -n $((term_rows - 2)); printf "\033[$((term_rows));1H"; IFS= read -rsn1 _tmp; [[ "$_tmp" == $'\e' ]] && while IFS= read -rsN1 -t "$READ_TIMEOUT" _tmp; do :; done; tput rmcup; echo -ne "\033[?25l"; redraw_cursor; }
 open_file() { local item="$1"; if command -v chafa &>/dev/null && [[ "$item" =~ \.(jpg|jpeg|png|gif|bmp|webp|tiff|ico)$ ]]; then preview_image_in_terminal "$item"; else open_external "$item"; fi; }
 open_with_less() { local item="$1"; [[ -f "$item" ]] || return; run_interactive_command less -- "$item"; }
-open_with_preview() { local item="$1" lower_item; [[ -f "$item" ]] || return; lower_item="${item,,}"; if command -v chafa &>/dev/null && [[ "$item" =~ \.(jpg|jpeg|png|gif|bmp|webp|tiff|ico)$ ]]; then preview_image_in_terminal "$item"; elif command -v glow &>/dev/null && [[ "$item" =~ \.(md|markdown)$ ]]; then run_interactive_command glow -p -- "$item"; elif command -v csvlens &>/dev/null && [[ "$lower_item" =~ \.(csv|tsv|tab|psv|dsv)$ ]]; then run_interactive_command csvlens -- "$item"; elif command -v jnv &>/dev/null && [[ "$lower_item" =~ \.(json|jsonl|ndjson|geojson)$ ]]; then run_interactive_command jnv -- "$item"; elif command -v bat &>/dev/null; then run_interactive_command bat --paging=always -- "$item"; else run_interactive_command less -- "$item"; fi; }
+open_with_preview() {
+    local item="$1" lower_item
+    [[ -f "$item" ]] || return
+    lower_item="${item,,}"
+
+    if command -v chafa &>/dev/null && [[ "$item" =~ \.(jpg|jpeg|png|gif|bmp|webp|tiff|ico)$ ]]; then
+        preview_image_in_terminal "$item"
+    elif command -v glow &>/dev/null && [[ "$item" =~ \.(md|markdown)$ ]]; then
+        run_interactive_command glow -p -- "$item"
+    elif command -v csvlens &>/dev/null && [[ "$lower_item" =~ \.(csv|tsv|tab|psv|dsv)$ ]]; then
+        run_interactive_command csvlens -- "$item"
+    elif command -v jnv &>/dev/null && [[ "$lower_item" =~ \.(json|jsonl|ndjson|geojson)$ ]]; then
+        run_interactive_command jnv -- "$item"
+    elif command -v ouch &>/dev/null && [[ "$lower_item" =~ \.(zip|tar|tar\.gz|tgz|bz2|xz|rar|7z|gz)$ ]]; then
+        # Pipe through less so archive contents stay visible instead of flashing.
+        if command -v less &>/dev/null; then
+            run_interactive_command bash -lc 'ouch list -- "$1" | less -R' _ "$item"
+        else
+            run_interactive_command ouch list -- "$item"
+        fi
+    elif command -v bat &>/dev/null; then
+        run_interactive_command bat --paging=always -- "$item"
+    else
+        run_interactive_command less -- "$item"
+    fi
+}
 open_in_gui() { local item="$1"; if is_gui_session; then command -v "$OPEN_CMD" &>/dev/null && "$OPEN_CMD" "$item" >/dev/null 2>&1 && return 0; [[ "$OPEN_CMD" != "xdg-open" ]] && command -v xdg-open &>/dev/null && xdg-open "$item" >/dev/null 2>&1 && return 0; [[ "$OPEN_CMD" != "open" ]] && command -v open &>/dev/null && open "$item" >/dev/null 2>&1 && return 0; fi; show_open_error "$item"; return 1; }
 open_in_editor() { local item="$1"; [[ -f "$item" ]] && open_in_terminal_editor "$item"; }
 jump_to_bookmark() { local key="$1"; local var_name="SB_BOOKMARK_${key}"; local target="${!var_name-}"; [[ -z "$target" ]] && return; target="${target/#\~/$HOME}"; if [[ ! -d "$target" ]]; then draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Not a directory: $target${NC}"; return; fi; dir_positions["$(pwd)"]=$cursor; if cd "$target" 2>/dev/null; then clear_selection; get_terminal_size; show_loading_status; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui; else draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Permission denied: $target${NC}"; fi; }

@@ -1,0 +1,22 @@
+/home/masoko/.cargo/bin/ouch
+rc1:0
+List contents of an archive
+
+Usage: ouch list [OPTIONS] <ARCHIVES>...
+
+Arguments:
+  <ARCHIVES>...  Archives whose contents should be listed
+
+Options:
+  -t, --tree                 Show archive contents as a tree
+  -y, --yes                  Skip [Y/n] questions, default to yes
+  -n, --no                   Skip [Y/n] questions, default to no
+  -A, --accessible           Activate accessibility mode, reducing visual noise [env: ACCESSIBLE=]
+  -H, --hidden               Ignore hidden files
+  -q, --quiet                Silence output
+  -g, --gitignore            Ignore files matched by git's ignore files
+  -f, --format <FORMAT>      Specify the format of the archive
+  -p, --password <PASSWORD>  Decompress or list with password
+  -c, --threads <THREADS>    Concurrent working threads
+  -h, --help                 Print help
+rc2:0

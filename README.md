@@ -32,6 +32,7 @@ A lightweight terminal file browser written in Bash.
 - Optional image preview in terminal (via `chafa`)
 - Optional delimited-file preview in terminal (via `csvlens` for `.csv`, `.tsv`, `.tab`, `.psv`, `.dsv`)
 - Optional JSON preview in terminal (via `jnv` for `.json`, `.jsonl`, `.ndjson`, `.geojson`)
+- Optional archive content preview in terminal (via `ouch list` for archives like `.zip`, `.tar`, `.tar.gz`, `.tgz`, `.bz2`, `.xz`, `.rar`, `.7z`, `.gz`)
 - Auto-fallback opening behavior for GUI and headless systems
 - UI adapts to terminal resize events
 - Optional export of final directory path on exit
@@ -51,6 +52,7 @@ A lightweight terminal file browser written in Bash.
 - Optional: `chafa` (for inline image preview)
 - Optional: `csvlens` (for delimited-file preview)
 - Optional: `jnv` (for JSON preview)
+- Optional: `ouch` (for archive content preview)
 
 ## Installation
 
