@@ -3,11 +3,12 @@ VERSION=""
 
 usage() {
     cat <<'EOF'
-Usage: sb [--export-path FILE] [-w WIDTH] [--update] [--version] [--help]
+Usage: sb [--export-path FILE] [-w WIDTH] [--update] [-i|--int] [--version] [--help]
 
 Options:
-  --export-path FILE  Write the final working directory to FILE on exit.
-    -w, --width WIDTH   Set initial name column width (10-40).
+    --export-path FILE  Write the final working directory to FILE on exit.
+        -w, --width WIDTH   Set initial name column width (10-60).
+  -i, --int           Show status of available integrations and exit.
   --update            Reinstall/update sb using the installer script.
   --version           Print the sb version and exit.
   --help              Show this help text and exit.
@@ -15,12 +16,35 @@ EOF
 }
 
 update_self() { curl -fsSL "${SB_INSTALLER_URL:-https://raw.githubusercontent.com/hjelev/sb/master/install.sh}" | bash -s -- --install-dir "$(cd "$(dirname "$(command -v -- "$0" 2>/dev/null || printf '%s' "$0")")" && pwd -P)";}
-
+show_integrations() {
+    local -a integrations=("chafa" "glow" "csvlens" "jnv" "bat" "fzf" "rg" "delta")
+    printf "%b" "${CYAN}Available Integrations:\n\n${NC}"
+    for tool in "${integrations[@]}"; do
+        if command -v "$tool" &>/dev/null; then
+            local version=$("$tool" --version 2>&1 | head -n 1)
+            printf "  ${GREEN}✓${NC} %-12s ${version}\n" "$tool"
+        else
+            printf "  ${RED}✗${NC} %-12s ${AMBER}not installed${NC}\n" "$tool"
+        fi
+    done
+    printf "\n%b" "${CYAN}Integration Descriptions:${NC}\n"
+    printf "  ${YELLOW}chafa${NC}       - Image preview in terminal\n"
+    printf "  ${YELLOW}glow${NC}        - Markdown preview\n"
+    printf "  ${YELLOW}csvlens${NC}     - Delimited file preview (.csv, .tsv, .tab, .psv, .dsv)\n"
+    printf "  ${YELLOW}jnv${NC}         - JSON preview (.json, .jsonl, .ndjson, .geojson)\n"
+    printf "  ${YELLOW}bat${NC}         - Syntax highlighting for code files\n"
+    printf "  ${YELLOW}fzf${NC}         - Fuzzy finder for directory/file jumping\n"
+    printf "  ${YELLOW}rg${NC}          - Ripgrep for fast text search\n"
+    printf "  ${YELLOW}delta${NC}       - Enhanced diff viewer for file comparison\n"
+}
 if (( BASH_VERSINFO[0] < 4 )); then
     echo "Error: sb requires bash 4.0 or newer." >&2
     echo "macOS ships with bash 3.2. Install a newer version with: brew install bash" >&2
     exit 1
 fi
+
+HIGHLIGHT='\033[1;44m'; BLUE='\033[1;34m'; YELLOW='\033[1;38;5;229m'; AMBER='\033[1;38;5;172m'; GREEN='\033[1;32m'; CYAN='\033[1;36m'; RED='\033[1;31m'; NC='\033[0m'; SELECT='\033[48;5;66m'; STATUS_LABEL='\033[38;5;244m'; STATUS_VALUE='\033[1;97m'; HIDDEN_FILE='\033[0m'; HIDDEN_DIR='\033[38;5;67m'
+
 EXPORT_FILE=""
 NAME_COL_WIDTH_OVERRIDE=""
 while (($# > 0)); do
@@ -41,6 +65,10 @@ while (($# > 0)); do
             NAME_COL_WIDTH_OVERRIDE="$2"
             shift 2
             ;;
+        -i|--int)
+            show_integrations
+            exit 0
+            ;;
         --version)
             printf "sb %s\n" "$VERSION"
             exit 0
@@ -60,7 +88,6 @@ while (($# > 0)); do
             ;;
     esac
 done
-HIGHLIGHT='\033[1;44m'; BLUE='\033[1;34m'; YELLOW='\033[1;38;5;229m'; AMBER='\033[1;38;5;172m'; GREEN='\033[1;32m'; CYAN='\033[1;36m'; RED='\033[1;31m'; NC='\033[0m'; SELECT='\033[48;5;66m'; STATUS_LABEL='\033[38;5;244m'; STATUS_VALUE='\033[1;97m'; HIDDEN_FILE='\033[0m'; HIDDEN_DIR='\033[38;5;67m'
 ICON_DIR='📁'; ICON_LINK='🔗'; ICON_FILE='📄'; ICON_EXEC='🛠'; ICON_IMAGE='🖼'; ICON_VIDEO='🎬'; ICON_AUDIO='🎵'; ICON_ARCHIVE='📦'; ICON_SCRIPT='📜'; ICON_CODE='💻'
 DEFAULT_META='----------|----------|-----|----------------'
 META_COL_FMT='%-12s %-11s %8s  %16s'
@@ -73,7 +100,7 @@ SORT_SIZE_DESC=0
 SORT_EXT_DESC=0
 NAME_COL_WIDTH=22
 NAME_COL_MIN=10
-NAME_COL_MAX=40
+NAME_COL_MAX=60
 BASE_MIN_COLS=56
 if [[ -n "$NAME_COL_WIDTH_OVERRIDE" ]]; then
     if [[ "$NAME_COL_WIDTH_OVERRIDE" =~ ^[0-9]+$ ]] && (( NAME_COL_WIDTH_OVERRIDE >= NAME_COL_MIN && NAME_COL_WIDTH_OVERRIDE <= NAME_COL_MAX )); then
@@ -461,7 +488,8 @@ get_item() {
 }
 preview_image_in_terminal() { local item="$1"; echo -ne "\033[?25h"; tput smcup; printf "\033[H"; chafa "$item" | head -n $((term_rows - 2)); printf "\033[$((term_rows));1H"; IFS= read -rsn1 _tmp; [[ "$_tmp" == $'\e' ]] && while IFS= read -rsN1 -t "$READ_TIMEOUT" _tmp; do :; done; tput rmcup; echo -ne "\033[?25l"; redraw_cursor; }
 open_file() { local item="$1"; if command -v chafa &>/dev/null && [[ "$item" =~ \.(jpg|jpeg|png|gif|bmp|webp|tiff|ico)$ ]]; then preview_image_in_terminal "$item"; else open_external "$item"; fi; }
-open_with_less() { local item="$1"; [[ -f "$item" ]] || return; if command -v chafa &>/dev/null && [[ "$item" =~ \.(jpg|jpeg|png|gif|bmp|webp|tiff|ico)$ ]]; then preview_image_in_terminal "$item"; elif command -v glow &>/dev/null && [[ "$item" =~ \.(md|markdown)$ ]]; then run_interactive_command glow -p -- "$item"; elif command -v bat &>/dev/null; then run_interactive_command bat --paging=always -- "$item"; else run_interactive_command less -- "$item"; fi; }
+open_with_less() { local item="$1"; [[ -f "$item" ]] || return; run_interactive_command less -- "$item"; }
+open_with_preview() { local item="$1" lower_item; [[ -f "$item" ]] || return; lower_item="${item,,}"; if command -v chafa &>/dev/null && [[ "$item" =~ \.(jpg|jpeg|png|gif|bmp|webp|tiff|ico)$ ]]; then preview_image_in_terminal "$item"; elif command -v glow &>/dev/null && [[ "$item" =~ \.(md|markdown)$ ]]; then run_interactive_command glow -p -- "$item"; elif command -v csvlens &>/dev/null && [[ "$lower_item" =~ \.(csv|tsv|tab|psv|dsv)$ ]]; then run_interactive_command csvlens -- "$item"; elif command -v jnv &>/dev/null && [[ "$lower_item" =~ \.(json|jsonl|ndjson|geojson)$ ]]; then run_interactive_command jnv -- "$item"; elif command -v bat &>/dev/null; then run_interactive_command bat --paging=always -- "$item"; else run_interactive_command less -- "$item"; fi; }
 open_in_gui() { local item="$1"; if is_gui_session; then command -v "$OPEN_CMD" &>/dev/null && "$OPEN_CMD" "$item" >/dev/null 2>&1 && return 0; [[ "$OPEN_CMD" != "xdg-open" ]] && command -v xdg-open &>/dev/null && xdg-open "$item" >/dev/null 2>&1 && return 0; [[ "$OPEN_CMD" != "open" ]] && command -v open &>/dev/null && open "$item" >/dev/null 2>&1 && return 0; fi; show_open_error "$item"; return 1; }
 open_in_editor() { local item="$1"; [[ -f "$item" ]] && open_in_terminal_editor "$item"; }
 jump_to_bookmark() { local key="$1"; local var_name="SB_BOOKMARK_${key}"; local target="${!var_name-}"; [[ -z "$target" ]] && return; target="${target/#\~/$HOME}"; if [[ ! -d "$target" ]]; then draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Not a directory: $target${NC}"; return; fi; dir_positions["$(pwd)"]=$cursor; if cd "$target" 2>/dev/null; then clear_selection; get_terminal_size; show_loading_status; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui; else draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Permission denied: $target${NC}"; fi; }
@@ -508,7 +536,7 @@ show_help() {
         "Up/Down      Move selection"
         "PgUp/PgDn    Jump by page"
         "Home/End     Jump top/bottom"
-        "Right/Enter  Enter dir / less"
+        "Right/Enter  Enter dir / smart preview"
         "Left         Go to parent dir"
         "~            Go to home dir"
         "0-9          Jump to bookmark"
@@ -812,7 +840,7 @@ $'\e[5~') old_cursor=$cursor; ((cursor -= max_rows)); (( cursor < 1 )) && cursor
 $'\e[6~') old_cursor=$cursor; ((cursor += max_rows)); (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor != old_cursor )) && redraw_cursor ;;
 $'\e[H'|$'\e[1~'|$'\e[7~'|$'\eOH') ((cursor > 1)) && cursor=1 && redraw_cursor ;;
 $'\e[F'|$'\e[4~'|$'\e[8~'|$'\eOF') ((cursor < ${#files[@]})) && cursor=${#files[@]} && redraw_cursor ;;
-$'\e[C'|$'\n'|$'\r') item=$(get_item); if [ -d "$item" ]; then dir_positions["$(pwd)"]=$cursor; if cd "$item" 2>/dev/null; then clear_selection; get_terminal_size; show_loading_status; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; draw_ui; else draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Permission denied: $item${NC}"; fi; elif [ -f "$item" ]; then open_with_less "$item"; fi ;;
+$'\e[C'|$'\n'|$'\r') item=$(get_item); if [ -d "$item" ]; then dir_positions["$(pwd)"]=$cursor; if cd "$item" 2>/dev/null; then clear_selection; get_terminal_size; show_loading_status; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; draw_ui; else draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Permission denied: $item${NC}"; fi; elif [ -f "$item" ]; then open_with_preview "$item"; fi ;;
 $'\e[D') dir_positions["$(pwd)"]=$cursor; if cd .. 2>/dev/null; then clear_selection; get_terminal_size; show_loading_status; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; draw_ui; else draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Permission denied: cannot access parent directory${NC}"; fi ;;
 '~') dir_positions["$(pwd)"]=$cursor; if cd "$HOME" 2>/dev/null; then clear_selection; get_terminal_size; show_loading_status; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; draw_ui; else draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Permission denied: cannot access home directory${NC}"; fi ;;
 $'\e[2~'|$'\e[L'|' ') toggle_selection; if ((cursor < ${#files[@]})); then ((cursor++)); fi; redraw_cursor ;;

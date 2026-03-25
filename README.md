@@ -8,7 +8,7 @@ A lightweight terminal file browser written in Bash.
 
 - Fast keyboard navigation (`↑/↓`) through files and folders
 - Page navigation with `PgUp`/`PgDn` and quick jump with `Home`/`End`
-- Open directory with `→` or `Enter`; open files in `less`
+- Open directory with `→` or `Enter`; open files with smart preview (integrations when available)
 - Go back with `←`
 - Jump to home directory with `~`
 - Multi-select items with `Insert` or `Space` (highlighted in magenta); `c`, `m`, and `d` operate on the whole selection
@@ -29,6 +29,8 @@ A lightweight terminal file browser written in Bash.
 - Shows current directory path in the header row
 - Displays owner, permissions, size, and modified time
 - Optional image preview in terminal (via `chafa`)
+- Optional delimited-file preview in terminal (via `csvlens` for `.csv`, `.tsv`, `.tab`, `.psv`, `.dsv`)
+- Optional JSON preview in terminal (via `jnv` for `.json`, `.jsonl`, `.ndjson`, `.geojson`)
 - Auto-fallback opening behavior for GUI and headless systems
 - UI adapts to terminal resize events
 - Optional export of final directory path on exit
@@ -46,6 +48,8 @@ A lightweight terminal file browser written in Bash.
 - Optional: `wl-copy` (`wl-clipboard`) or `xclip` or `xsel` (for system clipboard path copy via `C`)
 - One of `nano`, `vim`, `vi`, `less`, or another editor via `$EDITOR`/`$VISUAL` for headless servers
 - Optional: `chafa` (for inline image preview)
+- Optional: `csvlens` (for delimited-file preview)
+- Optional: `jnv` (for JSON preview)
 
 ## Installation
 
@@ -192,7 +196,7 @@ After you quit (`q`), the script writes the current working directory to the exp
 | `↑` / `↓` | Move selection |
 | `PgUp` / `PgDn` | Jump by one page |
 | `Home` / `End` | Jump to top / bottom |
-| `→` or `Enter` | Enter directory / open file in `less` |
+| `→` or `Enter` | Enter directory / smart preview with integrations |
 | `←` | Go to parent directory |
 | `~` | Jump to `$HOME` |
 | `0-9` | Jump to `SB_BOOKMARK_0..SB_BOOKMARK_9` |
