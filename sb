@@ -102,6 +102,7 @@ cursor=1; old_cursor=0; old_scroll=-1; scroll_offset=0; files=(); metadata=(); f
 GIT_HEADER_SUFFIX=""
 DUST_MODE=0
 declare -A dust_sizes
+DUST_TOTAL=""
 SHOW_HIDDEN=0
 SORT_MODE="name"
 SORT_NAME_DESC=0
@@ -459,6 +460,7 @@ get_item_size_bytes() {
 
 update_dust_sizes() {
     dust_sizes=()
+    DUST_TOTAL=""
     if ! command -v dust &>/dev/null || (( ! DUST_MODE )); then
         return
     fi
@@ -476,7 +478,12 @@ update_dust_sizes() {
         (( total_bytes += bytes ))
     done
 
-    (( total_bytes > 0 )) || return
+    if (( total_bytes <= 0 )); then
+        DUST_TOTAL="0B"
+        return
+    fi
+
+    DUST_TOTAL=$(format_bytes_human "$total_bytes")
 
     for item in "${!raw_sizes[@]}"; do
         bytes=${raw_sizes[$item]}
@@ -568,7 +575,25 @@ draw_line() {
     fi
 }
 fit_status_path() { local path="$1"; local fixed_part="$2"; local available=$((term_cols - ${#fixed_part})); (( available < 0 )) && available=0; if (( ${#path} <= available )); then printf "%s" "$path"; elif (( available <= 3 )); then printf "%s" "${path:0:available}"; else printf "...%s" "${path: -$((available - 3))}"; fi; }
-draw_status_line() { local hidden_status="Off" dust_status="Off"; (( SHOW_HIDDEN )) && hidden_status="On"; (( DUST_MODE )) && dust_status="On"; local sel_count=${#selected[@]}; local total=${#files[@]}; local digits=${#total}; local clip_value="${CLIPBOARD_NAME:-None}"; local sel_progress sort_display fixed_display; sel_progress=$(printf "%*d/%d" "$digits" "$sel_count" "$total"); sort_display=$(get_sort_display); fixed_display="${STATUS_LABEL}[${NC} ${STATUS_VALUE}${sel_progress}${NC} ${STATUS_LABEL}Selected${NC} ${STATUS_LABEL}]${NC}    ${STATUS_LABEL}S:${NC} ${STATUS_VALUE}${sort_display}${NC}    ${STATUS_LABEL}H:${NC} ${STATUS_VALUE}${hidden_status}${NC}    ${STATUS_LABEL}Dust:${NC} ${STATUS_VALUE}${dust_status}${NC}    ${STATUS_LABEL}Clip:${NC} ${STATUS_VALUE}${clip_value}${NC}"; printf "\033[%d;1H\033[K" $((max_rows + 4)); printf "%b%b" "$fixed_display" "$NC"; }
+draw_status_line() {
+    local hidden_status="Off"
+    (( SHOW_HIDDEN )) && hidden_status="On"
+    local sel_count=${#selected[@]}
+    local total=${#files[@]}
+    local digits=${#total}
+    local clip_value="${CLIPBOARD_NAME:-None}"
+    local sel_progress sort_display fixed_display dust_total_segment=""
+
+    sel_progress=$(printf "%*d/%d" "$digits" "$sel_count" "$total")
+    sort_display=$(get_sort_display)
+    if (( DUST_MODE )); then
+        dust_total_segment="    ${STATUS_LABEL}T:${NC} ${STATUS_VALUE}${DUST_TOTAL:-0B}${NC}"
+    fi
+
+    fixed_display="${STATUS_LABEL}[${NC} ${STATUS_VALUE}${sel_progress}${NC} ${STATUS_LABEL}Selected${NC} ${STATUS_LABEL}]${NC}    ${STATUS_LABEL}S:${NC} ${STATUS_VALUE}${sort_display}${NC}    ${STATUS_LABEL}H:${NC} ${STATUS_VALUE}${hidden_status}${NC}    ${STATUS_LABEL}Clip:${NC} ${STATUS_VALUE}${clip_value}${NC}${dust_total_segment}"
+    printf "\033[%d;1H\033[K" $((max_rows + 4))
+    printf "%b%b" "$fixed_display" "$NC"
+}
 scroll_list_once() { local direction="$1"; local top=3; local bottom=$((max_rows + 2)); local old_idx=$((old_cursor - 1)); local new_idx=$((cursor - 1)); printf "\033[%d;%dr" "$top" "$bottom"; if [[ "$direction" == "down" ]]; then printf "\033[%d;1H\033[M" "$top"; if (( old_idx >= scroll_offset && old_idx < scroll_offset + max_rows )); then draw_line "$old_idx" $((bottom - 1)); fi; if (( new_idx >= scroll_offset && new_idx < scroll_offset + max_rows )); then draw_line "$new_idx" "$bottom"; fi; else printf "\033[%d;1H\033[L" "$top"; if (( new_idx >= scroll_offset && new_idx < scroll_offset + max_rows )); then draw_line "$new_idx" "$top"; fi; if (( old_idx >= scroll_offset && old_idx < scroll_offset + max_rows )); then draw_line "$old_idx" $((top + 1)); fi; fi; printf "\033[r"; draw_status_line; }
 draw_ui() {
     if is_terminal_too_narrow; then
@@ -578,13 +603,11 @@ draw_ui() {
     local total=${#files[@]}
     ensure_cursor_visible
     local hidden_status="Off"
-    local dust_status="Off"
     (( SHOW_HIDDEN )) && hidden_status="On"
-    (( DUST_MODE )) && dust_status="On"
     local sel_count=${#selected[@]}
     local digits=${#total}
     local clip_value="${CLIPBOARD_NAME:-None}"
-    local sel_progress sort_display fixed_display header_prefix header_path header_value header_display
+    local sel_progress sort_display fixed_display dust_total_segment="" header_prefix header_path header_value header_display
     local buffer=""
 
     buffer+=$'\e[H\e[?25l'
@@ -670,7 +693,10 @@ draw_ui() {
     for (( i=0; i<term_cols-1; i++ )); do buffer+="─"; done
     sel_progress=$(printf "%*d/%d" "$digits" "$sel_count" "$total")
     sort_display=$(get_sort_display)
-    fixed_display="${STATUS_LABEL}[${NC} ${STATUS_VALUE}${sel_progress}${NC} ${STATUS_LABEL}Selected${NC} ${STATUS_LABEL}]${NC}    ${STATUS_LABEL}S:${NC} ${STATUS_VALUE}${sort_display}${NC}    ${STATUS_LABEL}H:${NC} ${STATUS_VALUE}${hidden_status}${NC}    ${STATUS_LABEL}Dust:${NC} ${STATUS_VALUE}${dust_status}${NC}    ${STATUS_LABEL}Clip:${NC} ${STATUS_VALUE}${clip_value}${NC}"
+    if (( DUST_MODE )); then
+        dust_total_segment="    ${STATUS_LABEL}T:${NC} ${STATUS_VALUE}${DUST_TOTAL:-0B}${NC}"
+    fi
+    fixed_display="${STATUS_LABEL}[${NC} ${STATUS_VALUE}${sel_progress}${NC} ${STATUS_LABEL}Selected${NC} ${STATUS_LABEL}]${NC}    ${STATUS_LABEL}S:${NC} ${STATUS_VALUE}${sort_display}${NC}    ${STATUS_LABEL}H:${NC} ${STATUS_VALUE}${hidden_status}${NC}    ${STATUS_LABEL}Clip:${NC} ${STATUS_VALUE}${clip_value}${NC}${dust_total_segment}"
     buffer+=$'\e['$((max_rows + 4))$';1H\e[K'
     buffer+="$fixed_display${NC}"
     printf "%b" "$buffer"
@@ -1208,7 +1234,24 @@ $'\t') jump_to_path ;;
 'b') show_bookmarks ;;
 '*') toggle_select_all ;;
 '.') SHOW_HIDDEN=$((1 - SHOW_HIDDEN)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
-'s') if command -v dust &>/dev/null; then DUST_MODE=$((1 - DUST_MODE)); update_dust_sizes; draw_ui; if (( DUST_MODE )); then printf "\033[$((max_rows + 3));1H\033[K%b" "${GREEN}Dust enabled${NC}"; else printf "\033[$((max_rows + 3));1H\033[K%b" "${GREEN}Dust disabled${NC}"; fi; draw_status_line; else printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}dust is not installed${NC}"; fi ;;
+'s')
+    if command -v dust &>/dev/null; then
+        DUST_MODE=$((1 - DUST_MODE))
+        if (( DUST_MODE )); then
+            show_loading_status
+        fi
+        update_dust_sizes
+        draw_ui
+        if (( DUST_MODE )); then
+            printf "\033[$((max_rows + 3));1H\033[K%b" "${GREEN}Dust enabled${NC}"
+        else
+            printf "\033[$((max_rows + 3));1H\033[K%b" "${GREEN}Dust disabled${NC}"
+        fi
+        draw_status_line
+    else
+        printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}dust is not installed${NC}"
+    fi
+    ;;
 '[') (( NAME_COL_WIDTH > NAME_COL_MIN )) && ((NAME_COL_WIDTH--)); draw_ui ;;
 ']') (( NAME_COL_WIDTH < NAME_COL_MAX )) && ((NAME_COL_WIDTH++)); draw_ui ;;
 'x') item=$(get_item); toggle_executable "$item" ;;
