@@ -17,7 +17,7 @@ EOF
 
 update_self() { curl -fsSL "${SB_INSTALLER_URL:-https://raw.githubusercontent.com/hjelev/sb/master/install.sh}" | bash -s -- --install-dir "$(cd "$(dirname "$(command -v -- "$0" 2>/dev/null || printf '%s' "$0")")" && pwd -P)";}
 show_integrations() {
-    local -a integrations=("git" "chafa" "glow" "csvlens" "jnv" "ouch" "bat" "fzf" "rg" "delta")
+    local -a integrations=("git" "chafa" "glow" "csvlens" "jnv" "ouch" "pdftotext" "bat" "fzf" "rg" "delta")
     printf "%b" "${CYAN}Available Integrations:\n\n${NC}"
     for tool in "${integrations[@]}"; do
         if command -v "$tool" &>/dev/null; then
@@ -34,6 +34,7 @@ show_integrations() {
     printf "  ${YELLOW}csvlens${NC}     - Delimited file preview (.csv, .tsv, .tab, .psv, .dsv)\n"
     printf "  ${YELLOW}jnv${NC}         - JSON preview (.json, .jsonl, .ndjson, .geojson)\n"
     printf "  ${YELLOW}ouch${NC}        - Archive content preview via 'ouch list'\n"
+    printf "  ${YELLOW}pdftotext${NC}   - PDF text preview (uses 'bat' when available, otherwise 'less')\n"
     printf "  ${YELLOW}bat${NC}         - Syntax highlighting for code files\n"
     printf "  ${YELLOW}fzf${NC}         - Fuzzy finder for directory/file jumping\n"
     printf "  ${YELLOW}rg${NC}          - Ripgrep for fast text search\n"
@@ -127,13 +128,14 @@ update_git_header_suffix() {
     command -v git &>/dev/null || return
     git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return
 
-    local branch dirty=""
+    local branch dirty="" status_output
     branch=$(git branch --show-current 2>/dev/null)
     [[ -z "$branch" ]] && branch=$(git rev-parse --short HEAD 2>/dev/null)
     [[ -z "$branch" ]] && return
 
-    git diff --quiet >/dev/null 2>&1 || dirty="*"
-    GIT_HEADER_SUFFIX=" (${branch})${dirty}"
+    status_output=$(git status --porcelain=v1 --untracked-files=normal 2>/dev/null)
+    [[ -n "$status_output" ]] && dirty="*"
+    GIT_HEADER_SUFFIX=" (${branch}${dirty})"
 }
 required_term_cols() { echo $((BASE_MIN_COLS + NAME_COL_WIDTH)); }
 is_terminal_too_narrow() { (( term_cols < BASE_MIN_COLS + NAME_COL_WIDTH )); }
@@ -450,7 +452,7 @@ draw_ui() {
     local sel_count=${#selected[@]}
     local digits=${#total}
     local clip_value="${CLIPBOARD_NAME:-None}"
-    local sel_progress sort_display fixed_display header_prefix header_path header_value
+    local sel_progress sort_display fixed_display header_prefix header_path header_value header_display
     local buffer=""
 
     buffer+=$'\e[H\e[?25l'
@@ -458,7 +460,10 @@ draw_ui() {
     header_prefix="${USER_HOST} » "
     header_value="$(pwd)${GIT_HEADER_SUFFIX}"
     header_path=$(fit_status_path "$header_value" "$header_prefix")
-    buffer+=$(printf "%b%b%b\n" "${STATUS_LABEL}${header_prefix}${NC}" "${STATUS_VALUE}${header_path}" "${NC}")
+    header_display="$header_path"
+    # Highlight dirty marker in yellow when the suffix is visible.
+    [[ "$header_display" == *"*)" ]] && header_display="${header_display/%\*)/${YELLOW}*${STATUS_VALUE})}"
+    buffer+=$(printf "%b%b%b\n" "${STATUS_LABEL}${header_prefix}${NC}" "${STATUS_VALUE}${header_display}" "${NC}")
     buffer+=$'\e[2;1H'
     for (( i=0; i<term_cols-1; i++ )); do buffer+="─"; done
     buffer+=$'\n'
@@ -520,6 +525,12 @@ open_with_preview() {
         run_interactive_command csvlens -- "$item"
     elif command -v jnv &>/dev/null && [[ "$lower_item" =~ \.(json|jsonl|ndjson|geojson)$ ]]; then
         run_interactive_command jnv -- "$item"
+    elif command -v pdftotext &>/dev/null && [[ "$lower_item" =~ \.pdf$ ]]; then
+        if command -v bat &>/dev/null; then
+            run_interactive_command bash -lc 'pdftotext -layout -nopgbrk -- "$1" - | bat --color=always --language=txt --paging=always' _ "$item"
+        else
+            run_interactive_command bash -lc 'pdftotext -layout -nopgbrk -- "$1" - | less -R' _ "$item"
+        fi
     elif command -v ouch &>/dev/null && [[ "$lower_item" =~ \.(zip|tar|tar\.gz|tgz|bz2|xz|rar|7z|gz)$ ]]; then
         # Pipe through less so archive contents stay visible instead of flashing.
         if command -v less &>/dev/null; then
