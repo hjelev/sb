@@ -415,10 +415,17 @@ ensure_cursor_visible() { local total=${#files[@]}; local max_scroll=$(( total -
 draw_line() {
     local idx=$1
     local row=$2
-    local f_name display_name file_icon meta owner_display sel_mark m_owner m_perms m_size m_mod
+    local f_name display_name full_display_name file_icon meta owner_display sel_mark m_owner m_perms m_size m_mod
+    local expanded_width show_expanded_name=0
     ensure_row_data "$idx"
     f_name="${files[$idx]}"
     display_name="${f_name:0:NAME_COL_WIDTH}"
+    expanded_width=$((NAME_COL_WIDTH + 52))
+    local max_expanded_width=$((term_cols - 4))
+    (( expanded_width > max_expanded_width )) && expanded_width=$max_expanded_width
+    (( expanded_width < NAME_COL_WIDTH )) && expanded_width=$NAME_COL_WIDTH
+    full_display_name="${f_name:0:expanded_width}"
+    (( ${#f_name} > NAME_COL_WIDTH )) && show_expanded_name=1
     file_icon="${file_icons[$idx]:-$ICON_FILE}"
     meta="${metadata[$idx]}"
     IFS='|' read -r m_owner m_perms m_size m_mod <<< "$meta"
@@ -428,7 +435,11 @@ draw_line() {
     printf "\033[${row};1H\033[K"
     if (( idx + 1 == cursor )); then
         printf "%1s%s" "$sel_mark" "$file_icon"
-        printf "\033[5G${HIGHLIGHT}%-*s $META_COL_FMT${NC}" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"
+        if (( show_expanded_name )); then
+            printf "\033[5G${HIGHLIGHT}%-*s${NC}" "$expanded_width" "$full_display_name"
+        else
+            printf "\033[5G${HIGHLIGHT}%-*s $META_COL_FMT${NC}" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"
+        fi
     elif [[ -n "${selected[$idx]+x}" ]]; then
         printf "%1s%s" "$sel_mark" "$file_icon"
         printf "\033[5G${SELECT}%-*s $META_COL_FMT${NC}" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"
@@ -473,10 +484,17 @@ draw_ui() {
         local row=$((i + 3))
         buffer+=$'\e['$row$';1H\e[K'
         if (( idx < total )); then
-            local f_name display_name file_icon meta sel_mark owner_display m_owner m_perms m_size m_mod
+            local f_name display_name full_display_name file_icon meta sel_mark owner_display m_owner m_perms m_size m_mod
+            local expanded_width show_expanded_name=0
             ensure_row_data "$idx"
             f_name="${files[$idx]}"
             display_name="${f_name:0:NAME_COL_WIDTH}"
+            expanded_width=$((NAME_COL_WIDTH + 52))
+            local max_expanded_width=$((term_cols - 4))
+            (( expanded_width > max_expanded_width )) && expanded_width=$max_expanded_width
+            (( expanded_width < NAME_COL_WIDTH )) && expanded_width=$NAME_COL_WIDTH
+            full_display_name="${f_name:0:expanded_width}"
+            (( ${#f_name} > NAME_COL_WIDTH )) && show_expanded_name=1
             file_icon="${file_icons[$idx]:-$ICON_FILE}"
             meta="${metadata[$idx]}"
             sel_mark=" "
@@ -484,7 +502,11 @@ draw_ui() {
             IFS='|' read -r m_owner m_perms m_size m_mod <<< "$meta"
             owner_display="${m_owner:0:12}"
             if (( idx + 1 == cursor )); then
-                buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${HIGHLIGHT}$(printf "%-*s $META_COL_FMT" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod")${NC}"
+                if (( show_expanded_name )); then
+                    buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${HIGHLIGHT}$(printf "%-*s" "$expanded_width" "$full_display_name")${NC}"
+                else
+                    buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${HIGHLIGHT}$(printf "%-*s $META_COL_FMT" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod")${NC}"
+                fi
             elif [[ -n "${selected[$idx]+x}" ]]; then
                 buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${SELECT}$(printf "%-*s $META_COL_FMT" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod")${NC}"
             else
