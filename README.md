@@ -16,6 +16,7 @@ A lightweight terminal file browser written in Bash.
 - Copy absolute path(s) of selected/current item to system clipboard with `C`
 - Create a new file (`n`) or folder (`N`)
 - Delete selected item(s) with confirmation (`d`)
+- Batch rename with `r` (uses `renameutils`/`qmv`): renames selected items, or all visible items when nothing is selected
 - Toggle executable permission on selected item (`x`)
 - Open selected file in `less` (`l`)
 - Edit selected file in terminal editor (`e`)
@@ -35,6 +36,7 @@ A lightweight terminal file browser written in Bash.
 - Optional archive content preview in terminal (via `ouch list` for archives like `.zip`, `.tar`, `.tar.gz`, `.tgz`, `.bz2`, `.xz`, `.rar`, `.7z`, `.gz`)
 - Optional PDF text preview in terminal (via `pdftotext`; rendered with `bat` when available, otherwise `less`)
 - Optional disk usage analyzer (via `dust`) — toggle with `s` to display folder sizes and percentage of total directory size
+- Optional batch renaming integration (via `renameutils` `qmv`)
 - Auto-fallback opening behavior for GUI and headless systems
 - UI adapts to terminal resize events
 - Optional export of final directory path on exit
@@ -57,6 +59,7 @@ A lightweight terminal file browser written in Bash.
 - Optional: `ouch` (for archive content preview)
 - Optional: `pdftotext` (for PDF text extraction/preview)
 - Optional: `dust` (for disk usage analysis)
+- Optional: `renameutils` (for batch rename via `qmv`)
 
 ## Installation
 

@@ -17,7 +17,7 @@ EOF
 
 update_self() { curl -fsSL "${SB_INSTALLER_URL:-https://raw.githubusercontent.com/hjelev/sb/master/install.sh}" | bash -s -- --install-dir "$(cd "$(dirname "$(command -v -- "$0" 2>/dev/null || printf '%s' "$0")")" && pwd -P)";}
 show_integrations() {
-    local -a integrations=("git" "chafa" "glow" "csvlens" "jnv" "ouch" "pdftotext" "bat" "fzf" "rg" "delta" "dust")
+    local -a integrations=("git" "chafa" "glow" "csvlens" "jnv" "ouch" "pdftotext" "bat" "fzf" "rg" "delta" "dust" "qmv")
     printf "%b" "${CYAN}Available Integrations:\n\n${NC}"
     for tool in "${integrations[@]}"; do
         if command -v "$tool" &>/dev/null; then
@@ -40,6 +40,7 @@ show_integrations() {
     printf "  ${YELLOW}rg${NC}          - Ripgrep for fast text search\n"
     printf "  ${YELLOW}delta${NC}       - Enhanced diff viewer for file comparison\n"
     printf "  ${YELLOW}dust${NC}        - Disk usage analyzer (shows folder sizes and percentages)\n"
+    printf "  ${YELLOW}qmv${NC}         - Batch rename (renameutils): selected items, or all visible if none selected\n"
 }
 if (( BASH_VERSINFO[0] < 4 )); then
     echo "Error: sb requires bash 4.0 or newer." >&2
@@ -777,7 +778,7 @@ show_help() {
         "v            Paste copied"
         "D            Compare 2 files"
         "C            Copy absolute path(s)"
-        "r            Rename item"
+        "r            Rename (single/bulk)"
         "n / N        New file / folder"
     )
 
@@ -851,7 +852,122 @@ show_help() {
     [[ "$_hk" == $'\e' ]] && while IFS= read -rsN1 -t "$READ_TIMEOUT" _hk; do :; done
     draw_ui
 }
-rename_item() { local item="$1" newname=""; [[ -z "$item" || "$item" == "(Empty Directory)" ]] && return; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -i "$item" -p "Rename: " newname; stty -echo cbreak -ixon; echo -ne "\033[?25l"; [[ -z "$newname" || "$newname" == "$item" ]] && { redraw_cursor; return; }; mv -- "$item" "$newname" 2>/dev/null && { update_files; draw_ui; } || redraw_cursor; }
+rename_with_qmv() {
+    if ! command -v qmv &>/dev/null; then
+        printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}renameutils (qmv) is not installed.${NC}"
+        redraw_cursor
+        return
+    fi
+
+    local -a items=() qmv_args=()
+    local idx f last clean_item
+    local has_dirs=0 has_files=0
+    local qmv_help
+
+    # Collect items in sb-view order (maintains dirs first, then files - as sorted)
+    if (( ${#selected[@]} > 0 )); then
+        for (( idx=0; idx<${#files[@]}; idx++ )); do
+            [[ -n "${selected[$idx]+x}" ]] || continue
+            f="${files[$idx]}"
+            last="${f: -1}"
+            case "$last" in
+                '/'|'@'|'*'|'|'|'='|'>') clean_item="${f:0:${#f}-1}" ;;
+                *) clean_item="$f" ;;
+            esac
+            if [[ -n "$clean_item" && "$clean_item" != "(Empty Directory)" ]]; then
+                items+=("$clean_item")
+                [[ -d "$clean_item" && ! -L "$clean_item" ]] && has_dirs=1 || has_files=1
+            fi
+        done
+    else
+        for f in "${files[@]}"; do
+            last="${f: -1}"
+            case "$last" in
+                '/'|'@'|'*'|'|'|'='|'>') clean_item="${f:0:${#f}-1}" ;;
+                *) clean_item="$f" ;;
+            esac
+            if [[ -n "$clean_item" && "$clean_item" != "(Empty Directory)" ]]; then
+                items+=("$clean_item")
+                [[ -d "$clean_item" && ! -L "$clean_item" ]] && has_dirs=1 || has_files=1
+            fi
+        done
+    fi
+
+    (( ${#items[@]} > 0 )) || { redraw_cursor; return; }
+
+    qmv_help=$(qmv --help 2>&1 || true)
+    
+    # Try to detect both sort and directory flags
+    if [[ "$qmv_help" == *"--sort=none"* ]]; then
+        qmv_args+=(--sort=none)
+    elif [[ "$qmv_help" == *"--no-sort"* ]]; then
+        qmv_args+=(--no-sort)
+    fi
+
+    # If any selected item is a directory, request directory-entry mode
+    # so qmv renames the directory names themselves instead of their contents.
+    if (( has_dirs )); then
+        if [[ "$qmv_help" == *"--directories"* ]]; then
+            qmv_args+=(--directories)
+        elif [[ "$qmv_help" == *"-d,"* ]] || [[ "$qmv_help" == *" -d "* ]]; then
+            qmv_args+=(-d)
+        fi
+    fi
+
+    local rename_status
+    run_interactive_command qmv "${qmv_args[@]}" -- "${items[@]}"
+    rename_status=$?
+
+    if (( rename_status == 0 )); then
+        clear_selection
+        draw_ui
+    else
+        printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}qmv exited with status ${rename_status}.${NC}"
+        redraw_cursor
+    fi
+}
+rename_single_item() {
+    local item="$1"
+    local new_name=""
+
+    [[ -z "$item" || "$item" == "(Empty Directory)" ]] && { redraw_cursor; return; }
+
+    echo -ne "\033[?25h"
+    printf "\033[$((max_rows + 3));1H\033[K"
+    stty echo
+    read -e -i "$item" -p "Rename to: " new_name
+    stty -echo cbreak -ixon
+    echo -ne "\033[?25l"
+
+    [[ -z "$new_name" || "$new_name" == "$item" ]] && { redraw_cursor; return; }
+
+    mv -- "$item" "$new_name" 2>/dev/null && {
+        clear_selection
+        update_files
+        draw_ui
+    } || redraw_cursor
+}
+rename_dispatch() {
+    local sel_count=${#selected[@]}
+    local idx raw_item clean_item
+
+    if (( sel_count > 1 )); then
+        rename_with_qmv
+        return
+    fi
+
+    if (( sel_count == 1 )); then
+        for idx in "${!selected[@]}"; do
+            raw_item="${files[$idx]}"
+            break
+        done
+    else
+        raw_item="$(get_item)"
+    fi
+
+    clean_item=$(strip_ls_suffix "$raw_item")
+    rename_single_item "$clean_item"
+}
 fzf_jump() {
     command -v fzf &>/dev/null || return
     echo -ne "\033[?25h"
@@ -1082,7 +1198,7 @@ $'\x18') SORT_MODE="ext"; SORT_EXT_DESC=$((1 - SORT_EXT_DESC)); clear_selection;
 'l') item=$(get_item); open_with_less "$item" ;;
 'e') item=$(get_item); open_in_editor "$item" ;;
 'o') item=$(get_item); open_in_gui "$item" ;;
-'r') item=$(get_item); rename_item "$item" ;;
+'r') rename_dispatch ;;
 'f') fzf_jump ;;
 'F') rg_search ;;
 $'\t') jump_to_path ;;

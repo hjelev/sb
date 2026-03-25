@@ -410,4 +410,4 @@ mv "$TMP_FILE" "$INSTALL_DIR/sb"
 printf 'Installed sb to %s/sb\n' "$INSTALL_DIR"
 ensure_path_hint
 setup_shell_integration "$INSTALL_DIR/sb"
-printf 'Run: sb --version\n'
+printf 'Run: sb --int #Show status of available integrations\n'
