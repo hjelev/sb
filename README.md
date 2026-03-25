@@ -34,6 +34,7 @@ A lightweight terminal file browser written in Bash.
 - Optional JSON preview in terminal (via `jnv` for `.json`, `.jsonl`, `.ndjson`, `.geojson`)
 - Optional archive content preview in terminal (via `ouch list` for archives like `.zip`, `.tar`, `.tar.gz`, `.tgz`, `.bz2`, `.xz`, `.rar`, `.7z`, `.gz`)
 - Optional PDF text preview in terminal (via `pdftotext`; rendered with `bat` when available, otherwise `less`)
+- Optional disk usage analyzer (via `dust`) — toggle with `s` to display folder sizes and percentage of total directory size
 - Auto-fallback opening behavior for GUI and headless systems
 - UI adapts to terminal resize events
 - Optional export of final directory path on exit
@@ -55,6 +56,7 @@ A lightweight terminal file browser written in Bash.
 - Optional: `jnv` (for JSON preview)
 - Optional: `ouch` (for archive content preview)
 - Optional: `pdftotext` (for PDF text extraction/preview)
+- Optional: `dust` (for disk usage analysis)
 
 ## Installation
 
