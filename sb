@@ -17,7 +17,7 @@ EOF
 
 update_self() { curl -fsSL "${SB_INSTALLER_URL:-https://raw.githubusercontent.com/hjelev/sb/master/install.sh}" | bash -s -- --install-dir "$(cd "$(dirname "$(command -v -- "$0" 2>/dev/null || printf '%s' "$0")")" && pwd -P)";}
 show_integrations() {
-    local -a integrations=("chafa" "glow" "csvlens" "jnv" "bat" "fzf" "rg" "delta")
+    local -a integrations=("git" "chafa" "glow" "csvlens" "jnv" "bat" "fzf" "rg" "delta")
     printf "%b" "${CYAN}Available Integrations:\n\n${NC}"
     for tool in "${integrations[@]}"; do
         if command -v "$tool" &>/dev/null; then
@@ -28,6 +28,7 @@ show_integrations() {
         fi
     done
     printf "\n%b" "${CYAN}Integration Descriptions:${NC}\n"
+    printf "  ${YELLOW}git${NC}         - Show current branch in header; add * for unstaged changes\n"
     printf "  ${YELLOW}chafa${NC}       - Image preview in terminal\n"
     printf "  ${YELLOW}glow${NC}        - Markdown preview\n"
     printf "  ${YELLOW}csvlens${NC}     - Delimited file preview (.csv, .tsv, .tab, .psv, .dsv)\n"
@@ -92,6 +93,7 @@ ICON_DIR='📁'; ICON_LINK='🔗'; ICON_FILE='📄'; ICON_EXEC='🛠'; ICON_IMAG
 DEFAULT_META='----------|----------|-----|----------------'
 META_COL_FMT='%-12s %-11s %8s  %16s'
 cursor=1; old_cursor=0; old_scroll=-1; scroll_offset=0; files=(); metadata=(); file_icons=(); CLIPBOARD_PATH=""; CLIPBOARD_NAME=""; CLIPBOARD_MULTI=(); CLIPBOARD_MOVE=0; declare -A dir_positions; declare -A selected
+GIT_HEADER_SUFFIX=""
 SHOW_HIDDEN=0
 SORT_MODE="name"
 SORT_NAME_DESC=0
@@ -119,6 +121,19 @@ cleanup() { echo -ne "\033[?25h"; stty "$orig_stty"; [[ -n "$EXPORT_FILE" ]] && 
 handle_resize() { get_terminal_size; old_cursor=-1; old_scroll=-1; stty -echo cbreak -ixon; printf "\033[2J\033[1;1H"; draw_ui; }
 trap cleanup EXIT; trap handle_resize SIGWINCH; stty -echo cbreak -ixon
 get_terminal_size() { term_rows=$(tput lines); term_cols=$(tput cols); max_rows=$((term_rows - 4)); }
+update_git_header_suffix() {
+    GIT_HEADER_SUFFIX=""
+    command -v git &>/dev/null || return
+    git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return
+
+    local branch dirty=""
+    branch=$(git branch --show-current 2>/dev/null)
+    [[ -z "$branch" ]] && branch=$(git rev-parse --short HEAD 2>/dev/null)
+    [[ -z "$branch" ]] && return
+
+    git diff --quiet >/dev/null 2>&1 || dirty="*"
+    GIT_HEADER_SUFFIX=" (${branch})${dirty}"
+}
 required_term_cols() { echo $((BASE_MIN_COLS + NAME_COL_WIDTH)); }
 is_terminal_too_narrow() { (( term_cols < BASE_MIN_COLS + NAME_COL_WIDTH )); }
 draw_too_narrow_message() { local required_cols; required_cols=$(required_term_cols); local msg="Terminal too narrow: need at least ${required_cols} columns (current: ${term_cols}). Resize terminal to continue."; printf "\033[H\033[2J\033[?25l"; printf "\033[1;1H%b\n\n" "${AMBER}$msg${NC}"; printf "Use [ and ] to shrink/grow name column. Press q to quit.\n"; }
@@ -381,6 +396,7 @@ update_files() {
     files=()
     metadata=()
     file_icons=()
+    update_git_header_suffix
     mapfile -t files < <(list_entries)
     sort_files_by_mode
     if [[ ${#files[@]} -eq 0 ]]; then
@@ -433,13 +449,14 @@ draw_ui() {
     local sel_count=${#selected[@]}
     local digits=${#total}
     local clip_value="${CLIPBOARD_NAME:-None}"
-    local sel_progress sort_display fixed_display header_prefix header_path
+    local sel_progress sort_display fixed_display header_prefix header_path header_value
     local buffer=""
 
     buffer+=$'\e[H\e[?25l'
     buffer+=$'\e[1;1H\e[K'
     header_prefix="${USER_HOST} » "
-    header_path=$(fit_status_path "$(pwd)" "$header_prefix")
+    header_value="$(pwd)${GIT_HEADER_SUFFIX}"
+    header_path=$(fit_status_path "$header_value" "$header_prefix")
     buffer+=$(printf "%b%b%b\n" "${STATUS_LABEL}${header_prefix}${NC}" "${STATUS_VALUE}${header_path}" "${NC}")
     buffer+=$'\e[2;1H'
     for (( i=0; i<term_cols-1; i++ )); do buffer+="─"; done

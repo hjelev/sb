@@ -27,6 +27,7 @@ A lightweight terminal file browser written in Bash.
 - Bookmark shortcuts via env vars (`0-9`) and bookmark list screen (`b`)
 - Preserves cursor position per directory while navigating
 - Shows current directory path in the header row
+- If the current folder is inside a Git repo, shows `(branch)` in the header and appends `*` when there are unstaged changes
 - Displays owner, permissions, size, and modified time
 - Optional image preview in terminal (via `chafa`)
 - Optional delimited-file preview in terminal (via `csvlens` for `.csv`, `.tsv`, `.tab`, `.psv`, `.dsv`)
