@@ -18,10 +18,31 @@ EOF
 update_self() { curl -fsSL "${SB_INSTALLER_URL:-https://raw.githubusercontent.com/hjelev/sb/master/install.sh}" | bash -s -- --install-dir "$(cd "$(dirname "$(command -v -- "$0" 2>/dev/null || printf '%s' "$0")")" && pwd -P)";}
 show_integrations() {
     local -a integrations=("git" "chafa" "glow" "csvlens" "jnv" "ouch" "pdftotext" "bat" "fzf" "rg" "delta" "dust" "qmv" "sshfs")
+
+    get_tool_version_line() {
+        local tool="$1"
+        local out=""
+        case "$tool" in
+            pdftotext)
+                out=$("$tool" -v 2>&1 | head -n 1)
+                ;;
+            sshfs)
+                out=$("$tool" -V 2>&1 | head -n 1)
+                ;;
+            *)
+                out=$("$tool" --version 2>&1 | head -n 1)
+                [[ -z "$out" ]] && out=$("$tool" -V 2>&1 | head -n 1)
+                ;;
+        esac
+        [[ -z "$out" ]] && out="version info unavailable"
+        printf "%s" "$out"
+    }
+
     printf "%b" "${CYAN}Available Integrations:\n\n${NC}"
     for tool in "${integrations[@]}"; do
         if command -v "$tool" &>/dev/null; then
-            local version=$("$tool" --version 2>&1 | head -n 1)
+            local version
+            version=$(get_tool_version_line "$tool")
             printf "  ${GREEN}✓${NC} %-12s ${version}\n" "$tool"
         else
             printf "  ${RED}✗${NC} %-12s ${AMBER}not installed${NC}\n" "$tool"
