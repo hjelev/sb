@@ -23,7 +23,7 @@ A lightweight terminal file browser written in Bash.
 - Open selected file/folder in GUI associated app (`o`)
 - Toggle hidden files (`.`)
 - Sort files with shortcuts: `Ctrl+N` (name asc/desc), `Ctrl+D` (date asc/desc), `Ctrl+S` (size asc/desc), `Ctrl+X` (extension asc/desc)
-- Adjust name column width with `[` and `]`
+- Adjust name column width with `[` and `]`; jump directly to min/max with `{` and `}`
 - Built-in help screen (`h`)
 - Bookmark shortcuts via env vars (`0-9`) and bookmark list screen (`b`)
 - Preserves cursor position per directory while navigating
@@ -242,6 +242,7 @@ After you quit (`q`), the script writes the current working directory to the exp
 | `Ctrl+S` | Sort by size (toggle ascending / descending) |
 | `Ctrl+X` | Sort by extension (toggle ascending / descending) |
 | `[` / `]` | Decrease / increase name column width |
+| `{` / `}` | Set name column width to minimum / maximum |
 | `h` | Show help screen |
 | `b` | Show configured bookmarks from environment |
 | `q` | Quit |

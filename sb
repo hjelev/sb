@@ -191,7 +191,7 @@ update_git_header_suffix() {
 extra_meta_cols() { (( DUST_MODE )) && echo 7 || echo 0; }
 required_term_cols() { local extra_cols; extra_cols=$(extra_meta_cols); echo $((BASE_MIN_COLS + NAME_COL_WIDTH + extra_cols)); }
 is_terminal_too_narrow() { local extra_cols; extra_cols=$(extra_meta_cols); (( term_cols < BASE_MIN_COLS + NAME_COL_WIDTH + extra_cols )); }
-draw_too_narrow_message() { local required_cols; required_cols=$(required_term_cols); local msg="Terminal too narrow: need at least ${required_cols} columns (current: ${term_cols}). Resize terminal to continue."; printf "\033[H\033[2J\033[?25l"; printf "\033[1;1H%b\n\n" "${AMBER}$msg${NC}"; printf "Use [ and ] to shrink/grow name column. Press q to quit.\n"; }
+draw_too_narrow_message() { local required_cols; required_cols=$(required_term_cols); local msg="Terminal too narrow: need at least ${required_cols} columns (current: ${term_cols}). Resize terminal to continue."; printf "\033[H\033[2J\033[?25l"; printf "\033[1;1H%b\n\n" "${AMBER}$msg${NC}"; printf "Use [ and ] to shrink/grow, { to min, } to max name column. Press q to quit.\n"; }
 strip_ls_suffix() {
     local item="$1"
     local last_char
@@ -874,7 +874,7 @@ show_help() {
         printf "%b" "${HELP_SECTION}Select${NC}      ${HELP_KEY}Insert/Space${NC} toggle, ${HELP_KEY}*${NC} all, ${HELP_KEY}c${NC} copy, ${HELP_KEY}m${NC} move, ${HELP_KEY}v${NC} paste\n"
         printf "%b" "${HELP_SECTION}Files${NC}       ${HELP_KEY}n${NC} file, ${HELP_KEY}N${NC} folder, ${HELP_KEY}e${NC} edit, ${HELP_KEY}o${NC} open, ${HELP_KEY}l${NC} less, ${HELP_KEY}d${NC} delete, ${HELP_KEY}x${NC} chmod\n"
         printf "%b" "${HELP_SECTION}Sort${NC}        ${HELP_KEY}Ctrl+N${NC} name, ${HELP_KEY}Ctrl+D${NC} date, ${HELP_KEY}Ctrl+S${NC} size, ${HELP_KEY}Ctrl+X${NC} ext\n"
-        printf "%b" "${HELP_SECTION}View${NC}        ${HELP_KEY}.${NC} hidden, ${HELP_KEY}s${NC} dust, ${HELP_KEY}S${NC} SSH, ${HELP_KEY}[ / ]${NC} name width, ${HELP_KEY}b${NC} bookmarks, ${HELP_KEY}h${NC} help, ${HELP_KEY}q${NC} quit\n\n"
+        printf "%b" "${HELP_SECTION}View${NC}        ${HELP_KEY}.${NC} hidden, ${HELP_KEY}s${NC} dust, ${HELP_KEY}S${NC} SSH, ${HELP_KEY}[ / ]${NC} name -/+, ${HELP_KEY}{ / }${NC} min/max, ${HELP_KEY}b${NC} bookmarks, ${HELP_KEY}h${NC} help, ${HELP_KEY}q${NC} quit\n\n"
         printf "%b" "${HELP_ACCENT}Press any key to return...${NC}"
         local _hk
         IFS= read -rsN1 _hk
@@ -927,6 +927,7 @@ show_help() {
         "s            Toggle dust sizes"
             "S            SSH connections"
             "[ / ]        Name width - / +"
+            "{ / }        Name width min / max"
         "h            Show help"
         "q            Quit"
     )
@@ -1616,6 +1617,8 @@ case "$key" in
 'b') show_bookmarks ;;
 '[') (( NAME_COL_WIDTH > NAME_COL_MIN )) && ((NAME_COL_WIDTH--)); draw_ui ;;
 ']') (( NAME_COL_WIDTH < NAME_COL_MAX )) && ((NAME_COL_WIDTH++)); draw_ui ;;
+'{') NAME_COL_WIDTH=$NAME_COL_MIN; draw_ui ;;
+'}') NAME_COL_WIDTH=$NAME_COL_MAX; draw_ui ;;
 esac
 draw_too_narrow_message
 continue
@@ -1674,6 +1677,8 @@ $'\t') jump_to_path ;;
     ;;
 '[') (( NAME_COL_WIDTH > NAME_COL_MIN )) && ((NAME_COL_WIDTH--)); draw_ui ;;
 ']') (( NAME_COL_WIDTH < NAME_COL_MAX )) && ((NAME_COL_WIDTH++)); draw_ui ;;
+'{') NAME_COL_WIDTH=$NAME_COL_MIN; draw_ui ;;
+'}') NAME_COL_WIDTH=$NAME_COL_MAX; draw_ui ;;
 'x') item=$(get_item); toggle_executable "$item" ;;
 'd') if (( ${#selected[@]} > 0 )); then delete_selected; else item=$(get_item); delete_item "$item"; fi ;;
 '0'|'1'|'2'|'3'|'4'|'5'|'6'|'7'|'8'|'9') jump_to_bookmark "$key" ;;
