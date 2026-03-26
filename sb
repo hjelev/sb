@@ -137,7 +137,7 @@ SORT_SIZE_DESC=0
 SORT_EXT_DESC=0
 NAME_COL_WIDTH=22
 NAME_COL_MIN=10
-NAME_COL_MAX=60
+NAME_COL_MAX=120
 NAME_COL_WIDTH_AUTO=1
 BASE_MIN_COLS=56
 if [[ -n "$NAME_COL_WIDTH_OVERRIDE" ]]; then
@@ -1496,7 +1496,7 @@ rg_search() {
     echo -ne "\033[?25h"
     printf "\033[$((max_rows + 3));1H\033[K"
     stty echo
-    read -e -p "Search: " query
+    read -e -p "Search in files: " query
     stty -echo cbreak -ixon
     echo -ne "\033[?25l"
     [[ -z "$query" ]] && { redraw_cursor; return; }
