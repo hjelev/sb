@@ -193,6 +193,15 @@ update_git_header_suffix() {
 extra_meta_cols() { (( DUST_MODE )) && echo 7 || echo 0; }
 required_term_cols() { local extra_cols; extra_cols=$(extra_meta_cols); echo $((BASE_MIN_COLS + NAME_COL_WIDTH + extra_cols)); }
 is_terminal_too_narrow() { local extra_cols; extra_cols=$(extra_meta_cols); (( term_cols < BASE_MIN_COLS + NAME_COL_WIDTH + extra_cols )); }
+fit_name_col_to_terminal() {
+    local extra_cols available
+    extra_cols=$(extra_meta_cols)
+    available=$((term_cols - BASE_MIN_COLS - extra_cols))
+    (( available > NAME_COL_MAX )) && available=$NAME_COL_MAX
+    (( available < NAME_COL_MIN )) && return 1
+    (( NAME_COL_WIDTH > available )) && NAME_COL_WIDTH=$available
+    return 0
+}
 draw_too_narrow_message() { local required_cols; required_cols=$(required_term_cols); local msg="Terminal too narrow: need at least ${required_cols} columns (current: ${term_cols}). Resize terminal to continue."; printf "\033[H\033[2J\033[?25l"; printf "\033[1;1H%b\n\n" "${AMBER}$msg${NC}"; printf "Use [ and ] to shrink/grow, { to min, } to max name column. Press q to quit.\n"; }
 strip_ls_suffix() {
     local item="$1"
@@ -562,6 +571,7 @@ startup_auto_name_col_width() {
 
     local -a start_entries=()
     local entry clean_entry max_len=0
+    local auto_floor=$(( (NAME_COL_MAX + 1) / 2 ))
 
     mapfile -t start_entries < <(list_entries)
     (( ${#start_entries[@]} > 0 )) || return
@@ -574,16 +584,16 @@ startup_auto_name_col_width() {
     # Keep one extra column so ls -F suffixes (like trailing '/') remain visible.
     (( max_len++ ))
 
+    # Avoid very narrow startup layouts in folders with short names.
+    (( max_len < auto_floor )) && max_len=$auto_floor
+
     (( max_len < NAME_COL_MIN )) && max_len=$NAME_COL_MIN
     (( max_len > NAME_COL_MAX )) && max_len=$NAME_COL_MAX
     NAME_COL_WIDTH=$max_len
 }
 
 ensure_cursor_visible() { local total=${#files[@]}; local max_scroll=$(( total - max_rows )); (( max_scroll < 0 )) && max_scroll=0; if (( cursor < scroll_offset + 1 )); then scroll_offset=$(( cursor - 1 )); elif (( cursor > scroll_offset + max_rows )); then scroll_offset=$(( cursor - max_rows )); fi; (( scroll_offset < 0 )) && scroll_offset=0; (( scroll_offset > max_scroll )) && scroll_offset=$max_scroll; }
-# bash printf "%-*s" pads using byte length, not display width.
-# For multibyte chars (e.g. Cyrillic, CJK) add the byte overhead so the
-# column visually occupies exactly the requested number of terminal columns.
-# Result is stored in global _MB_COL_W — no subshell, no external process.
+
 _mb_col_w() {
     local _str="$1"
     local _clen="${#_str}" _blen
@@ -682,6 +692,9 @@ draw_status_line() {
 }
 scroll_list_once() { local direction="$1"; local top=3; local bottom=$((max_rows + 2)); local old_idx=$((old_cursor - 1)); local new_idx=$((cursor - 1)); printf "\033[%d;%dr" "$top" "$bottom"; if [[ "$direction" == "down" ]]; then printf "\033[%d;1H\033[M" "$top"; if (( old_idx >= scroll_offset && old_idx < scroll_offset + max_rows )); then draw_line "$old_idx" $((bottom - 1)); fi; if (( new_idx >= scroll_offset && new_idx < scroll_offset + max_rows )); then draw_line "$new_idx" "$bottom"; fi; else printf "\033[%d;1H\033[L" "$top"; if (( new_idx >= scroll_offset && new_idx < scroll_offset + max_rows )); then draw_line "$new_idx" "$top"; fi; if (( old_idx >= scroll_offset && old_idx < scroll_offset + max_rows )); then draw_line "$old_idx" $((top + 1)); fi; fi; printf "\033[r"; draw_status_line; }
 draw_ui() {
+    if is_terminal_too_narrow; then
+        fit_name_col_to_terminal || true
+    fi
     if is_terminal_too_narrow; then
         draw_too_narrow_message
         return
@@ -1636,6 +1649,10 @@ while true; do
 IFS= read -rsN1 key
 if [[ $key == $'\e' ]]; then while IFS= read -rsN1 -t $READ_TIMEOUT key_rest; do key+="$key_rest"; done; fi
 if is_terminal_too_narrow; then
+if fit_name_col_to_terminal; then
+draw_ui
+continue
+fi
 case "$key" in
 'q') break ;;
 'h') show_help ;;
