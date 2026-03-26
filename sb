@@ -1104,7 +1104,29 @@ rename_dispatch() {
     # Unmount an sshfs mount point.
     sshfs_do_unmount() {
         local mp="$1"
-        if fusermount -u "$mp" 2>/dev/null || umount "$mp" 2>/dev/null; then
+        local cwd
+        cwd="$PWD"
+
+        # Move out of the mount before unmounting to avoid "target is busy" failures.
+        if [[ "$cwd" == "$mp" || "$cwd" == "$mp/"* ]]; then
+            cd "$HOME" 2>/dev/null || cd / 2>/dev/null || true
+        fi
+
+        if command -v fusermount3 >/dev/null 2>&1; then
+            if fusermount3 -u "$mp" 2>/dev/null || fusermount3 -uz "$mp" 2>/dev/null; then
+                unset 'SSHFS_SESSION_MOUNTS[$mp]'
+                return 0
+            fi
+        fi
+
+        if command -v fusermount >/dev/null 2>&1; then
+            if fusermount -u "$mp" 2>/dev/null || fusermount -uz "$mp" 2>/dev/null; then
+                unset 'SSHFS_SESSION_MOUNTS[$mp]'
+                return 0
+            fi
+        fi
+
+        if umount "$mp" 2>/dev/null || umount -l "$mp" 2>/dev/null; then
             unset 'SSHFS_SESSION_MOUNTS[$mp]'
             return 0
         fi
