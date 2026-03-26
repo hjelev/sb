@@ -138,10 +138,12 @@ SORT_EXT_DESC=0
 NAME_COL_WIDTH=22
 NAME_COL_MIN=10
 NAME_COL_MAX=60
+NAME_COL_WIDTH_AUTO=1
 BASE_MIN_COLS=56
 if [[ -n "$NAME_COL_WIDTH_OVERRIDE" ]]; then
     if [[ "$NAME_COL_WIDTH_OVERRIDE" =~ ^[0-9]+$ ]] && (( NAME_COL_WIDTH_OVERRIDE >= NAME_COL_MIN && NAME_COL_WIDTH_OVERRIDE <= NAME_COL_MAX )); then
         NAME_COL_WIDTH=$NAME_COL_WIDTH_OVERRIDE
+        NAME_COL_WIDTH_AUTO=0
     else
         echo "Error: width must be an integer between ${NAME_COL_MIN} and ${NAME_COL_MAX}." >&2
         exit 1
@@ -554,6 +556,29 @@ update_files() {
     update_dust_sizes
     (( cursor > ${#files[@]} )) && cursor=${#files[@]}
 }
+
+startup_auto_name_col_width() {
+    (( NAME_COL_WIDTH_AUTO )) || return
+
+    local -a start_entries=()
+    local entry clean_entry max_len=0
+
+    mapfile -t start_entries < <(list_entries)
+    (( ${#start_entries[@]} > 0 )) || return
+
+    for entry in "${start_entries[@]}"; do
+        clean_entry=$(strip_ls_suffix "$entry")
+        (( ${#clean_entry} > max_len )) && max_len=${#clean_entry}
+    done
+
+    # Keep one extra column so ls -F suffixes (like trailing '/') remain visible.
+    (( max_len++ ))
+
+    (( max_len < NAME_COL_MIN )) && max_len=$NAME_COL_MIN
+    (( max_len > NAME_COL_MAX )) && max_len=$NAME_COL_MAX
+    NAME_COL_WIDTH=$max_len
+}
+
 ensure_cursor_visible() { local total=${#files[@]}; local max_scroll=$(( total - max_rows )); (( max_scroll < 0 )) && max_scroll=0; if (( cursor < scroll_offset + 1 )); then scroll_offset=$(( cursor - 1 )); elif (( cursor > scroll_offset + max_rows )); then scroll_offset=$(( cursor - max_rows )); fi; (( scroll_offset < 0 )) && scroll_offset=0; (( scroll_offset > max_scroll )) && scroll_offset=$max_scroll; }
 # bash printf "%-*s" pads using byte length, not display width.
 # For multibyte chars (e.g. Cyrillic, CJK) add the byte overhead so the
@@ -1606,7 +1631,7 @@ compare_selected_with_delta() {
     run_interactive_command bash -lc 'diff -u -- "$1" "$2" | delta --side-by-side --width="$3" --paging=never | less -RS' _ "${items[0]}" "${items[1]}" "$term_cols"
 }
 copy_paths_to_system_clipboard() { local -a items=(); if (( ${#selected[@]} > 0 )); then for idx in "${!selected[@]}"; do local f="${files[$idx]}"; local last="${f: -1}"; case "$last" in '/'|'@'|'*'|'|'|'='|'>') f="${f:0:${#f}-1}" ;; esac; [[ -n "$f" && "$f" != "(Empty Directory)" ]] && items+=("$(pwd)/$f"); done; else local item; item=$(get_item); if [[ -n "$item" && "$item" != "(Empty Directory)" ]]; then items+=("$(pwd)/$item"); else items+=("$(pwd)"); fi; fi; (( ${#items[@]} > 0 )) || return 1; local payload; payload=$(printf "%s\n" "${items[@]}"); if command -v wl-copy &>/dev/null; then printf "%s" "$payload" | wl-copy; elif command -v xclip &>/dev/null; then printf "%s" "$payload" | xclip -selection clipboard; elif command -v xsel &>/dev/null; then printf "%s" "$payload" | xsel --clipboard --input; elif command -v pbcopy &>/dev/null; then printf "%s" "$payload" | pbcopy; else return 2; fi; return 0; }
-echo -ne "\033[?25l"; get_terminal_size; show_loading_status; update_files; draw_ui
+echo -ne "\033[?25l"; get_terminal_size; startup_auto_name_col_width; show_loading_status; update_files; draw_ui
 while true; do
 IFS= read -rsN1 key
 if [[ $key == $'\e' ]]; then while IFS= read -rsN1 -t $READ_TIMEOUT key_rest; do key+="$key_rest"; done; fi
