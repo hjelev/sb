@@ -611,7 +611,7 @@ draw_line() {
     local f_name clean_name display_name full_display_name file_icon meta owner_display sel_mark m_owner m_perms m_size m_mod
     local dust_size="" dust_percent=""
     local expanded_width show_expanded_name=0 extra_cols
-    ensure_row_data "$idx"
+    # ensure_row_data "$idx"
     f_name="${files[$idx]}"
     clean_name=$(strip_ls_suffix "$f_name")
     display_name="${f_name:0:NAME_COL_WIDTH}"
