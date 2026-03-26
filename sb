@@ -638,9 +638,17 @@ draw_ui() {
     header_value="$(pwd)${GIT_HEADER_SUFFIX}"
     header_path=$(fit_status_path "$header_value" "$header_prefix")
     header_display="$header_path"
-    # Highlight dirty marker in yellow when the suffix is visible.
-    [[ "$header_display" == *"*)" ]] && header_display="${header_display/%\*)/${YELLOW}*${STATUS_VALUE})}"
-    buffer+=$(printf "%b%b%b\n" "${STATUS_LABEL}${header_prefix}${NC}" "${STATUS_VALUE}${header_display}" "${NC}")
+    if [[ -n "$GIT_HEADER_SUFFIX" && "$header_display" == *"$GIT_HEADER_SUFFIX" ]]; then
+        local header_path_only="${header_display%"$GIT_HEADER_SUFFIX"}"
+        local header_git_suffix="$GIT_HEADER_SUFFIX"
+        # Keep dirty marker visible even with darker git suffix color.
+        [[ "$header_git_suffix" == *"*)" ]] && header_git_suffix="${header_git_suffix/%\*)/${YELLOW}*${STATUS_LABEL})}"
+        buffer+=$(printf "%b%b%b%b\n" "${STATUS_LABEL}${header_prefix}${NC}" "${STATUS_VALUE}${header_path_only}" "${STATUS_LABEL}${header_git_suffix}" "${NC}")
+    else
+        # Fallback for truncated paths where suffix detection is ambiguous.
+        [[ "$header_display" == *"*)" ]] && header_display="${header_display/%\*)/${YELLOW}*${STATUS_VALUE})}"
+        buffer+=$(printf "%b%b%b\n" "${STATUS_LABEL}${header_prefix}${NC}" "${STATUS_VALUE}${header_display}" "${NC}")
+    fi
     buffer+=$'\e[2;1H'
     for (( i=0; i<term_cols-1; i++ )); do buffer+="─"; done
     buffer+=$'\n'
@@ -767,7 +775,36 @@ open_with_preview() {
 open_in_gui() { local item="$1"; if is_gui_session; then command -v "$OPEN_CMD" &>/dev/null && "$OPEN_CMD" "$item" >/dev/null 2>&1 && return 0; [[ "$OPEN_CMD" != "xdg-open" ]] && command -v xdg-open &>/dev/null && xdg-open "$item" >/dev/null 2>&1 && return 0; [[ "$OPEN_CMD" != "open" ]] && command -v open &>/dev/null && open "$item" >/dev/null 2>&1 && return 0; fi; show_open_error "$item"; return 1; }
 open_in_editor() { local item="$1"; [[ -f "$item" ]] && open_in_terminal_editor "$item"; }
 jump_to_bookmark() { local key="$1"; local var_name="SB_BOOKMARK_${key}"; local target="${!var_name-}"; [[ -z "$target" ]] && return; target="${target/#\~/$HOME}"; if [[ "$target" == *"@"*":"* ]]; then sshfs_mount_and_navigate "$target"; return; fi; if [[ ! -d "$target" ]]; then draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Not a directory: $target${NC}"; return; fi; dir_positions["$(pwd)"]=$cursor; if cd "$target" 2>/dev/null; then clear_selection; get_terminal_size; show_loading_status; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui; else draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Permission denied: $target${NC}"; fi; }
-show_bookmarks() { echo -ne "\033[?25h"; clear; printf "%b" "${HELP_ACCENT}Shell Buddy Bookmarks${NC}\n\n"; local key var_name target found=0; for key in 1 2 3 4 5 6 7 8 9 0; do var_name="SB_BOOKMARK_${key}"; target="${!var_name-}"; [[ -z "$target" ]] && continue; found=1; target="${target/#\~/$HOME}"; if [[ -d "$target" ]]; then printf "%b" "  ${HELP_KEY}${key}${NC}  ${target}\n"; elif [[ "$target" == *"@"*":"* ]]; then printf "%b" "  ${HELP_KEY}${key}${NC}  ${target} ${STATUS_LABEL}(ssh)${NC}\n"; else printf "%b" "  ${HELP_KEY}${key}${NC}  ${target} ${AMBER}(missing dir)${NC}\n"; fi; done; (( found )) || printf "%b" "No bookmarks found. Export variables like SB_BOOKMARK_1=\"\$HOME/Downloads\"\n"; printf "%b" "\nConfigure bookmarks by exporting SB_BOOKMARK_0..SB_BOOKMARK_9 in your shell profile.\n"; printf "%b" "SSH: a bookmark set to ${STATUS_VALUE}user@host:/path${NC} will mount via sshfs (press ${HELP_KEY}S${NC} for the SSH picker).\n"; printf "\n%b" "${HELP_ACCENT}Press any key to return...${NC}"; read -rsn1; draw_ui; }
+show_bookmarks() {
+    echo -ne "\033[?25h"
+    clear
+    printf "%b" "${HELP_ACCENT}Shell Buddy Bookmarks${NC}\n\n"
+
+    local key var_name target found=0 _bk
+    for key in 1 2 3 4 5 6 7 8 9 0; do
+        var_name="SB_BOOKMARK_${key}"
+        target="${!var_name-}"
+        [[ -z "$target" ]] && continue
+        found=1
+        target="${target/#\~/$HOME}"
+        if [[ -d "$target" ]]; then
+            printf "%b" "  ${HELP_KEY}${key}${NC}  ${target}\n"
+        elif [[ "$target" == *"@"*":"* ]]; then
+            printf "%b" "  ${HELP_KEY}${key}${NC}  ${target} ${STATUS_LABEL}(ssh)${NC}\n"
+        else
+            printf "%b" "  ${HELP_KEY}${key}${NC}  ${target} ${AMBER}(missing dir)${NC}\n"
+        fi
+    done
+
+    (( found )) || printf "%b" "No bookmarks found. Export variables like SB_BOOKMARK_1=\"\$HOME/Downloads\"\n"
+    printf "%b" "\nConfigure bookmarks by exporting SB_BOOKMARK_0..SB_BOOKMARK_9 in your shell profile.\n"
+    printf "%b" "SSH: a bookmark set to ${STATUS_VALUE}user@host:/path${NC} will mount via sshfs (press ${HELP_KEY}S${NC} for the SSH picker).\n"
+    printf "\n%b" "${HELP_ACCENT}Press any key to return...${NC}"
+
+    IFS= read -rsN1 _bk
+    [[ "$_bk" == $'\e' ]] && while IFS= read -rsN1 -t "$READ_TIMEOUT" _bk; do :; done
+    draw_ui
+}
 show_help() {
     echo -ne "\033[?25h"
     clear
@@ -1195,13 +1232,15 @@ rename_dispatch() {
     }
 
     # Draw helper for show_ssh_picker — reads _sshpick_* globals.
+    # Repaint in place (without clear) to reduce flicker.
     _sshfs_draw_picker() {
-        clear
-        printf "%b" "${HELP_ACCENT}Shell Buddy — SSH Connections${NC}\n\n"
+        local picker_status="${1-}"
+        printf "\033[H\033[J"
+        printf "%b\n\n" "${HELP_ACCENT}Shell Buddy - SSH Connections${NC}"
         if (( _sshpick_total == 0 )); then
             printf "  No SSH connections found.\n\n"
-            printf "%b" "  ${STATUS_LABEL}Add env vars:${NC}     export ${STATUS_VALUE}SB_SSH_0=\"label:user@host:/path\"${NC}\n"
-            printf "%b" "  ${STATUS_LABEL}Or Host blocks in:${NC} ${STATUS_VALUE}~/.ssh/config${NC}\n"
+            printf "%b\n" "  ${STATUS_LABEL}Add env vars:${NC}     export ${STATUS_VALUE}SB_SSH_0=\"label:user@host:/path\"${NC}"
+            printf "%b\n" "  ${STATUS_LABEL}Or Host blocks in:${NC} ${STATUS_VALUE}~/.ssh/config${NC}"
         else
             local j mp mounted_badge spec label
             for (( j=1; j<=_sshpick_total; j++ )); do
@@ -1214,13 +1253,42 @@ rename_dispatch() {
                     mounted_badge=""
                 fi
                 if (( j == _sshpick_cursor )); then
-                    printf "%b" "${HIGHLIGHT} > ${label}${NC}  ${STATUS_LABEL}${spec}${NC}${mounted_badge}\n"
+                    printf "%b\n" "${HIGHLIGHT} > ${label}${NC}  ${STATUS_LABEL}${spec}${NC}${mounted_badge}"
                 else
-                    printf "%b" "   ${STATUS_VALUE}${label}${NC}  ${STATUS_LABEL}${spec}${NC}${mounted_badge}\n"
+                    printf "%b\n" "   ${STATUS_VALUE}${label}${NC}  ${STATUS_LABEL}${spec}${NC}${mounted_badge}"
                 fi
             done
         fi
-        printf "\n%b" "${HELP_ACCENT}↑↓ Navigate  Enter Mount+Open  u Unmount  q/Esc Back${NC}\n"
+        printf "\n"
+        if [[ -n "$picker_status" ]]; then
+            printf "%b\n" "$picker_status"
+        fi
+        printf "%b\n" "${STATUS_LABEL}Configure ${STATUS_VALUE}SB_SSH_0..SB_SSH_9${NC} or ${STATUS_VALUE}~/.ssh/config${NC}."
+        printf "%b\n" "${HELP_ACCENT}↑↓ Navigate  Enter Mount+Open  u Unmount  q/Esc Back${NC}"
+    }
+
+    # Redraw just one connection row in the SSH picker (used for smooth cursor moves).
+    _sshfs_draw_picker_row() {
+        local j="$1"
+        local row=$((j + 2))
+        local mp mounted_badge spec label
+        (( j >= 1 && j <= _sshpick_total )) || return
+
+        spec="${_sshpick_specs[$((j-1))]}"
+        label="${_sshpick_labels[$((j-1))]}"
+        mp=$(sshfs_get_mount_point "$spec" 2>/dev/null)
+        if [[ -n "$mp" ]] && sshfs_is_mounted "$mp"; then
+            mounted_badge=" ${GREEN}[mounted]${NC}"
+        else
+            mounted_badge=""
+        fi
+
+        printf "\033[%d;1H\033[K" "$row"
+        if (( j == _sshpick_cursor )); then
+            printf "%b" "${HIGHLIGHT} > ${label}${NC}  ${STATUS_LABEL}${spec}${NC}${mounted_badge}"
+        else
+            printf "%b" "   ${STATUS_VALUE}${label}${NC}  ${STATUS_LABEL}${spec}${NC}${mounted_badge}"
+        fi
     }
 
     # Interactive SSH connection picker (press S).
@@ -1229,7 +1297,7 @@ rename_dispatch() {
             printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}sshfs is not installed${NC}"
             redraw_cursor; return
         fi
-        echo -ne "\033[?25h"
+        echo -ne "\033[?25l"
         _sshpick_labels=(); _sshpick_specs=(); _sshpick_cursor=1
         # Collect env-var connections
         local i var_name val lbl
@@ -1248,7 +1316,8 @@ rename_dispatch() {
             _sshpick_labels+=("$cfgalias"); _sshpick_specs+=("$cfgspec")
         done < <(sshfs_get_ssh_config_hosts)
         _sshpick_total=${#_sshpick_labels[@]}
-        _sshfs_draw_picker
+        local picker_status=""
+        _sshfs_draw_picker "$picker_status"
         local pk_key pk_rest chosen_spec mp
         while true; do
             IFS= read -rsN1 pk_key
@@ -1256,8 +1325,20 @@ rename_dispatch() {
                 while IFS= read -rsN1 -t "$READ_TIMEOUT" pk_rest; do pk_key+="$pk_rest"; done
             fi
             case "$pk_key" in
-                $'\e[A') (( _sshpick_cursor > 1 )) && (( _sshpick_cursor-- )); _sshfs_draw_picker ;;
-                $'\e[B') (( _sshpick_cursor < _sshpick_total )) && (( _sshpick_cursor++ )); _sshfs_draw_picker ;;
+                $'\e[A')
+                    if (( _sshpick_cursor > 1 )); then
+                        local old_cursor="$_sshpick_cursor"
+                        (( _sshpick_cursor-- ))
+                        _sshfs_draw_picker_row "$old_cursor"
+                        _sshfs_draw_picker_row "$_sshpick_cursor"
+                    fi ;;
+                $'\e[B')
+                    if (( _sshpick_cursor < _sshpick_total )); then
+                        local old_cursor="$_sshpick_cursor"
+                        (( _sshpick_cursor++ ))
+                        _sshfs_draw_picker_row "$old_cursor"
+                        _sshfs_draw_picker_row "$_sshpick_cursor"
+                    fi ;;
                 $'\n'|$'\r')
                     (( _sshpick_total > 0 )) || continue
                     chosen_spec="${_sshpick_specs[$(( _sshpick_cursor - 1 ))]}"
@@ -1265,19 +1346,19 @@ rename_dispatch() {
                     sshfs_mount_and_navigate "$chosen_spec"
                     return ;;
                 'u'|'U')
-                    (( _sshpick_total > 0 )) || { _sshfs_draw_picker; continue; }
+                    (( _sshpick_total > 0 )) || { picker_status="${AMBER}No connection selected.${NC}"; _sshfs_draw_picker "$picker_status"; continue; }
                     chosen_spec="${_sshpick_specs[$(( _sshpick_cursor - 1 ))]}"
                     mp=$(sshfs_get_mount_point "$chosen_spec" 2>/dev/null)
                     if [[ -n "$mp" ]] && sshfs_is_mounted "$mp"; then
                         if sshfs_do_unmount "$mp"; then
-                            printf "\n%b" "${GREEN}Unmounted: ${mp}${NC}"
+                            picker_status="${GREEN}Unmounted: ${mp}${NC}"
                         else
-                            printf "\n%b" "${AMBER}Unmount failed: ${mp}${NC}"
+                            picker_status="${AMBER}Unmount failed: ${mp}${NC}"
                         fi
                     else
-                        printf "\n%b" "${AMBER}Not currently mounted.${NC}"
+                        picker_status="${AMBER}Not currently mounted.${NC}"
                     fi
-                    sleep 0.6; _sshfs_draw_picker ;;
+                    _sshfs_draw_picker "$picker_status" ;;
                 'q'|$'\e') break ;;
             esac
         done
