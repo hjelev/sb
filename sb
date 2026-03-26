@@ -17,7 +17,7 @@ EOF
 
 update_self() { curl -fsSL "${SB_INSTALLER_URL:-https://raw.githubusercontent.com/hjelev/sb/master/install.sh}" | bash -s -- --install-dir "$(cd "$(dirname "$(command -v -- "$0" 2>/dev/null || printf '%s' "$0")")" && pwd -P)";}
 show_integrations() {
-    local -a integrations=("git" "chafa" "glow" "csvlens" "jnv" "ouch" "pdftotext" "bat" "fzf" "rg" "delta" "dust" "qmv" "sshfs")
+    local -a integrations=("git" "chafa" "glow" "csvlens" "jnv" "ouch" "pdftotext" "bat" "fzf" "rg" "delta" "dust" "vidir" "sshfs")
 
     get_tool_version_line() {
         local tool="$1"
@@ -61,7 +61,7 @@ show_integrations() {
     printf "  ${YELLOW}rg${NC}          - Ripgrep for fast text search\n"
     printf "  ${YELLOW}delta${NC}       - Enhanced diff viewer for file comparison\n"
     printf "  ${YELLOW}dust${NC}        - Disk usage analyzer (shows folder sizes and percentages)\n"
-    printf "  ${YELLOW}qmv${NC}         - Batch rename (renameutils): selected items, or all visible if none selected\n"
+    printf "  ${YELLOW}vidir${NC}       - Batch rename (moreutils): selected items, or all visible if none selected\n"
     printf "  ${YELLOW}sshfs${NC}       - SSH filesystem: browse remote hosts via sshfs (press S for picker)\n"
 }
 if (( BASH_VERSINFO[0] < 4 )); then
@@ -128,6 +128,7 @@ DUST_TOTAL=""
 SSHFS_DIR="${SB_SSHFS_DIR:-${TMPDIR:-/tmp}/sb_sshfs_${UID:-$(id -u 2>/dev/null || printf '0')}}"
 SSHFS_LAST_ERROR=""
 declare -A SSHFS_SESSION_MOUNTS
+SSHPICK_LABEL_WIDTH=0
 SHOW_HIDDEN=0
 SORT_MODE="name"
 SORT_NAME_DESC=0
@@ -554,6 +555,21 @@ update_files() {
     (( cursor > ${#files[@]} )) && cursor=${#files[@]}
 }
 ensure_cursor_visible() { local total=${#files[@]}; local max_scroll=$(( total - max_rows )); (( max_scroll < 0 )) && max_scroll=0; if (( cursor < scroll_offset + 1 )); then scroll_offset=$(( cursor - 1 )); elif (( cursor > scroll_offset + max_rows )); then scroll_offset=$(( cursor - max_rows )); fi; (( scroll_offset < 0 )) && scroll_offset=0; (( scroll_offset > max_scroll )) && scroll_offset=$max_scroll; }
+# bash printf "%-*s" pads using byte length, not display width.
+# For multibyte chars (e.g. Cyrillic, CJK) add the byte overhead so the
+# column visually occupies exactly the requested number of terminal columns.
+# Result is stored in global _MB_COL_W — no subshell, no external process.
+_mb_col_w() {
+    local _str="$1"
+    local _clen="${#_str}" _blen
+    local LC_ALL=C
+    _blen="${#_str}"
+    if (( _blen > _clen )); then
+        _MB_COL_W=$(( $2 + _blen - _clen ))
+    else
+        _MB_COL_W=$2
+    fi
+}
 draw_line() {
     local idx=$1
     local row=$2
@@ -564,6 +580,8 @@ draw_line() {
     f_name="${files[$idx]}"
     clean_name=$(strip_ls_suffix "$f_name")
     display_name="${f_name:0:NAME_COL_WIDTH}"
+    local name_col_w
+    _mb_col_w "$display_name" "$NAME_COL_WIDTH"; local name_col_w=$_MB_COL_W
     extra_cols=$(extra_meta_cols)
     expanded_width=$((NAME_COL_WIDTH + 52 + extra_cols))
     local max_expanded_width=$((term_cols - 4))
@@ -596,24 +614,24 @@ draw_line() {
             printf "\033[5G${HIGHLIGHT}%-*s${NC}" "$expanded_width" "$full_display_name"
         else
             if (( DUST_MODE )) && [[ -n "$dust_display" ]]; then
-                printf "\033[5G${HIGHLIGHT}%-*s $DUST_META_COL_FMT${NC}" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$dust_size" "$dust_percent" "$m_mod"
+                printf "\033[5G${HIGHLIGHT}%-*s $DUST_META_COL_FMT${NC}" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$dust_size" "$dust_percent" "$m_mod"
             else
-                printf "\033[5G${HIGHLIGHT}%-*s $META_COL_FMT${NC}" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"
+                printf "\033[5G${HIGHLIGHT}%-*s $META_COL_FMT${NC}" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"
             fi
         fi
     elif [[ -n "${selected[$idx]+x}" ]]; then
         printf "%1s%s" "$sel_mark" "$file_icon"
         if (( DUST_MODE )) && [[ -n "$dust_display" ]]; then
-            printf "\033[5G${SELECT}%-*s $DUST_META_COL_FMT${NC}" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$dust_size" "$dust_percent" "$m_mod"
+            printf "\033[5G${SELECT}%-*s $DUST_META_COL_FMT${NC}" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$dust_size" "$dust_percent" "$m_mod"
         else
-            printf "\033[5G${SELECT}%-*s $META_COL_FMT${NC}" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"
+            printf "\033[5G${SELECT}%-*s $META_COL_FMT${NC}" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"
         fi
     else
         printf "%1s%s${NC}" "$sel_mark" "$file_icon"
         if (( DUST_MODE )) && [[ -n "$dust_display" ]]; then
-            printf "$(get_color "$f_name")\033[5G%-*s${NC} $DUST_META_COL_FMT" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$dust_size" "$dust_percent" "$m_mod"
+            printf "$(get_color "$f_name")\033[5G%-*s${NC} $DUST_META_COL_FMT" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$dust_size" "$dust_percent" "$m_mod"
         else
-            printf "$(get_color "$f_name")\033[5G%-*s${NC} $META_COL_FMT" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"
+            printf "$(get_color "$f_name")\033[5G%-*s${NC} $META_COL_FMT" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"
         fi
     fi
 }
@@ -687,6 +705,8 @@ draw_ui() {
             f_name="${files[$idx]}"
             clean_name=$(strip_ls_suffix "$f_name")
             display_name="${f_name:0:NAME_COL_WIDTH}"
+            local name_col_w
+            _mb_col_w "$display_name" "$NAME_COL_WIDTH"; local name_col_w=$_MB_COL_W
             extra_cols=$(extra_meta_cols)
             expanded_width=$((NAME_COL_WIDTH + 52 + extra_cols))
             local max_expanded_width=$((term_cols - 4))
@@ -716,24 +736,24 @@ draw_ui() {
                     buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${HIGHLIGHT}$(printf "%-*s" "$expanded_width" "$full_display_name")${NC}"
                 else
                     if (( DUST_MODE )) && [[ -n "$dust_display" ]]; then
-                        buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${HIGHLIGHT}$(printf "%-*s $DUST_META_COL_FMT" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$dust_size" "$dust_percent" "$m_mod")${NC}"
+                        buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${HIGHLIGHT}$(printf "%-*s $DUST_META_COL_FMT" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$dust_size" "$dust_percent" "$m_mod")${NC}"
                     else
-                        buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${HIGHLIGHT}$(printf "%-*s $META_COL_FMT" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod")${NC}"
+                        buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${HIGHLIGHT}$(printf "%-*s $META_COL_FMT" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod")${NC}"
                     fi
                 fi
             elif [[ -n "${selected[$idx]+x}" ]]; then
                 if (( DUST_MODE )) && [[ -n "$dust_display" ]]; then
-                    buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${SELECT}$(printf "%-*s $DUST_META_COL_FMT" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$dust_size" "$dust_percent" "$m_mod")${NC}"
+                    buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${SELECT}$(printf "%-*s $DUST_META_COL_FMT" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$dust_size" "$dust_percent" "$m_mod")${NC}"
                 else
-                    buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${SELECT}$(printf "%-*s $META_COL_FMT" "$NAME_COL_WIDTH" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod")${NC}"
+                    buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${SELECT}$(printf "%-*s $META_COL_FMT" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod")${NC}"
                 fi
             else
                 buffer+="$(printf "%1s%s${NC}" "$sel_mark" "$file_icon")"
                 if (( DUST_MODE )) && [[ -n "$dust_display" ]]; then
-                    buffer+="$(get_color "$f_name")\033[5G$(printf "%-*s" "$NAME_COL_WIDTH" "$display_name")${NC}"
+                    buffer+="$(get_color "$f_name")\033[5G$(printf "%-*s" "$name_col_w" "$display_name")${NC}"
                     buffer+=$(printf " $DUST_META_COL_FMT" "$owner_display" "$m_perms" "$dust_size" "$dust_percent" "$m_mod")
                 else
-                    buffer+="$(get_color "$f_name")\033[5G$(printf "%-*s" "$NAME_COL_WIDTH" "$display_name")${NC}"
+                    buffer+="$(get_color "$f_name")\033[5G$(printf "%-*s" "$name_col_w" "$display_name")${NC}"
                     buffer+=$(printf " $META_COL_FMT" "$owner_display" "$m_perms" "$m_size" "$m_mod")
                 fi
             fi
@@ -959,17 +979,15 @@ show_help() {
     [[ "$_hk" == $'\e' ]] && while IFS= read -rsN1 -t "$READ_TIMEOUT" _hk; do :; done
     draw_ui
 }
-rename_with_qmv() {
-    if ! command -v qmv &>/dev/null; then
-        printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}renameutils (qmv) is not installed.${NC}"
+rename_with_vidir() {
+    if ! command -v vidir &>/dev/null; then
+        printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}moreutils (vidir) is not installed.${NC}"
         redraw_cursor
         return
     fi
 
-    local -a items=() qmv_args=()
+    local -a items=()
     local idx f last clean_item
-    local has_dirs=0 has_files=0
-    local qmv_help
 
     # Collect items in sb-view order (maintains dirs first, then files - as sorted)
     if (( ${#selected[@]} > 0 )); then
@@ -983,7 +1001,6 @@ rename_with_qmv() {
             esac
             if [[ -n "$clean_item" && "$clean_item" != "(Empty Directory)" ]]; then
                 items+=("$clean_item")
-                [[ -d "$clean_item" && ! -L "$clean_item" ]] && has_dirs=1 || has_files=1
             fi
         done
     else
@@ -995,41 +1012,21 @@ rename_with_qmv() {
             esac
             if [[ -n "$clean_item" && "$clean_item" != "(Empty Directory)" ]]; then
                 items+=("$clean_item")
-                [[ -d "$clean_item" && ! -L "$clean_item" ]] && has_dirs=1 || has_files=1
             fi
         done
     fi
 
     (( ${#items[@]} > 0 )) || { redraw_cursor; return; }
 
-    qmv_help=$(qmv --help 2>&1 || true)
-    
-    # Try to detect both sort and directory flags
-    if [[ "$qmv_help" == *"--sort=none"* ]]; then
-        qmv_args+=(--sort=none)
-    elif [[ "$qmv_help" == *"--no-sort"* ]]; then
-        qmv_args+=(--no-sort)
-    fi
-
-    # If any selected item is a directory, request directory-entry mode
-    # so qmv renames the directory names themselves instead of their contents.
-    if (( has_dirs )); then
-        if [[ "$qmv_help" == *"--directories"* ]]; then
-            qmv_args+=(--directories)
-        elif [[ "$qmv_help" == *"-d,"* ]] || [[ "$qmv_help" == *" -d "* ]]; then
-            qmv_args+=(-d)
-        fi
-    fi
-
     local rename_status
-    run_interactive_command qmv "${qmv_args[@]}" -- "${items[@]}"
+    run_interactive_command vidir -- "${items[@]}"
     rename_status=$?
 
     if (( rename_status == 0 )); then
         clear_selection
         draw_ui
     else
-        printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}qmv exited with status ${rename_status}.${NC}"
+        printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}vidir exited with status ${rename_status}.${NC}"
         redraw_cursor
     fi
 }
@@ -1059,7 +1056,7 @@ rename_dispatch() {
     local idx raw_item clean_item
 
     if (( sel_count > 1 )); then
-        rename_with_qmv
+        rename_with_vidir
         return
     fi
 
@@ -1117,6 +1114,17 @@ rename_dispatch() {
         local safe_name
         safe_name=$(printf "%s_%s" "$_ssh_host" "$_ssh_path" | tr -cs 'a-zA-Z0-9_-' '_' | sed 's/_\+/_/g; s/^_//; s/_$//')
         printf "%s/%s" "${SSHFS_DIR}" "${safe_name:-conn}"
+    }
+
+    # Return a display-friendly connection spec without the optional label prefix.
+    sshfs_format_spec_for_display() {
+        local spec="$1"
+        sshfs_parse_spec "$spec" || { printf "%s" "$spec"; return 0; }
+        if [[ -n "$_ssh_port" ]]; then
+            printf "%s@%s:%s:%s" "$_ssh_user" "$_ssh_host" "$_ssh_port" "$_ssh_path"
+        else
+            printf "%s@%s:%s" "$_ssh_user" "$_ssh_host" "$_ssh_path"
+        fi
     }
 
     # Return 0 if path is a live sshfs mount.
@@ -1263,20 +1271,22 @@ rename_dispatch() {
             printf "%b\n" "  ${STATUS_LABEL}Add env vars:${NC}     export ${STATUS_VALUE}SB_SSH_0=\"label:user@host:/path\"${NC}"
             printf "%b\n" "  ${STATUS_LABEL}Or Host blocks in:${NC} ${STATUS_VALUE}~/.ssh/config${NC}"
         else
-            local j mp mounted_badge spec label
+            local j mp mounted_badge spec raw_spec label label_col
             for (( j=1; j<=_sshpick_total; j++ )); do
-                spec="${_sshpick_specs[$((j-1))]}"
+                raw_spec="${_sshpick_specs[$((j-1))]}"
+                spec="$(sshfs_format_spec_for_display "$raw_spec")"
                 label="${_sshpick_labels[$((j-1))]}"
-                mp=$(sshfs_get_mount_point "$spec" 2>/dev/null)
+                label_col=$(printf "%*s" "$SSHPICK_LABEL_WIDTH" "$label")
+                mp=$(sshfs_get_mount_point "$raw_spec" 2>/dev/null)
                 if [[ -n "$mp" ]] && sshfs_is_mounted "$mp"; then
                     mounted_badge=" ${GREEN}[mounted]${NC}"
                 else
                     mounted_badge=""
                 fi
                 if (( j == _sshpick_cursor )); then
-                    printf "%b\n" "${HIGHLIGHT} > ${label}${NC}  ${STATUS_LABEL}${spec}${NC}${mounted_badge}"
+                    printf "%b\n" "${HIGHLIGHT} > ${label_col}${NC}  ${STATUS_LABEL}${spec}${NC}${mounted_badge}"
                 else
-                    printf "%b\n" "   ${STATUS_VALUE}${label}${NC}  ${STATUS_LABEL}${spec}${NC}${mounted_badge}"
+                    printf "%b\n" "   ${STATUS_VALUE}${label_col}${NC}  ${STATUS_LABEL}${spec}${NC}${mounted_badge}"
                 fi
             done
         fi
@@ -1292,12 +1302,14 @@ rename_dispatch() {
     _sshfs_draw_picker_row() {
         local j="$1"
         local row=$((j + 2))
-        local mp mounted_badge spec label
+        local mp mounted_badge spec raw_spec label label_col
         (( j >= 1 && j <= _sshpick_total )) || return
 
-        spec="${_sshpick_specs[$((j-1))]}"
+        raw_spec="${_sshpick_specs[$((j-1))]}"
+        spec="$(sshfs_format_spec_for_display "$raw_spec")"
         label="${_sshpick_labels[$((j-1))]}"
-        mp=$(sshfs_get_mount_point "$spec" 2>/dev/null)
+        label_col=$(printf "%*s" "$SSHPICK_LABEL_WIDTH" "$label")
+        mp=$(sshfs_get_mount_point "$raw_spec" 2>/dev/null)
         if [[ -n "$mp" ]] && sshfs_is_mounted "$mp"; then
             mounted_badge=" ${GREEN}[mounted]${NC}"
         else
@@ -1306,9 +1318,9 @@ rename_dispatch() {
 
         printf "\033[%d;1H\033[K" "$row"
         if (( j == _sshpick_cursor )); then
-            printf "%b" "${HIGHLIGHT} > ${label}${NC}  ${STATUS_LABEL}${spec}${NC}${mounted_badge}"
+            printf "%b" "${HIGHLIGHT} > ${label_col}${NC}  ${STATUS_LABEL}${spec}${NC}${mounted_badge}"
         else
-            printf "%b" "   ${STATUS_VALUE}${label}${NC}  ${STATUS_LABEL}${spec}${NC}${mounted_badge}"
+            printf "%b" "   ${STATUS_VALUE}${label_col}${NC}  ${STATUS_LABEL}${spec}${NC}${mounted_badge}"
         fi
     }
 
@@ -1337,6 +1349,13 @@ rename_dispatch() {
             _sshpick_labels+=("$cfgalias"); _sshpick_specs+=("$cfgspec")
         done < <(sshfs_get_ssh_config_hosts)
         _sshpick_total=${#_sshpick_labels[@]}
+        SSHPICK_LABEL_WIDTH=0
+        if (( _sshpick_total > 0 )); then
+            local lbl
+            for lbl in "${_sshpick_labels[@]}"; do
+                (( ${#lbl} > SSHPICK_LABEL_WIDTH )) && SSHPICK_LABEL_WIDTH=${#lbl}
+            done
+        fi
         local picker_status=""
         _sshfs_draw_picker "$picker_status"
         local pk_key pk_rest chosen_spec mp

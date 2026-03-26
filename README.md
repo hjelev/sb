@@ -16,7 +16,7 @@ A lightweight terminal file browser written in Bash.
 - Copy absolute path(s) of selected/current item to system clipboard with `C`
 - Create a new file (`n`) or folder (`N`)
 - Delete selected item(s) with confirmation (`d`)
-- Batch rename with `r` (uses `renameutils`/`qmv`): renames selected items, or all visible items when nothing is selected
+- Batch rename with `r` (uses `moreutils`/`vidir`): renames selected items, or all visible items when nothing is selected
 - Toggle executable permission on selected item (`x`)
 - Open selected file in `less` (`l`)
 - Edit selected file in terminal editor (`e`)
@@ -31,12 +31,18 @@ A lightweight terminal file browser written in Bash.
 - If the current folder is inside a Git repo, shows `(branch)` in the header and appends `*` when there are unstaged changes
 - Displays owner, permissions, size, and modified time
 - Optional image preview in terminal (via `chafa`)
+- Optional Markdown preview in terminal (via `glow`)
 - Optional delimited-file preview in terminal (via `csvlens` for `.csv`, `.tsv`, `.tab`, `.psv`, `.dsv`)
 - Optional JSON preview in terminal (via `jnv` for `.json`, `.jsonl`, `.ndjson`, `.geojson`)
 - Optional archive content preview in terminal (via `ouch list` for archives like `.zip`, `.tar`, `.tar.gz`, `.tgz`, `.bz2`, `.xz`, `.rar`, `.7z`, `.gz`)
 - Optional PDF text preview in terminal (via `pdftotext`; rendered with `bat` when available, otherwise `less`)
+- Optional syntax-highlighted file preview (via `bat`)
+- Optional fuzzy jump integration (via `fzf`, key `f`)
+- Optional text search integration (via `rg`/ripgrep, key `F`)
+- Optional side-by-side file comparison (via `delta`, key `D`)
 - Optional disk usage analyzer (via `dust`) — toggle with `s` to display folder sizes and percentage of total directory size
-- Optional batch renaming integration (via `renameutils` `qmv`)
+- Optional batch renaming integration (via `moreutils` `vidir`)
+- Optional SSH filesystem: browse remote hosts (via `sshfs`), press `S` for picker
 - Auto-fallback opening behavior for GUI and headless systems
 - UI adapts to terminal resize events
 - Optional export of final directory path on exit
@@ -53,13 +59,20 @@ A lightweight terminal file browser written in Bash.
 - Optional: `xdg-open` (for opening files in a graphical session)
 - Optional: `wl-copy` (`wl-clipboard`) or `xclip` or `xsel` (for system clipboard path copy via `C`)
 - One of `nano`, `vim`, `vi`, `less`, or another editor via `$EDITOR`/`$VISUAL` for headless servers
+- Optional: `git` (for branch/status info in header)
 - Optional: `chafa` (for inline image preview)
+- Optional: `glow` (for Markdown preview)
 - Optional: `csvlens` (for delimited-file preview)
 - Optional: `jnv` (for JSON preview)
 - Optional: `ouch` (for archive content preview)
 - Optional: `pdftotext` (for PDF text extraction/preview)
+- Optional: `bat` (for syntax-highlighted file/PDF text preview)
+- Optional: `fzf` (for fuzzy jump)
+- Optional: `rg` / `ripgrep` (for in-app text search)
+- Optional: `delta` (for side-by-side file comparison)
 - Optional: `dust` (for disk usage analysis)
-- Optional: `renameutils` (for batch rename via `qmv`)
+- Optional: `moreutils` (for batch rename via `vidir`)
+- Optional: `sshfs` (for remote SSH filesystem mounts via `S` picker)
 
 ## Installation
 
