@@ -1474,7 +1474,14 @@ compare_selected_with_delta() {
         return
     fi
 
-    run_interactive_command delta --side-by-side -- "${items[0]}" "${items[1]}"
+    if cmp -s -- "${items[0]}" "${items[1]}"; then
+        printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}Files are identical.${NC}"
+        redraw_cursor
+        return
+    fi
+
+    # Use explicit width because piped delta output may not auto-detect terminal columns.
+    run_interactive_command bash -lc 'diff -u -- "$1" "$2" | delta --side-by-side --width="$3" --paging=never | less -RS' _ "${items[0]}" "${items[1]}" "$term_cols"
 }
 copy_paths_to_system_clipboard() { local -a items=(); if (( ${#selected[@]} > 0 )); then for idx in "${!selected[@]}"; do local f="${files[$idx]}"; local last="${f: -1}"; case "$last" in '/'|'@'|'*'|'|'|'='|'>') f="${f:0:${#f}-1}" ;; esac; [[ -n "$f" && "$f" != "(Empty Directory)" ]] && items+=("$(pwd)/$f"); done; else local item; item=$(get_item); if [[ -n "$item" && "$item" != "(Empty Directory)" ]]; then items+=("$(pwd)/$item"); else items+=("$(pwd)"); fi; fi; (( ${#items[@]} > 0 )) || return 1; local payload; payload=$(printf "%s\n" "${items[@]}"); if command -v wl-copy &>/dev/null; then printf "%s" "$payload" | wl-copy; elif command -v xclip &>/dev/null; then printf "%s" "$payload" | xclip -selection clipboard; elif command -v xsel &>/dev/null; then printf "%s" "$payload" | xsel --clipboard --input; elif command -v pbcopy &>/dev/null; then printf "%s" "$payload" | pbcopy; else return 2; fi; return 0; }
 echo -ne "\033[?25l"; get_terminal_size; show_loading_status; update_files; draw_ui
