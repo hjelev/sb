@@ -1451,7 +1451,7 @@ fzf_jump() {
     stty "$orig_stty"
     clear
     local selected fzf_exit
-    selected=$(find . -mindepth 1 -maxdepth 5 | sed 's|^\./||' | sort | fzf -e --prompt="Jump: " --height=100% --reverse 2>/dev/null)
+    selected=$(find . -mindepth 1 -maxdepth 5 2>/dev/null | sed 's|^\./||' | sort | fzf -e --prompt="Jump: " --height=100% --reverse 2>/dev/null)
     fzf_exit=$?
     stty -echo cbreak -ixon
     echo -ne "\033[?25l"
