@@ -15,6 +15,7 @@ A lightweight terminal file browser written in Bash.
 - Copy (`c`), paste (`v`), and move (`m`) files/directories — single item or multi-select
 - Copy absolute path(s) of selected/current item to system clipboard with `C`
 - Create a new file (`n`) or folder (`N`)
+- Download a file from a URL into the current folder with `w`
 - Delete selected item(s) with confirmation (`d`)
 - Batch rename with `r` (uses `moreutils`/`vidir`): renames selected items, or all visible items when nothing is selected
 - Toggle executable permission on selected item (`x`)
@@ -35,10 +36,12 @@ A lightweight terminal file browser written in Bash.
 - Optional delimited-file preview in terminal (via `csvlens` for `.csv`, `.tsv`, `.tab`, `.psv`, `.dsv`)
 - Optional JSON preview in terminal (via `jnv` for `.json`, `.jsonl`, `.ndjson`, `.geojson`)
 - Optional archive content preview in terminal (via `ouch list` for archives like `.zip`, `.tar`, `.tar.gz`, `.tgz`, `.bz2`, `.xz`, `.rar`, `.7z`, `.gz`)
+- Optional `.zip` archive browsing as folders (via `fuse-zip`; preferred when both `ouch` and `fuse-zip` are installed)
 - Optional PDF text preview in terminal (via `pdftotext`; rendered with `bat` when available, otherwise `less`)
+- Optional audio preview/playback in terminal (via `sox` for `.mp3`, `.wav`, `.ogg`, `.flac`, `.aac`, `.m4a`)
 - Optional syntax-highlighted file preview (via `bat`)
 - Optional fuzzy jump integration (via `fzf`, key `f`)
-- Optional text search integration (via `rg`/ripgrep, key `F`)
+- Optional text search integration (via `rg`/ripgrep, key `g`)
 - Optional side-by-side file comparison (via `delta`, key `D`)
 - Optional disk usage analyzer (via `dust`) — toggle with `s` to display folder sizes and percentage of total directory size
 - Optional batch renaming integration (via `moreutils` `vidir`)
@@ -65,7 +68,9 @@ A lightweight terminal file browser written in Bash.
 - Optional: `csvlens` (for delimited-file preview)
 - Optional: `jnv` (for JSON preview)
 - Optional: `ouch` (for archive content preview)
+- Optional: `fuse-zip` (for mounting and browsing `.zip` archives)
 - Optional: `pdftotext` (for PDF text extraction/preview)
+- Optional: `sox` (for audio preview/playback)
 - Optional: `bat` (for syntax-highlighted file/PDF text preview)
 - Optional: `fzf` (for fuzzy jump)
 - Optional: `rg` / `ripgrep` (for in-app text search)
@@ -231,6 +236,9 @@ After you quit (`q`), the script writes the current working directory to the exp
 | `m` | Move selected item(s) into current directory |
 | `n` | Create a new file |
 | `N` | Create a new folder |
+| `w` | Download URL into current directory |
+| `g` | Search text with ripgrep |
+| `i` | Show integration status |
 | `l` | Open selected file in `less` |
 | `e` | Edit selected file in CLI editor (`$VISUAL`/`$EDITOR` fallback chain) |
 | `o` | Open selected item in GUI associated app |
