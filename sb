@@ -2009,7 +2009,7 @@ continue
 fi
 case "$key" in
 'q') break ;;
-'h') show_help ;;
+'h'|$'\eOP'|$'\e[11~') show_help ;;
 'b') show_bookmarks ;;
 '[') (( NAME_COL_WIDTH > NAME_COL_MIN )) && ((NAME_COL_WIDTH--)); draw_ui ;;
 ']') (( NAME_COL_WIDTH < NAME_COL_MAX )) && ((NAME_COL_WIDTH++)); draw_ui ;;
@@ -2027,7 +2027,7 @@ $'\e[6~') old_cursor=$cursor; ((cursor += max_rows)); (( cursor > ${#files[@]} )
 $'\e[H'|$'\e[1~'|$'\e[7~'|$'\eOH') ((cursor > 1)) && cursor=1 && redraw_cursor ;;
 $'\e[F'|$'\e[4~'|$'\e[8~'|$'\eOF') ((cursor < ${#files[@]})) && cursor=${#files[@]} && redraw_cursor ;;
 $'\e[C'|$'\n'|$'\r') item=$(get_item); if [ -d "$item" ]; then dir_positions["$(pwd)"]=$cursor; if cd "$item" 2>/dev/null; then clear_selection; get_terminal_size; show_loading_status; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; draw_ui; else draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Permission denied: $item${NC}"; fi; elif [ -f "$item" ]; then open_with_preview "$item"; fi ;;
-$'\e[D') if zip_return_to_source_if_at_mount_root; then :; else dir_positions["$(pwd)"]=$cursor; if cd .. 2>/dev/null; then clear_selection; get_terminal_size; show_loading_status; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; draw_ui; else draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Permission denied: cannot access parent directory${NC}"; fi; fi ;;
+$'\e[D') if zip_return_to_source_if_at_mount_root; then :; elif [[ "$(pwd)" == "/" ]]; then :; else dir_positions["$(pwd)"]=$cursor; if cd .. 2>/dev/null; then clear_selection; get_terminal_size; show_loading_status; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; draw_ui; else draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Permission denied: cannot access parent directory${NC}"; fi; fi ;;
 '~') dir_positions["$(pwd)"]=$cursor; if cd "$HOME" 2>/dev/null; then clear_selection; get_terminal_size; show_loading_status; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; draw_ui; else draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Permission denied: cannot access home directory${NC}"; fi ;;
 $'\e[2~'|$'\e[L'|' ') toggle_selection; if ((cursor < ${#files[@]})); then ((cursor++)); fi; redraw_cursor ;;
 'c') if (( ${#selected[@]} > 0 )); then copy_selected; else item=$(get_item); if [[ "$item" != "(Empty Directory)" ]]; then CLIPBOARD_MULTI=(); CLIPBOARD_MOVE=0; CLIPBOARD_PATH="$(pwd)/$item"; CLIPBOARD_NAME="$item"; redraw_cursor; fi; fi ;;
@@ -2051,7 +2051,7 @@ $'\t') jump_to_path ;;
 'n') create_file_item ;;
 'N') create_dir_item ;;
 'w') download_from_url ;;
-'h') show_help ;;
+'h'|$'\eOP'|$'\e[11~') show_help ;;
 'b') show_bookmarks ;;
 '*') toggle_select_all ;;
 '.') SHOW_HIDDEN=$((1 - SHOW_HIDDEN)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
