@@ -1164,8 +1164,11 @@ preview_audio_in_terminal() {
 }
 open_file() { local item="$1"; if command -v chafa &>/dev/null && [[ "$item" =~ \.(jpg|jpeg|png|gif|bmp|webp|tiff|ico)$ ]]; then preview_image_in_terminal "$item"; else open_external "$item"; fi; }
 open_with_less() { local item="$1"; [[ -f "$item" ]] || return; run_interactive_command less -- "$item"; }
-open_protected_file_with_preview() {
-    local item="$1" lower_item plain_name tmp_dir tmp_file rc=0
+AGE_PREVIEW_TMP_FILE=""
+AGE_PREVIEW_TMP_DIR=""
+decrypt_protected_file_to_temp() {
+    local item="$1"
+    local lower_item plain_name tmp_dir tmp_file rc=0 age_err=""
 
     [[ -f "$item" ]] || return 1
     lower_item="${item,,}"
@@ -1178,7 +1181,9 @@ open_protected_file_with_preview() {
     fi
 
     plain_name="${item%.[aA][gG][eE]}"
-    [[ "$plain_name" == "$item" || "${plain_name,,}" == *.age ]] && plain_name="${plain_name}.decrypted"
+    if [[ -z "$plain_name" || "$plain_name" == "$item" || "${plain_name,,}" == *.age ]]; then
+        plain_name="$(basename -- "$item").decrypted"
+    fi
 
     tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/sb_age_preview.XXXXXX" 2>/dev/null) || {
         draw_ui
@@ -1194,7 +1199,7 @@ open_protected_file_with_preview() {
     echo -ne "\033[?25h"
     printf "\033[$((max_rows + 3));1H\033[K"
     stty sane
-    age -d -o "$tmp_file" -- "$item"
+    age_err=$(age -d -o "$tmp_file" -- "$item" 2>&1)
     rc=$?
     stty -echo cbreak -ixon intr undef
     echo -ne "\033[?25l"
@@ -1202,12 +1207,64 @@ open_protected_file_with_preview() {
     if (( rc != 0 )); then
         rm -rf -- "$tmp_dir" 2>/dev/null || true
         draw_ui
-        printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}Unable to open protected file (wrong passphrase or decrypt error).${NC}"
+        if [[ -n "$age_err" ]]; then
+            age_err=${age_err%%$'\n'*}
+            printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}${age_err}${NC}"
+        else
+            printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}Unable to open protected file (wrong passphrase or decrypt error).${NC}"
+        fi
         return 1
     fi
 
     chmod 600 -- "$tmp_file" 2>/dev/null || true
+    AGE_PREVIEW_TMP_FILE="$tmp_file"
+    AGE_PREVIEW_TMP_DIR="$tmp_dir"
+    return 0
+}
+
+open_protected_file_with_preview() {
+    local item="$1" tmp_file="" tmp_dir=""
+
+    decrypt_protected_file_to_temp "$item" || return 1
+    tmp_file="$AGE_PREVIEW_TMP_FILE"
+    tmp_dir="$AGE_PREVIEW_TMP_DIR"
     open_with_preview "$tmp_file"
+    rm -rf -- "$tmp_dir" 2>/dev/null || true
+    draw_ui
+    return 0
+}
+
+open_protected_file_with_less() {
+    local item="$1" tmp_file="" tmp_dir=""
+
+    decrypt_protected_file_to_temp "$item" || return 1
+    tmp_file="$AGE_PREVIEW_TMP_FILE"
+    tmp_dir="$AGE_PREVIEW_TMP_DIR"
+    open_with_less "$tmp_file"
+    rm -rf -- "$tmp_dir" 2>/dev/null || true
+    draw_ui
+    return 0
+}
+
+open_protected_file_with_editor() {
+    local item="$1" tmp_file="" tmp_dir=""
+
+    decrypt_protected_file_to_temp "$item" || return 1
+    tmp_file="$AGE_PREVIEW_TMP_FILE"
+    tmp_dir="$AGE_PREVIEW_TMP_DIR"
+    open_in_editor "$tmp_file"
+    rm -rf -- "$tmp_dir" 2>/dev/null || true
+    draw_ui
+    return 0
+}
+
+open_protected_file_with_gui() {
+    local item="$1" tmp_file="" tmp_dir=""
+
+    decrypt_protected_file_to_temp "$item" || return 1
+    tmp_file="$AGE_PREVIEW_TMP_FILE"
+    tmp_dir="$AGE_PREVIEW_TMP_DIR"
+    open_in_gui "$tmp_file"
     rm -rf -- "$tmp_dir" 2>/dev/null || true
     draw_ui
     return 0
@@ -2768,9 +2825,9 @@ case "$key" in
 "$KEY_SORT_SIZE") SORT_MODE="size"; SORT_SIZE_DESC=$((1 - SORT_SIZE_DESC)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
 "$KEY_SORT_EXT") SORT_MODE="ext"; SORT_EXT_DESC=$((1 - SORT_EXT_DESC)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
 "$KEY_MOVE") if (( ${#selected[@]} > 0 )); then move_selected; else move_clipboard_item; fi ;;
-"$KEY_LESS") item=$(get_item); open_with_less "$item" ;;
-"$KEY_EDIT") item=$(get_item); open_in_editor "$item" ;;
-"$KEY_OPEN_GUI") item=$(get_item); open_in_gui "$item" ;;
+"$KEY_LESS") item=$(get_item); if [[ -f "$item" && "${item,,}" == *.age ]]; then open_protected_file_with_less "$item"; else open_with_less "$item"; fi ;;
+"$KEY_EDIT") item=$(get_item); if [[ -f "$item" && "${item,,}" == *.age ]]; then open_protected_file_with_editor "$item"; else open_in_editor "$item"; fi ;;
+"$KEY_OPEN_GUI") item=$(get_item); if [[ -f "$item" && "${item,,}" == *.age ]]; then open_protected_file_with_gui "$item"; else open_in_gui "$item"; fi ;;
 "$KEY_RENAME") rename_dispatch ;;
 "$KEY_FZF_JUMP") fzf_jump ;;
 "$KEY_INTEGRATIONS") show_integrations_screen ;;
