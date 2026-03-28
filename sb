@@ -921,6 +921,14 @@ redraw_cursor() { local previous_scroll=$scroll_offset; ensure_cursor_visible; i
 get_item() {
     [[ $cursor -gt 0 && $cursor -le ${#files[@]} ]] && strip_ls_suffix "${files[$((cursor-1))]}"
 }
+find_file_index() {
+    local name="$1" i clean
+    for i in "${!files[@]}"; do
+        clean=$(strip_ls_suffix "${files[$i]}")
+        [[ "$clean" == "$name" ]] && { echo $((i+1)); return 0; }
+    done
+    return 1
+}
 preview_image_in_terminal() { local item="$1"; echo -ne "\033[?25h"; tput smcup; printf "\033[H"; chafa "$item" | head -n $((term_rows - 2)); printf "\033[$((term_rows));1H"; IFS= read -rsn1 _tmp; [[ "$_tmp" == $'\e' ]] && while IFS= read -rsN1 -t "$READ_TIMEOUT" _tmp; do :; done; tput rmcup; echo -ne "\033[?25l"; redraw_cursor; }
 zip_get_mount_point() {
     local zip_file="$1"
@@ -1851,13 +1859,18 @@ jump_to_path() {
 create_file_item() { local name=""; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -p "New file name: " name; stty -echo cbreak -ixon; echo -ne "\033[?25l"; [[ -z "$name" ]] && { redraw_cursor; return; }; touch -- "$name" 2>/dev/null && { update_files; draw_ui; } || redraw_cursor; }
 create_dir_item() { local name=""; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -p "New folder name: " name; stty -echo cbreak -ixon; echo -ne "\033[?25l"; [[ -z "$name" ]] && { redraw_cursor; return; }; mkdir -p -- "$name" 2>/dev/null && { update_files; draw_ui; } || redraw_cursor; }
 download_from_url() {
-    if ! command -v curl &>/dev/null; then
-        printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}curl is not installed${NC}"
+    local use_tool=""
+    if command -v curl &>/dev/null; then
+        use_tool="curl"
+    elif command -v wget &>/dev/null; then
+        use_tool="wget"
+    else
+        printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}Neither curl nor wget is installed${NC}"
         redraw_cursor
         return
     fi
 
-    local url="" download_rc=0 url_no_fragment="" url_no_query="" suggested_name="" save_as="" fallback_name="curl_response" renamed_to="" final_name=""
+    local url="" download_rc=0 url_no_fragment="" url_no_query="" suggested_name="" save_as="" fallback_name="downloaded_file" renamed_to="" final_name=""
     local host_part="" host_suggest=""
     echo -ne "\033[?25h"
     printf "\033[$((max_rows + 3));1H\033[K"
@@ -1890,10 +1903,18 @@ download_from_url() {
         [[ -z "$save_as" ]] && save_as="$host_suggest"
     fi
 
-    if [[ -n "$save_as" ]]; then
-        run_interactive_command curl -fL --show-error --progress-bar -o "$save_as" -- "$url"
+    if [[ "$use_tool" == "curl" ]]; then
+        if [[ -n "$save_as" ]]; then
+            run_interactive_command curl -fL --show-error --progress-bar -o "$save_as" -- "$url"
+        else
+            run_interactive_command curl -fL --show-error --progress-bar -OJ -- "$url"
+        fi
     else
-        run_interactive_command curl -fL --show-error --progress-bar -OJ -- "$url"
+        if [[ -n "$save_as" ]]; then
+            run_interactive_command wget --progress=bar:force -O "$save_as" -- "$url"
+        else
+            run_interactive_command wget --progress=bar:force -- "$url"
+        fi
     fi
     download_rc=$?
 
@@ -1906,7 +1927,7 @@ download_from_url() {
             echo -ne "\033[?25h"
             printf "\033[$((max_rows + 3));1H\033[K"
             stty echo
-            read -e -i "$host_suggest" -p "Saved as curl_response. Rename to: " renamed_to
+            read -e -i "$host_suggest" -p "Saved as $fallback_name. Rename to: " renamed_to
             stty -echo cbreak -ixon
             echo -ne "\033[?25l"
 
@@ -1928,7 +1949,7 @@ download_from_url() {
             printf "\033[$((max_rows + 3));1H\033[K%b" "${GREEN}Downloaded file successfully.${NC}"
         fi
     else
-        printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}Download failed (curl exit ${download_rc}).${NC}"
+        printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}Download failed (${use_tool} exit ${download_rc}).${NC}"
         redraw_cursor
         return
     fi
@@ -2011,8 +2032,8 @@ case "$key" in
 'q') break ;;
 'h'|$'\eOP'|$'\e[11~') show_help ;;
 'b') show_bookmarks ;;
-'[') (( NAME_COL_WIDTH > NAME_COL_MIN )) && ((NAME_COL_WIDTH--)); draw_ui ;;
-']') (( NAME_COL_WIDTH < NAME_COL_MAX )) && ((NAME_COL_WIDTH++)); draw_ui ;;
+'[') (( NAME_COL_WIDTH > NAME_COL_MIN )) && ((NAME_COL_WIDTH--)) && draw_ui ;;
+']') (( NAME_COL_WIDTH < NAME_COL_MAX )) && ((NAME_COL_WIDTH++)) && draw_ui ;;
 '{') NAME_COL_WIDTH=$NAME_COL_MIN; draw_ui ;;
 '}') NAME_COL_WIDTH=$NAME_COL_MAX; draw_ui ;;
 esac
@@ -2027,7 +2048,7 @@ $'\e[6~') old_cursor=$cursor; ((cursor += max_rows)); (( cursor > ${#files[@]} )
 $'\e[H'|$'\e[1~'|$'\e[7~'|$'\eOH') ((cursor > 1)) && cursor=1 && redraw_cursor ;;
 $'\e[F'|$'\e[4~'|$'\e[8~'|$'\eOF') ((cursor < ${#files[@]})) && cursor=${#files[@]} && redraw_cursor ;;
 $'\e[C'|$'\n'|$'\r') item=$(get_item); if [ -d "$item" ]; then dir_positions["$(pwd)"]=$cursor; if cd "$item" 2>/dev/null; then clear_selection; get_terminal_size; show_loading_status; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; draw_ui; else draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Permission denied: $item${NC}"; fi; elif [ -f "$item" ]; then open_with_preview "$item"; fi ;;
-$'\e[D') if zip_return_to_source_if_at_mount_root; then :; elif [[ "$(pwd)" == "/" ]]; then :; else dir_positions["$(pwd)"]=$cursor; if cd .. 2>/dev/null; then clear_selection; get_terminal_size; show_loading_status; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; draw_ui; else draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Permission denied: cannot access parent directory${NC}"; fi; fi ;;
+$'\e[D') if zip_return_to_source_if_at_mount_root; then :; elif [[ "$(pwd)" == "/" ]]; then :; else local _from_dir; _from_dir=$(basename "$(pwd)"); dir_positions["$(pwd)"]=$cursor; if cd .. 2>/dev/null; then clear_selection; get_terminal_size; show_loading_status; update_files; local _found; _found=$(find_file_index "$_from_dir") && cursor=$_found || cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; draw_ui; else draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Permission denied: cannot access parent directory${NC}"; fi; fi ;;
 '~') dir_positions["$(pwd)"]=$cursor; if cd "$HOME" 2>/dev/null; then clear_selection; get_terminal_size; show_loading_status; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; draw_ui; else draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Permission denied: cannot access home directory${NC}"; fi ;;
 $'\e[2~'|$'\e[L'|' ') toggle_selection; if ((cursor < ${#files[@]})); then ((cursor++)); fi; redraw_cursor ;;
 'c') if (( ${#selected[@]} > 0 )); then copy_selected; else item=$(get_item); if [[ "$item" != "(Empty Directory)" ]]; then CLIPBOARD_MULTI=(); CLIPBOARD_MOVE=0; CLIPBOARD_PATH="$(pwd)/$item"; CLIPBOARD_NAME="$item"; redraw_cursor; fi; fi ;;
@@ -2073,8 +2094,8 @@ $'\t') jump_to_path ;;
         printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}dust is not installed${NC}"
     fi
     ;;
-'[') (( NAME_COL_WIDTH > NAME_COL_MIN )) && ((NAME_COL_WIDTH--)); draw_ui ;;
-']') (( NAME_COL_WIDTH < NAME_COL_MAX )) && ((NAME_COL_WIDTH++)); draw_ui ;;
+'[') (( NAME_COL_WIDTH > NAME_COL_MIN )) && ((NAME_COL_WIDTH--)) && draw_ui ;;
+']') (( NAME_COL_WIDTH < NAME_COL_MAX )) && ((NAME_COL_WIDTH++)) && draw_ui ;;
 '{') NAME_COL_WIDTH=$NAME_COL_MIN; draw_ui ;;
 '}') NAME_COL_WIDTH=$NAME_COL_MAX; draw_ui ;;
 'x') item=$(get_item); toggle_executable "$item" ;;
