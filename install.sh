@@ -128,10 +128,10 @@ default_install_dir() {
 
     # Priority 1: preferred well-known user locations — pick the first that is writable/creatable.
     # We do NOT require them to already be on PATH; the shell integration adds the PATH export.
-    # $HOME/.local/bin is the XDG standard and the best default on Debian/Ubuntu/RPi OS.
+    # /usr/local/bin is tried first (works when run with sudo); falls back to XDG user dirs.
     local -a preferred=()
     [[ -n "${XDG_BIN_HOME:-}" ]] && preferred+=("$XDG_BIN_HOME")
-    preferred+=("$HOME/.local/bin" "$HOME/bin")
+    preferred+=("/usr/local/bin" "$HOME/.local/bin" "$HOME/bin")
 
     for dir in "${preferred[@]}"; do
         if dir_is_writable_or_creatable "$dir"; then
