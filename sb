@@ -1820,14 +1820,29 @@ fzf_jump() {
 }
 rg_search() {
     command -v rg &>/dev/null || return
-    local query
+    local query old_esc_binding="" i
     echo -ne "\033[?25h"
     printf "\033[$((max_rows + 3));1H\033[K"
     stty echo
+
+    # Let Esc cancel the visible readline prompt: clear line + accept.
+    old_esc_binding=$(bind -p 2>/dev/null | awk '/"\\e":/{print; exit}')
+    bind '"\e": "\C-u\C-m"' 2>/dev/null
     read -e -p "Search in files: " query
+    if [[ -n "$old_esc_binding" ]]; then
+        bind "$old_esc_binding" 2>/dev/null
+    else
+        bind '"\e": prefix-meta' 2>/dev/null
+    fi
+
     stty -echo cbreak -ixon intr undef
     echo -ne "\033[?25l"
-    [[ -z "$query" ]] && { redraw_cursor; return; }
+    [[ -z "$query" ]] && {
+        printf "\033[$((max_rows + 3));1H\033[K"
+        for (( i=0; i<term_cols-1; i++ )); do printf "─"; done
+        redraw_cursor
+        return
+    }
     
     stty "$orig_stty"
     clear
