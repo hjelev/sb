@@ -246,6 +246,7 @@ After you quit (`q`), the script writes the current working directory to the exp
 | `u` | Upload selected file(s) to catbox.moe |
 | `z` | Create archive from selected item(s) (`.zip`/`.tar.gz`/`.tgz`/`.tar`) |
 | `x` | Extract archive(s), prompt for destination, and optionally split multiple archives into separate archive-named folders |
+| `p` | Protect/unprotect current file with `age` |
 | `g` | Search text with ripgrep |
 | `i` | Show integration status |
 | `l` | Open selected file in `less` |

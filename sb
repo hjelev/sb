@@ -1410,7 +1410,7 @@ show_help() {
     if (( rows < 15 || cols < 70 )); then
         printf "%b" "${HELP_SECTION}Navigation${NC}  ${HELP_KEY}Up/Down${NC} move, ${HELP_KEY}Enter${NC} open, ${HELP_KEY}Left${NC} parent, ${HELP_KEY}~${NC} home\n"
         printf "%b" "${HELP_SECTION}Select${NC}      ${HELP_KEY}Insert/Space${NC} toggle, ${HELP_KEY}*${NC} all, ${HELP_KEY}c${NC} copy, ${HELP_KEY}m${NC} move, ${HELP_KEY}v${NC} paste\n"
-        printf "%b" "${HELP_SECTION}Files${NC}       ${HELP_KEY}n${NC} file, ${HELP_KEY}N${NC} folder, ${HELP_KEY}w${NC} download, ${HELP_KEY}u${NC} upload, ${HELP_KEY}z${NC} archive, ${HELP_KEY}x${NC} extract, ${HELP_KEY}p${NC} protect/unprotect, ${HELP_KEY}e${NC} edit, ${HELP_KEY}o${NC} open, ${HELP_KEY}l${NC} less, ${HELP_KEY}d${NC} delete, ${HELP_KEY}X${NC} chmod\n"
+        printf "%b" "${HELP_SECTION}Files${NC}       ${HELP_KEY}n${NC} file, ${HELP_KEY}N${NC} folder, ${HELP_KEY}w${NC} download, ${HELP_KEY}u${NC} upload, ${HELP_KEY}z${NC} archive, ${HELP_KEY}x${NC} extract, ${HELP_KEY}p${NC} protect/unprotect current file, ${HELP_KEY}e${NC} edit, ${HELP_KEY}o${NC} open, ${HELP_KEY}l${NC} less, ${HELP_KEY}d${NC} delete, ${HELP_KEY}X${NC} chmod\n"
         printf "%b" "${HELP_SECTION}Sort${NC}        ${HELP_KEY}Ctrl+N${NC} name, ${HELP_KEY}Ctrl+D${NC} date, ${HELP_KEY}Ctrl+S${NC} size, ${HELP_KEY}Ctrl+X${NC} ext\n"
         printf "%b" "${HELP_SECTION}View${NC}        ${HELP_KEY}.${NC} hidden, ${HELP_KEY}s${NC} dust, ${HELP_KEY}S${NC} SSH, ${HELP_KEY}i${NC} integrations, ${HELP_KEY}[ / ]${NC} name -/+, ${HELP_KEY}{ / }${NC} min/max, ${HELP_KEY}b${NC} bookmarks, ${HELP_KEY}h${NC} help, ${HELP_KEY}q${NC} quit\n\n"
         printf "%b" "${HELP_ACCENT}Press any key to return...${NC}"
@@ -1455,7 +1455,7 @@ show_help() {
         "e            Edit in CLI editor"
         "o            Open in GUI app"
         "l            Open in less"
-        "p            Protect/unprotect with age"
+        "p            Protect/unprotect current file with age"
         "X            Toggle executable bit"
         "d            Delete selected"
         ""
