@@ -166,6 +166,53 @@ while (($# > 0)); do
     esac
 done
 ICON_DIR='📁'; ICON_LINK='🔗'; ICON_FILE='📄'; ICON_EXEC='🛠'; ICON_IMAGE='🖼'; ICON_VIDEO='🎬'; ICON_AUDIO='🎵'; ICON_ARCHIVE='📦'; ICON_SCRIPT='📜'; ICON_CODE='💻'
+
+# Configurable Key Bindings (set via SB_KEY_* environment variables, or use defaults below)
+KEY_QUIT="${SB_KEY_QUIT:-q}"
+KEY_HELP="${SB_KEY_HELP:-h}"
+KEY_BOOKMARKS="${SB_KEY_BOOKMARKS:-b}"
+KEY_COLUMN_SHRINK="${SB_KEY_COLUMN_SHRINK:-[}"
+KEY_COLUMN_GROW="${SB_KEY_COLUMN_GROW:-]}"
+KEY_COLUMN_MIN="${SB_KEY_COLUMN_MIN:-{}"
+KEY_COLUMN_MAX="${SB_KEY_COLUMN_MAX:-}}"
+KEY_NAV_UP="${SB_KEY_NAV_UP:-$'\e[A'}"
+KEY_NAV_DOWN="${SB_KEY_NAV_DOWN:-$'\e[B'}"
+KEY_PAGE_UP="${SB_KEY_PAGE_UP:-$'\e[5~'}"
+KEY_PAGE_DOWN="${SB_KEY_PAGE_DOWN:-$'\e[6~'}"
+# Multi-key sequences (now customizable via env vars)
+KEY_HOME="${SB_KEY_HOME:-$'\e[H'}"           # Home key; defaults also check $'\e[1~'|$'\e[7~'|$'\eOH'
+KEY_END="${SB_KEY_END:-$'\e[F'}"             # End key; defaults also check $'\e[4~'|$'\e[8~'|$'\eOF'
+KEY_ENTER="${SB_KEY_ENTER:-$'\e[C'}"         # Enter; defaults also check $'\n'|$'\r'
+KEY_EXIT="${SB_KEY_EXIT:-$'\e[D'}"           # Left arrow / parent dir
+KEY_SELECT_TOGGLE="${SB_KEY_SELECT_TOGGLE:- }" # Space/Insert toggle; defaults also check $'\e[2~'|$'\e[L'
+KEY_HOME_DIR="${SB_KEY_HOME_DIR:-~}"
+KEY_COPY="${SB_KEY_COPY:-c}"
+KEY_COPY_ABSOLUTE="${SB_KEY_COPY_ABSOLUTE:-$'\x03'}"
+KEY_COMPARE_DELTA="${SB_KEY_COMPARE_DELTA:-C}"
+KEY_PASTE="${SB_KEY_PASTE:-v}"
+KEY_SORT_NAME="${SB_KEY_SORT_NAME:-$'\x0e'}"
+KEY_SORT_DATE="${SB_KEY_SORT_DATE:-$'\x04'}"
+KEY_SORT_SIZE="${SB_KEY_SORT_SIZE:-$'\x13'}"
+KEY_SORT_EXT="${SB_KEY_SORT_EXT:-$'\x18'}"
+KEY_MOVE="${SB_KEY_MOVE:-m}"
+KEY_LESS="${SB_KEY_LESS:-l}"
+KEY_EDIT="${SB_KEY_EDIT:-e}"
+KEY_OPEN_GUI="${SB_KEY_OPEN_GUI:-o}"
+KEY_RENAME="${SB_KEY_RENAME:-r}"
+KEY_FZF_JUMP="${SB_KEY_FZF_JUMP:-f}"
+KEY_INTEGRATIONS="${SB_KEY_INTEGRATIONS:-i}"
+KEY_SSH_PICKER="${SB_KEY_SSH_PICKER:-S}"
+KEY_RIPGREP="${SB_KEY_RIPGREP:-g}"
+KEY_JUMP_PATH="${SB_KEY_JUMP_PATH:-$'\t'}"
+KEY_CREATE_FILE="${SB_KEY_CREATE_FILE:-n}"
+KEY_CREATE_DIR="${SB_KEY_CREATE_DIR:-N}"
+KEY_DOWNLOAD="${SB_KEY_DOWNLOAD:-w}"
+KEY_SELECT_ALL="${SB_KEY_SELECT_ALL:-*}"
+KEY_TOGGLE_HIDDEN="${SB_KEY_TOGGLE_HIDDEN:-\.}"
+KEY_DUST_MODE="${SB_KEY_DUST_MODE:-s}"
+KEY_TOGGLE_EXEC="${SB_KEY_TOGGLE_EXEC:-x}"
+KEY_DELETE="${SB_KEY_DELETE:-d}"
+
 DEFAULT_META='----------|----------|-----|----------------'
 META_COL_FMT='%-12s %-11s %8s  %16s'
 DUST_PCT_FMT='%6s'
@@ -278,8 +325,8 @@ zip_unmount_session_mounts() {
 }
 
 cleanup() { zip_unmount_session_mounts; sshfs_unmount_session_mounts; echo -ne "\033[?25h"; stty "$orig_stty"; [[ -n "$EXPORT_FILE" ]] && pwd > "$EXPORT_FILE"; clear; }
-handle_resize() { get_terminal_size; old_cursor=-1; old_scroll=-1; stty -echo cbreak -ixon; printf "\033[2J\033[1;1H"; draw_ui; }
-trap cleanup EXIT; trap handle_resize SIGWINCH; stty -echo cbreak -ixon
+handle_resize() { get_terminal_size; old_cursor=-1; old_scroll=-1; stty -echo cbreak -ixon intr undef; printf "\033[2J\033[1;1H"; draw_ui; }
+trap cleanup EXIT; trap handle_resize SIGWINCH; stty -echo cbreak -ixon intr undef
 get_terminal_size() { term_rows=$(tput lines); term_cols=$(tput cols); max_rows=$((term_rows - 4)); }
 update_git_header_suffix() {
     GIT_HEADER_SUFFIX=""
@@ -339,7 +386,7 @@ get_color() {
 }
 list_entries() { local -a ls_args=(-F); (( SHOW_HIDDEN )) && ls_args+=(-A); (( LS_GROUP_DIRS )) && ls_args+=(--group-directories-first); "$LS_CMD" "${ls_args[@]}" 2>/dev/null; }
 is_gui_session() { [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" || -n "${MIR_SOCKET:-}" || "$OS_NAME" == "Darwin" ]]; }
-restore_browser_ui() { stty -echo cbreak -ixon; printf "\033[2J\033[1;1H\033[?25l"; get_terminal_size; show_loading_status; update_files; draw_ui; }
+restore_browser_ui() { stty -echo cbreak -ixon intr undef; printf "\033[2J\033[1;1H\033[?25l"; get_terminal_size; show_loading_status; update_files; draw_ui; }
 run_interactive_command() { echo -ne "\033[?25h"; stty "$orig_stty"; clear; "$@"; local status=$?; restore_browser_ui; return $status; }
 show_open_error() { local item="$1"; echo -ne "\033[?25h"; printf "\033[$((max_rows + 4));1H\033[K%b" "${RED}Unable to open '$item'. Set \$EDITOR or install xdg-open, nano, vim, vi, or less.${NC}"; IFS= read -rsN1; echo -ne "\033[?25l"; draw_ui; }
 show_loading_status() { printf "\033[%d;1H\033[KLoading \033[5m...\033[0m" $((max_rows + 4)); }
@@ -1040,7 +1087,7 @@ preview_audio_in_terminal() {
     local sox_pid=""
 
     echo -ne "\033[?25h"
-    stty -echo cbreak -ixon
+    stty -echo cbreak -ixon intr undef
     clear
     printf "%b\n" "${CYAN}Playing:${NC} $item"
     printf "%b\n" "${STATUS_LABEL}Press q, Esc, Left Arrow, or Ctrl+C to stop.${NC}"
@@ -1216,8 +1263,8 @@ show_help() {
         "m            Move selected"
         "v            Paste copied"
         "w            Download URL here"
-        "D            Compare 2 files"
-        "C            Copy absolute path(s)"
+        "C            Compare 2 files"
+        "Ctrl+C       Copy absolute path(s)"
         "r            Rename (single/bulk)"
         "n / N        New file / folder"
     )
@@ -1356,7 +1403,7 @@ rename_single_item() {
     printf "\033[$((max_rows + 3));1H\033[K"
     stty echo
     read -e -i "$item" -p "Rename to: " new_name
-    stty -echo cbreak -ixon
+    stty -echo cbreak -ixon intr undef
     echo -ne "\033[?25l"
 
     [[ -z "$new_name" || "$new_name" == "$item" ]] && { redraw_cursor; return; }
@@ -1730,7 +1777,7 @@ fzf_jump() {
     local selected fzf_exit
     selected=$(find . -mindepth 1 -maxdepth 5 2>/dev/null | sed 's|^\./||' | sort | fzf -e --prompt="Jump: " --height=100% --reverse 2>/dev/null)
     fzf_exit=$?
-    stty -echo cbreak -ixon
+    stty -echo cbreak -ixon intr undef
     echo -ne "\033[?25l"
     get_terminal_size
     if [[ $fzf_exit -eq 0 && -n "$selected" && -d "$selected" ]]; then
@@ -1774,7 +1821,7 @@ rg_search() {
     printf "\033[$((max_rows + 3));1H\033[K"
     stty echo
     read -e -p "Search in files: " query
-    stty -echo cbreak -ixon
+    stty -echo cbreak -ixon intr undef
     echo -ne "\033[?25l"
     [[ -z "$query" ]] && { redraw_cursor; return; }
     
@@ -1783,7 +1830,7 @@ rg_search() {
     local selected selected_plain rg_exit
     selected=$(rg "$query" --with-filename --line-number --color=always 2>/dev/null | fzf --ansi --prompt="Results: " --height=100% --reverse 2>/dev/null)
     rg_exit=$?
-    stty -echo cbreak -ixon
+    stty -echo cbreak -ixon intr undef
     echo -ne "\033[?25l"
     get_terminal_size
     
@@ -1836,7 +1883,7 @@ jump_to_path() {
         bind '"\C-i": complete' 2>/dev/null
     fi
 
-    stty -echo cbreak -ixon
+    stty -echo cbreak -ixon intr undef
     echo -ne "\033[?25l"
     [[ -z "$newpath" ]] && { draw_ui; return; }
     newpath="${newpath/#\~/$HOME}"
@@ -1856,8 +1903,8 @@ jump_to_path() {
         printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Not a directory: $newpath${NC}"
     fi
 }
-create_file_item() { local name=""; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -p "New file name: " name; stty -echo cbreak -ixon; echo -ne "\033[?25l"; [[ -z "$name" ]] && { redraw_cursor; return; }; touch -- "$name" 2>/dev/null && { update_files; draw_ui; } || redraw_cursor; }
-create_dir_item() { local name=""; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -p "New folder name: " name; stty -echo cbreak -ixon; echo -ne "\033[?25l"; [[ -z "$name" ]] && { redraw_cursor; return; }; mkdir -p -- "$name" 2>/dev/null && { update_files; draw_ui; } || redraw_cursor; }
+create_file_item() { local name=""; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -p "New file name: " name; stty -echo cbreak -ixon intr undef; echo -ne "\033[?25l"; [[ -z "$name" ]] && { redraw_cursor; return; }; touch -- "$name" 2>/dev/null && { update_files; draw_ui; } || redraw_cursor; }
+create_dir_item() { local name=""; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -p "New folder name: " name; stty -echo cbreak -ixon intr undef; echo -ne "\033[?25l"; [[ -z "$name" ]] && { redraw_cursor; return; }; mkdir -p -- "$name" 2>/dev/null && { update_files; draw_ui; } || redraw_cursor; }
 download_from_url() {
     local use_tool=""
     if command -v curl &>/dev/null; then
@@ -1876,7 +1923,7 @@ download_from_url() {
     printf "\033[$((max_rows + 3));1H\033[K"
     stty echo
     read -e -p "Download URL: " url
-    stty -echo cbreak -ixon
+    stty -echo cbreak -ixon intr undef
     echo -ne "\033[?25l"
 
     [[ -z "$url" ]] && { redraw_cursor; return; }
@@ -1898,7 +1945,7 @@ download_from_url() {
         printf "\033[$((max_rows + 3));1H\033[K"
         stty echo
         read -e -i "$host_suggest" -p "Save as: " save_as
-        stty -echo cbreak -ixon
+        stty -echo cbreak -ixon intr undef
         echo -ne "\033[?25l"
         [[ -z "$save_as" ]] && save_as="$host_suggest"
     fi
@@ -1928,7 +1975,7 @@ download_from_url() {
             printf "\033[$((max_rows + 3));1H\033[K"
             stty echo
             read -e -i "$host_suggest" -p "Saved as $fallback_name. Rename to: " renamed_to
-            stty -echo cbreak -ixon
+            stty -echo cbreak -ixon intr undef
             echo -ne "\033[?25l"
 
             [[ -z "$renamed_to" ]] && renamed_to="$host_suggest"
@@ -1955,7 +2002,7 @@ download_from_url() {
     fi
     redraw_cursor
 }
-move_clipboard_item() { [[ -z "$CLIPBOARD_PATH" ]] && { redraw_cursor; return; }; local dest="$CLIPBOARD_NAME"; [[ -e "$dest" ]] && { echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -i "$dest" -p "Move as: " dest; stty -echo cbreak -ixon; echo -ne "\033[?25l"; }; [[ -z "$dest" ]] && { redraw_cursor; return; }; mv -- "$CLIPBOARD_PATH" "$dest" 2>/dev/null && { CLIPBOARD_PATH=""; CLIPBOARD_NAME=""; update_files; draw_ui; } || redraw_cursor; }
+move_clipboard_item() { [[ -z "$CLIPBOARD_PATH" ]] && { redraw_cursor; return; }; local dest="$CLIPBOARD_NAME"; [[ -e "$dest" ]] && { echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -i "$dest" -p "Move as: " dest; stty -echo cbreak -ixon intr undef; echo -ne "\033[?25l"; }; [[ -z "$dest" ]] && { redraw_cursor; return; }; mv -- "$CLIPBOARD_PATH" "$dest" 2>/dev/null && { CLIPBOARD_PATH=""; CLIPBOARD_NAME=""; update_files; draw_ui; } || redraw_cursor; }
 toggle_selection() { local idx=$(( cursor - 1 )); local item; item=$(get_item); [[ -z "$item" || "$item" == "(Empty Directory)" ]] && return; if [[ -n "${selected[$idx]+x}" ]]; then unset 'selected[$idx]'; else selected[$idx]=1; fi; }
 clear_selection() { selected=(); }
 toggle_select_all() {
@@ -1975,8 +2022,8 @@ toggle_select_all() {
     draw_ui
 }
 toggle_executable() { local item="$1"; [[ -z "$item" || "$item" == "(Empty Directory)" ]] && return; if [[ -x "$item" ]]; then chmod a-x -- "$item" 2>/dev/null; else chmod u+x -- "$item" 2>/dev/null; fi; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui; }
-delete_item() { local item="$1"; [[ -z "$item" || "$item" == "(Empty Directory)" ]] && return; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -r -p "Delete '$item'? [y/N]: " confirm; stty -echo cbreak -ixon; echo -ne "\033[?25l"; get_terminal_size; printf "\033[2J\033[H"; if [[ "$confirm" =~ ^[Yy]$ ]]; then rm -rf -- "$item" 2>/dev/null; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; fi; draw_ui; }
-delete_selected() { local -a items=(); for idx in "${!selected[@]}"; do local f="${files[$idx]}"; local last="${f: -1}"; case "$last" in '/'|'@'|'*'|'|'|'='|'>') f="${f:0:${#f}-1}" ;; esac; [[ -n "$f" && "$f" != "(Empty Directory)" ]] && items+=("$f"); done; [[ ${#items[@]} -eq 0 ]] && return; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -r -p "Delete ${#items[@]} selected item(s)? [y/N]: " confirm; stty -echo cbreak -ixon; echo -ne "\033[?25l"; get_terminal_size; printf "\033[2J\033[H"; if [[ "$confirm" =~ ^[Yy]$ ]]; then for f in "${items[@]}"; do rm -rf -- "$f" 2>/dev/null; done; clear_selection; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; fi; draw_ui; }
+delete_item() { local item="$1"; [[ -z "$item" || "$item" == "(Empty Directory)" ]] && return; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -r -p "Delete '$item'? [y/N]: " confirm; stty -echo cbreak -ixon intr undef; echo -ne "\033[?25l"; get_terminal_size; printf "\033[2J\033[H"; if [[ "$confirm" =~ ^[Yy]$ ]]; then rm -rf -- "$item" 2>/dev/null; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; fi; draw_ui; }
+delete_selected() { local -a items=(); for idx in "${!selected[@]}"; do local f="${files[$idx]}"; local last="${f: -1}"; case "$last" in '/'|'@'|'*'|'|'|'='|'>') f="${f:0:${#f}-1}" ;; esac; [[ -n "$f" && "$f" != "(Empty Directory)" ]] && items+=("$f"); done; [[ ${#items[@]} -eq 0 ]] && return; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -r -p "Delete ${#items[@]} selected item(s)? [y/N]: " confirm; stty -echo cbreak -ixon intr undef; echo -ne "\033[?25l"; get_terminal_size; printf "\033[2J\033[H"; if [[ "$confirm" =~ ^[Yy]$ ]]; then for f in "${items[@]}"; do rm -rf -- "$f" 2>/dev/null; done; clear_selection; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; fi; draw_ui; }
 copy_selected() { local -a items=(); for idx in "${!selected[@]}"; do local f="${files[$idx]}"; local last="${f: -1}"; case "$last" in '/'|'@'|'*'|'|'|'='|'>') f="${f:0:${#f}-1}" ;; esac; [[ -n "$f" && "$f" != "(Empty Directory)" ]] && items+=("$(pwd)/$f"); done; [[ ${#items[@]} -eq 0 ]] && return; CLIPBOARD_MULTI=("${items[@]}"); CLIPBOARD_PATH=""; CLIPBOARD_NAME="${#items[@]} items"; redraw_cursor; }
 move_selected() { local -a items=(); for idx in "${!selected[@]}"; do local f="${files[$idx]}"; local last="${f: -1}"; case "$last" in '/'|'@'|'*'|'|'|'='|'>') f="${f:0:${#f}-1}" ;; esac; [[ -n "$f" && "$f" != "(Empty Directory)" ]] && items+=("$(pwd)/$f"); done; [[ ${#items[@]} -eq 0 ]] && return; CLIPBOARD_MULTI=("${items[@]}"); CLIPBOARD_MOVE=1; CLIPBOARD_PATH=""; CLIPBOARD_NAME="${#items[@]} items"; redraw_cursor; }
 compare_selected_with_delta() {
@@ -2019,64 +2066,99 @@ compare_selected_with_delta() {
     run_interactive_command bash -lc 'diff -u -- "$1" "$2" | delta --side-by-side --width="$3" --paging=never | less -RS' _ "${items[0]}" "${items[1]}" "$term_cols"
 }
 copy_paths_to_system_clipboard() { local -a items=(); if (( ${#selected[@]} > 0 )); then for idx in "${!selected[@]}"; do local f="${files[$idx]}"; local last="${f: -1}"; case "$last" in '/'|'@'|'*'|'|'|'='|'>') f="${f:0:${#f}-1}" ;; esac; [[ -n "$f" && "$f" != "(Empty Directory)" ]] && items+=("$(pwd)/$f"); done; else local item; item=$(get_item); if [[ -n "$item" && "$item" != "(Empty Directory)" ]]; then items+=("$(pwd)/$item"); else items+=("$(pwd)"); fi; fi; (( ${#items[@]} > 0 )) || return 1; local payload; payload=$(printf "%s\n" "${items[@]}"); if command -v wl-copy &>/dev/null; then printf "%s" "$payload" | wl-copy; elif command -v xclip &>/dev/null; then printf "%s" "$payload" | xclip -selection clipboard; elif command -v xsel &>/dev/null; then printf "%s" "$payload" | xsel --clipboard --input; elif command -v pbcopy &>/dev/null; then printf "%s" "$payload" | pbcopy; else return 2; fi; return 0; }
+normalize_key() {
+    local key="$1"
+    # Check Home key (custom + defaults)
+    if [[ "$key" == "$KEY_HOME" ]] || [[ "$key" == $'\e[H' ]] || [[ "$key" == $'\e[1~' ]] || [[ "$key" == $'\e[7~' ]] || [[ "$key" == $'\eOH' ]]; then
+        echo "ACTION_HOME"
+        return
+    fi
+    # Check End key (custom + defaults)
+    if [[ "$key" == "$KEY_END" ]] || [[ "$key" == $'\e[F' ]] || [[ "$key" == $'\e[4~' ]] || [[ "$key" == $'\e[8~' ]] || [[ "$key" == $'\eOF' ]]; then
+        echo "ACTION_END"
+        return
+    fi
+    # Check Enter key (custom + defaults)
+    if [[ "$key" == "$KEY_ENTER" ]] || [[ "$key" == $'\e[C' ]] || [[ "$key" == $'\n' ]] || [[ "$key" == $'\r' ]]; then
+        echo "ACTION_ENTER"
+        return
+    fi
+    # Check Exit key (custom + default)
+    if [[ "$key" == "$KEY_EXIT" ]] || [[ "$key" == $'\e[D' ]]; then
+        echo "ACTION_EXIT"
+        return
+    fi
+    # Check Select Toggle key (custom + defaults)
+    if [[ "$key" == "$KEY_SELECT_TOGGLE" ]] || [[ "$key" == $'\e[2~' ]] || [[ "$key" == $'\e[L' ]] || [[ "$key" == ' ' ]]; then
+        echo "ACTION_SELECT_TOGGLE"
+        return
+    fi
+}
+
 echo -ne "\033[?25l"; get_terminal_size; startup_auto_name_col_width; show_loading_status; update_files; draw_ui
 while true; do
 IFS= read -rsN1 key
 if [[ $key == $'\e' ]]; then while IFS= read -rsN1 -t $READ_TIMEOUT key_rest; do key+="$key_rest"; done; fi
+# Normalize multi-key sequences to action IDs
+action=$(normalize_key "$key")
+# Handle multi-key actions first
+case "$action" in
+ACTION_HOME) ((cursor > 1)) && cursor=1 && redraw_cursor; continue ;;
+ACTION_END) ((cursor < ${#files[@]})) && cursor=${#files[@]} && redraw_cursor; continue ;;
+ACTION_ENTER) item=$(get_item); if [ -d "$item" ]; then dir_positions["$(pwd)"]=$cursor; if cd "$item" 2>/dev/null; then clear_selection; get_terminal_size; show_loading_status; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; draw_ui; else draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Permission denied: $item${NC}"; fi; elif [ -f "$item" ]; then open_with_preview "$item"; fi; continue ;;
+ACTION_EXIT) if zip_return_to_source_if_at_mount_root; then :; elif [[ "$(pwd)" == "/" ]]; then :; else _from_dir=$(basename "$(pwd)"); dir_positions["$(pwd)"]=$cursor; if cd .. 2>/dev/null; then clear_selection; get_terminal_size; show_loading_status; update_files; _found=$(find_file_index "$_from_dir") && cursor=$_found || cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; draw_ui; else draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Permission denied: cannot access parent directory${NC}"; fi; fi; continue ;;
+ACTION_SELECT_TOGGLE) toggle_selection; if ((cursor < ${#files[@]})); then ((cursor++)); fi; redraw_cursor; continue ;;
+esac
+
 if is_terminal_too_narrow; then
 if fit_name_col_to_terminal; then
 draw_ui
 continue
 fi
 case "$key" in
-'q') break ;;
-'h'|$'\eOP'|$'\e[11~') show_help ;;
-'b') show_bookmarks ;;
-'[') (( NAME_COL_WIDTH > NAME_COL_MIN )) && ((NAME_COL_WIDTH--)) && draw_ui ;;
-']') (( NAME_COL_WIDTH < NAME_COL_MAX )) && ((NAME_COL_WIDTH++)) && draw_ui ;;
-'{') NAME_COL_WIDTH=$NAME_COL_MIN; draw_ui ;;
-'}') NAME_COL_WIDTH=$NAME_COL_MAX; draw_ui ;;
+"$KEY_QUIT") break ;;
+"$KEY_HELP"|$'\eOP'|$'\e[11~') show_help ;;
+"$KEY_BOOKMARKS") show_bookmarks ;;
+"$KEY_COLUMN_SHRINK") (( NAME_COL_WIDTH > NAME_COL_MIN )) && ((NAME_COL_WIDTH--)) && draw_ui ;;
+"$KEY_COLUMN_GROW") (( NAME_COL_WIDTH < NAME_COL_MAX )) && ((NAME_COL_WIDTH++)) && draw_ui ;;
+"$KEY_COLUMN_MIN") NAME_COL_WIDTH=$NAME_COL_MIN; draw_ui ;;
+"$KEY_COLUMN_MAX") NAME_COL_WIDTH=$NAME_COL_MAX; draw_ui ;;
 esac
 draw_too_narrow_message
 continue
 fi
 case "$key" in
-$'\e[A') ((cursor > 1)) && ((cursor--)) && redraw_cursor ;;
-$'\e[B') ((cursor < ${#files[@]})) && ((cursor++)) && redraw_cursor ;;
-$'\e[5~') old_cursor=$cursor; ((cursor -= max_rows)); (( cursor < 1 )) && cursor=1; (( cursor != old_cursor )) && redraw_cursor ;;
-$'\e[6~') old_cursor=$cursor; ((cursor += max_rows)); (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor != old_cursor )) && redraw_cursor ;;
-$'\e[H'|$'\e[1~'|$'\e[7~'|$'\eOH') ((cursor > 1)) && cursor=1 && redraw_cursor ;;
-$'\e[F'|$'\e[4~'|$'\e[8~'|$'\eOF') ((cursor < ${#files[@]})) && cursor=${#files[@]} && redraw_cursor ;;
-$'\e[C'|$'\n'|$'\r') item=$(get_item); if [ -d "$item" ]; then dir_positions["$(pwd)"]=$cursor; if cd "$item" 2>/dev/null; then clear_selection; get_terminal_size; show_loading_status; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; draw_ui; else draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Permission denied: $item${NC}"; fi; elif [ -f "$item" ]; then open_with_preview "$item"; fi ;;
-$'\e[D') if zip_return_to_source_if_at_mount_root; then :; elif [[ "$(pwd)" == "/" ]]; then :; else _from_dir=$(basename "$(pwd)"); dir_positions["$(pwd)"]=$cursor; if cd .. 2>/dev/null; then clear_selection; get_terminal_size; show_loading_status; update_files; _found=$(find_file_index "$_from_dir") && cursor=$_found || cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; draw_ui; else draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Permission denied: cannot access parent directory${NC}"; fi; fi ;;
-'~') dir_positions["$(pwd)"]=$cursor; if cd "$HOME" 2>/dev/null; then clear_selection; get_terminal_size; show_loading_status; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; draw_ui; else draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Permission denied: cannot access home directory${NC}"; fi ;;
-$'\e[2~'|$'\e[L'|' ') toggle_selection; if ((cursor < ${#files[@]})); then ((cursor++)); fi; redraw_cursor ;;
-'c') if (( ${#selected[@]} > 0 )); then copy_selected; else item=$(get_item); if [[ "$item" != "(Empty Directory)" ]]; then CLIPBOARD_MULTI=(); CLIPBOARD_MOVE=0; CLIPBOARD_PATH="$(pwd)/$item"; CLIPBOARD_NAME="$item"; redraw_cursor; fi; fi ;;
-'C') if copy_paths_to_system_clipboard; then printf "\033[$((max_rows + 3));1H\033[K%b" "${GREEN}Copied absolute path(s) to system clipboard.${NC}"; else rc=$?; if (( rc == 2 )); then printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}No clipboard tool found. Install wl-clipboard, xclip, or xsel.${NC}"; else printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}Nothing to copy.${NC}"; fi; fi; redraw_cursor ;;
-'D') compare_selected_with_delta ;;
-'v') if (( ${#CLIPBOARD_MULTI[@]} > 0 )); then echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -r -p "Paste ${#CLIPBOARD_MULTI[@]} item(s) here? [y/N]: " confirm; stty -echo cbreak -ixon; echo -ne "\033[?25l"; if [[ "$confirm" =~ ^[Yy]$ ]]; then for src in "${CLIPBOARD_MULTI[@]}"; do bname=$(basename "$src"); dest="$bname"; if [[ -e "$dest" ]]; then echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -i "$dest" -p "Paste '$bname' as: " dest; stty -echo cbreak -ixon; echo -ne "\033[?25l"; fi; if (( CLIPBOARD_MOVE )); then mv -- "$src" "$dest" 2>/dev/null; else cp -r -- "$src" "$dest" 2>/dev/null; fi; done; if (( CLIPBOARD_MOVE )); then CLIPBOARD_MULTI=(); CLIPBOARD_MOVE=0; CLIPBOARD_NAME=""; clear_selection; fi; update_files; draw_ui; fi; elif [[ -n "$CLIPBOARD_PATH" ]]; then dest="$CLIPBOARD_NAME"; [[ -e "$dest" ]] && { echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -i "$dest" -p "New name: " dest; stty -echo cbreak -ixon; echo -ne "\033[?25l"; }; cp -r "$CLIPBOARD_PATH" "$dest" 2>/dev/null && { update_files; draw_ui; }; fi ;;
-$'\x0e') SORT_MODE="name"; SORT_NAME_DESC=$((1 - SORT_NAME_DESC)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
-$'\x04') SORT_MODE="date"; SORT_DATE_DESC=$((1 - SORT_DATE_DESC)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
-$'\x13') SORT_MODE="size"; SORT_SIZE_DESC=$((1 - SORT_SIZE_DESC)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
-$'\x18') SORT_MODE="ext"; SORT_EXT_DESC=$((1 - SORT_EXT_DESC)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
-'m') if (( ${#selected[@]} > 0 )); then move_selected; else move_clipboard_item; fi ;;
-'l') item=$(get_item); open_with_less "$item" ;;
-'e') item=$(get_item); open_in_editor "$item" ;;
-'o') item=$(get_item); open_in_gui "$item" ;;
-'r') rename_dispatch ;;
-'f') fzf_jump ;;
-'i') show_integrations_screen ;;
-'S') show_ssh_picker ;;
-'g') rg_search ;;
-$'\t') jump_to_path ;;
-'n') create_file_item ;;
-'N') create_dir_item ;;
-'w') download_from_url ;;
-'h'|$'\eOP'|$'\e[11~') show_help ;;
-'b') show_bookmarks ;;
-'*') toggle_select_all ;;
-'.') SHOW_HIDDEN=$((1 - SHOW_HIDDEN)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
-'s')
+"$KEY_NAV_UP") ((cursor > 1)) && ((cursor--)) && redraw_cursor ;;
+"$KEY_NAV_DOWN") ((cursor < ${#files[@]})) && ((cursor++)) && redraw_cursor ;;
+"$KEY_PAGE_UP") old_cursor=$cursor; ((cursor -= max_rows)); (( cursor < 1 )) && cursor=1; (( cursor != old_cursor )) && redraw_cursor ;;
+"$KEY_PAGE_DOWN") old_cursor=$cursor; ((cursor += max_rows)); (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor != old_cursor )) && redraw_cursor ;;
+"$KEY_HOME_DIR") dir_positions["$(pwd)"]=$cursor; if cd "$HOME" 2>/dev/null; then clear_selection; get_terminal_size; show_loading_status; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; draw_ui; else draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Permission denied: cannot access home directory${NC}"; fi ;;
+"$KEY_COPY") if (( ${#selected[@]} > 0 )); then copy_selected; else item=$(get_item); if [[ "$item" != "(Empty Directory)" ]]; then CLIPBOARD_MULTI=(); CLIPBOARD_MOVE=0; CLIPBOARD_PATH="$(pwd)/$item"; CLIPBOARD_NAME="$item"; redraw_cursor; fi; fi ;;
+"$KEY_COPY_ABSOLUTE") if copy_paths_to_system_clipboard; then printf "\033[$((max_rows + 3));1H\033[K%b" "${GREEN}Copied absolute path(s) to system clipboard.${NC}"; else rc=$?; if (( rc == 2 )); then printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}No clipboard tool found. Install wl-clipboard, xclip, or xsel.${NC}"; else printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}Nothing to copy.${NC}"; fi; fi; redraw_cursor ;;
+"$KEY_COMPARE_DELTA") compare_selected_with_delta ;;
+"$KEY_PASTE") if (( ${#CLIPBOARD_MULTI[@]} > 0 )); then echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -r -p "Paste ${#CLIPBOARD_MULTI[@]} item(s) here? [y/N]: " confirm; stty -echo cbreak -ixon intr undef; echo -ne "\033[?25l"; if [[ "$confirm" =~ ^[Yy]$ ]]; then for src in "${CLIPBOARD_MULTI[@]}"; do bname=$(basename "$src"); dest="$bname"; if [[ -e "$dest" ]]; then echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -i "$dest" -p "Paste '$bname' as: " dest; stty -echo cbreak -ixon intr undef; echo -ne "\033[?25l"; fi; if (( CLIPBOARD_MOVE )); then mv -- "$src" "$dest" 2>/dev/null; else cp -r -- "$src" "$dest" 2>/dev/null; fi; done; if (( CLIPBOARD_MOVE )); then CLIPBOARD_MULTI=(); CLIPBOARD_MOVE=0; CLIPBOARD_NAME=""; clear_selection; fi; update_files; draw_ui; fi; elif [[ -n "$CLIPBOARD_PATH" ]]; then dest="$CLIPBOARD_NAME"; [[ -e "$dest" ]] && { echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -i "$dest" -p "New name: " dest; stty -echo cbreak -ixon intr undef; echo -ne "\033[?25l"; }; cp -r "$CLIPBOARD_PATH" "$dest" 2>/dev/null && { update_files; draw_ui; }; fi ;;
+"$KEY_SORT_NAME") SORT_MODE="name"; SORT_NAME_DESC=$((1 - SORT_NAME_DESC)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
+"$KEY_SORT_DATE") SORT_MODE="date"; SORT_DATE_DESC=$((1 - SORT_DATE_DESC)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
+"$KEY_SORT_SIZE") SORT_MODE="size"; SORT_SIZE_DESC=$((1 - SORT_SIZE_DESC)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
+"$KEY_SORT_EXT") SORT_MODE="ext"; SORT_EXT_DESC=$((1 - SORT_EXT_DESC)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
+"$KEY_MOVE") if (( ${#selected[@]} > 0 )); then move_selected; else move_clipboard_item; fi ;;
+"$KEY_LESS") item=$(get_item); open_with_less "$item" ;;
+"$KEY_EDIT") item=$(get_item); open_in_editor "$item" ;;
+"$KEY_OPEN_GUI") item=$(get_item); open_in_gui "$item" ;;
+"$KEY_RENAME") rename_dispatch ;;
+"$KEY_FZF_JUMP") fzf_jump ;;
+"$KEY_INTEGRATIONS") show_integrations_screen ;;
+"$KEY_SSH_PICKER") show_ssh_picker ;;
+"$KEY_RIPGREP") rg_search ;;
+"$KEY_JUMP_PATH") jump_to_path ;;
+"$KEY_CREATE_FILE") create_file_item ;;
+"$KEY_CREATE_DIR") create_dir_item ;;
+"$KEY_DOWNLOAD") download_from_url ;;
+"$KEY_HELP"|$'\eOP'|$'\e[11~') show_help ;;
+"$KEY_BOOKMARKS") show_bookmarks ;;
+"$KEY_SELECT_ALL") toggle_select_all ;;
+"$KEY_TOGGLE_HIDDEN") SHOW_HIDDEN=$((1 - SHOW_HIDDEN)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
+"$KEY_DUST_MODE")
     if command -v dust &>/dev/null; then
         DUST_MODE=$((1 - DUST_MODE))
         if (( DUST_MODE )); then
@@ -2094,13 +2176,13 @@ $'\t') jump_to_path ;;
         printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}dust is not installed${NC}"
     fi
     ;;
-'[') (( NAME_COL_WIDTH > NAME_COL_MIN )) && ((NAME_COL_WIDTH--)) && draw_ui ;;
-']') (( NAME_COL_WIDTH < NAME_COL_MAX )) && ((NAME_COL_WIDTH++)) && draw_ui ;;
-'{') NAME_COL_WIDTH=$NAME_COL_MIN; draw_ui ;;
-'}') NAME_COL_WIDTH=$NAME_COL_MAX; draw_ui ;;
-'x') item=$(get_item); toggle_executable "$item" ;;
-'d') if (( ${#selected[@]} > 0 )); then delete_selected; else item=$(get_item); delete_item "$item"; fi ;;
-'0'|'1'|'2'|'3'|'4'|'5'|'6'|'7'|'8'|'9') jump_to_bookmark "$key" ;;
-'q') break ;;
+"$KEY_COLUMN_SHRINK") (( NAME_COL_WIDTH > NAME_COL_MIN )) && ((NAME_COL_WIDTH--)) && draw_ui ;;
+"$KEY_COLUMN_GROW") (( NAME_COL_WIDTH < NAME_COL_MAX )) && ((NAME_COL_WIDTH++)) && draw_ui ;;
+"$KEY_COLUMN_MIN") NAME_COL_WIDTH=$NAME_COL_MIN; draw_ui ;;
+"$KEY_COLUMN_MAX") NAME_COL_WIDTH=$NAME_COL_MAX; draw_ui ;;
+"$KEY_TOGGLE_EXEC") item=$(get_item); toggle_executable "$item" ;;
+"$KEY_DELETE") if (( ${#selected[@]} > 0 )); then delete_selected; else item=$(get_item); delete_item "$item"; fi ;;
+[0-9]) jump_to_bookmark "$key" ;;
+"$KEY_QUIT") break ;;
 esac
 done

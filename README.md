@@ -17,7 +17,7 @@ A lightweight terminal file browser written in Bash.
 - Jump to home directory with `~`
 - Multi-select items with `Insert` or `Space` (highlighted in magenta); `c`, `m`, and `d` operate on the whole selection
 - Copy (`c`), paste (`v`), and move (`m`) files/directories — single item or multi-select
-- Copy absolute path(s) of selected/current item to system clipboard with `C`
+- Copy absolute path(s) of selected/current item to system clipboard with `Ctrl+C`
 - Create a new file (`n`) or folder (`N`)
 - Download a file from a URL into the current folder with `w`
 - Delete selected item(s) with confirmation (`d`)
@@ -46,7 +46,7 @@ A lightweight terminal file browser written in Bash.
 - Optional syntax-highlighted file preview (via `bat`)
 - Optional fuzzy jump integration (via `fzf`, key `f`)
 - Optional text search integration (via `rg`/ripgrep, key `g`)
-- Optional side-by-side file comparison (via `delta`, key `D`)
+- Optional side-by-side file comparison (via `delta`, key `C`)
 - Optional disk usage analyzer (via `dust`) — toggle with `s` to display folder sizes and percentage of total directory size
 - Optional batch renaming integration (via `moreutils` `vidir`)
 - Optional SSH filesystem: browse remote hosts (via `sshfs`), press `S` for picker
@@ -232,7 +232,8 @@ After you quit (`q`), the script writes the current working directory to the exp
 | `Insert` / `Space` | Toggle item selection (multi-select) |
 | `*` | Select or deselect all items |
 | `c` | Copy selected item(s) into clipboard |
-| `C` | Copy absolute path(s) to system clipboard |
+| `Ctrl+C` | Copy absolute path(s) to system clipboard |
+| `C` | Compare two selected files (delta) |
 | `v` | Paste clipboard item(s) into current directory |
 | `m` | Move selected item(s) into current directory |
 | `n` | Create a new file |
@@ -259,14 +260,96 @@ After you quit (`q`), the script writes the current working directory to the exp
 ## Notes
 
 - **Multi-select:** Press `Insert` or `Space` to toggle selection on any item — it is highlighted in magenta and marked with `*`. Press `c`, `m`, or `d` to copy, move, or delete all selected items at once. Selection is cleared automatically when navigating into a different directory.
-- Press `C` to copy absolute path(s) to your desktop clipboard (selected items, or current item if none are selected) so you can paste after exiting `sb`.
+- Press `Ctrl+C` to copy absolute path(s) to your desktop clipboard (selected items, or current item if none are selected) so you can paste after exiting `sb`.
 - If a paste target name already exists, `sb` prompts for a new name for each conflicting item.
 - For images (`jpg`, `png`, `gif`, etc.), `sb` uses `chafa` if available; otherwise it falls back to the normal file-open flow.
 - **Bookmarks:** Configure with environment variables named `SB_BOOKMARK_0` through `SB_BOOKMARK_9` (for example `export SB_BOOKMARK_1="$HOME/Downloads"`). Press `0-9` to jump directly, or `b` to view configured bookmarks.
 - On headless Linux systems, `sb` falls back to `$VISUAL`, `$EDITOR`, `sensible-editor`, `editor`, `nano`, `vim`, `vi`, `less`, or `more`.
 - UI adapts to terminal resize events.
 
-## Troubleshooting
+### Customizing Key Bindings
+
+All keyboard shortcuts are configurable via environment variables with sensible defaults built in. If an environment variable is not set, `sb` uses the default keybinding.
+
+**Custom keys:** Set any of these environment variables before running `sb`:
+
+```bash
+# Navigation
+export SB_KEY_NAV_UP="$'\e[A'"           # Default: arrow up
+export SB_KEY_NAV_DOWN="$'\e[B'"         # Default: arrow down
+export SB_KEY_HOME="$'\e[H'"             # Default: Home key
+export SB_KEY_END="$'\e[F'"              # Default: End key
+export SB_KEY_PAGE_UP="$'\e[5~'"         # Default: PgUp
+export SB_KEY_PAGE_DOWN="$'\e[6~'"       # Default: PgDn
+
+# Main Navigation Actions
+export SB_KEY_ENTER="$'\e[C'"            # Default: arrow right + Enter + Ctrl+M
+export SB_KEY_EXIT="$'\e[D'"             # Default: arrow left (parent directory)
+export SB_KEY_SELECT_TOGGLE=' '          # Default: Space + Insert + Alt+L
+
+# Main Actions
+export SB_KEY_HOME_DIR="~"               # Default: tilde
+export SB_KEY_QUIT="q"                   # Default: q
+export SB_KEY_HELP="h"                   # Default: h
+
+# Selection & Operations
+export SB_KEY_SELECT_ALL="*"             # Default: asterisk
+export SB_KEY_COPY="c"                   # Default: c
+export SB_KEY_COPY_ABSOLUTE="$'\x03'"    # Default: Ctrl+C
+export SB_KEY_PASTE="v"                  # Default: v
+export SB_KEY_MOVE="m"                   # Default: m
+export SB_KEY_DELETE="d"                 # Default: d
+
+# File Operations
+export SB_KEY_CREATE_FILE="n"            # Default: n
+export SB_KEY_CREATE_DIR="N"             # Default: N (uppercase)
+export SB_KEY_RENAME="r"                 # Default: r
+export SB_KEY_TOGGLE_EXEC="x"            # Default: x
+export SB_KEY_DOWNLOAD="w"               # Default: w
+export SB_KEY_EDIT="e"                   # Default: e
+export SB_KEY_OPEN_GUI="o"               # Default: o
+export SB_KEY_LESS="l"                   # Default: l
+
+# Searching & Browsing
+export SB_KEY_FZF_JUMP="f"               # Default: f (fuzzy find)
+export SB_KEY_RIPGREP="g"                # Default: g (text search)
+export SB_KEY_COMPARE_DELTA="C"          # Default: C (uppercase)
+export SB_KEY_JUMP_PATH="$'\t'"          # Default: Tab
+
+# Features
+export SB_KEY_DUST_MODE="s"              # Default: s (disk usage)
+export SB_KEY_INTEGRATIONS="i"           # Default: i (show status)
+export SB_KEY_SSH_PICKER="S"             # Default: S (uppercase, SSH)
+export SB_KEY_BOOKMARKS="b"              # Default: b
+export SB_KEY_TOGGLE_HIDDEN="."          # Default: period
+
+# Sorting
+export SB_KEY_SORT_NAME="$'\x0e'"        # Default: Ctrl+N
+export SB_KEY_SORT_DATE="$'\x04'"        # Default: Ctrl+D
+export SB_KEY_SORT_SIZE="$'\x13'"        # Default: Ctrl+S
+export SB_KEY_SORT_EXT="$'\x18'"         # Default: Ctrl+X
+
+# Column Width
+export SB_KEY_COLUMN_SHRINK="["          # Default: [
+export SB_KEY_COLUMN_GROW="]"            # Default: ]
+export SB_KEY_COLUMN_MIN="{"             # Default: {
+export SB_KEY_COLUMN_MAX="}"             # Default: }
+```
+
+`sb` runs in terminal raw mode and maps `Ctrl+C` as a normal key while the UI is active; use `q` to quit.
+
+**Example:** Vim-style customization:
+
+```bash
+export SB_KEY_NAV_UP="k"
+export SB_KEY_NAV_DOWN="j"
+export SB_KEY_EXIT="h"
+export SB_KEY_ENTER="l"
+export SB_KEY_HELP="?"
+export SB_KEY_COMPARE_DELTA="C"
+export SB_KEY_COPY_ABSOLUTE="$'\x03'"   # Ctrl+C
+sb
+```
 
 - If files do not open in a GUI session, make sure `xdg-open` is available.
 - On servers, set `$EDITOR` or install a terminal editor such as `nano` or `vim`.
