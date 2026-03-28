@@ -86,7 +86,7 @@ show_integrations() {
             csvlens) printf "Delimited file preview (.csv, .tsv, .tab, .psv, .dsv)" ;;
             jnv) printf "JSON preview (.json, .jsonl, .ndjson, .geojson)" ;;
             ouch) printf "Archive content preview via 'ouch list'" ;;
-            fuse-zip) printf "Browse .zip archives as folders (preferred when ouch is also installed)" ;;
+            fuse-zip) printf "Browse ZIP-based archives as folders (.zip, .jar, .apk, .docx, .xlsx, .pptx, .odt, .ods, .odp, .epub, .cbz, .xpi, etc.)" ;;
             pdftotext) printf "PDF text preview (uses 'bat' when available, otherwise 'less')" ;;
             sox) printf "Audio preview/playback for sound files" ;;
             bat) printf "Syntax highlighting for code files" ;;
@@ -120,7 +120,8 @@ if (( BASH_VERSINFO[0] < 4 )); then
     exit 1
 fi
 
-HIGHLIGHT='\033[1;44m'; BLUE='\033[1;34m'; YELLOW='\033[1;38;5;229m'; AMBER='\033[1;38;5;172m'; GREEN='\033[1;32m'; CYAN='\033[1;36m'; RED='\033[1;31m'; NC='\033[0m'; SELECT='\033[48;5;66m'; STATUS_LABEL='\033[38;5;244m'; STATUS_VALUE='\033[1;97m'; HIDDEN_FILE='\033[0m'; HIDDEN_DIR='\033[38;5;67m'
+HIGHLIGHT='\033[1;44m'; BLUE='\033[1;34m'; YELLOW='\033[38;5;100m'; AMBER='\033[1;38;5;172m'; GREEN='\033[1;32m'; CYAN='\033[1;36m'; RED='\033[1;31m'; NC='\033[0m'; SELECT='\033[48;5;66m'; STATUS_LABEL='\033[38;5;244m'; STATUS_VALUE='\033[1;97m'; HIDDEN_FILE='\033[0m'; HIDDEN_DIR='\033[38;5;67m'
+COLOR_DOCKERFILE='\033[38;2;36;150;237m'; COLOR_MAKEFILE='\033[38;2;171;178;191m'; COLOR_LICENSE='\033[38;2;255;191;0m'; COLOR_MEDIA='\033[1;35m'; COLOR_JUNK='\033[38;5;240m'; COLOR_HTML='\033[38;5;28m'
 
 EXPORT_FILE=""
 NAME_COL_WIDTH_OVERRIDE=""
@@ -165,7 +166,16 @@ while (($# > 0)); do
             ;;
     esac
 done
-ICON_DIR='📁'; ICON_LINK='🔗'; ICON_FILE='📄'; ICON_EXEC='🛠'; ICON_IMAGE='🖼'; ICON_VIDEO='🎬'; ICON_AUDIO='🎵'; ICON_ARCHIVE='📦'; ICON_SCRIPT='📜'; ICON_CODE='💻'
+ICON_DIR='📁'; ICON_LINK='🔗'; ICON_FILE='📄'; ICON_EXEC='🛠'; ICON_IMAGE='🖼'; ICON_VIDEO='🎬'; ICON_AUDIO='🎵'; ICON_ARCHIVE='📦'; ICON_DOCUMENT='📄'; ICON_SCRIPT='📜'; ICON_JSON='{}'; ICON_CONFIG='⚙'; ICON_TEXT='📝'; ICON_CODE='💻'; ICON_DEFAULT='📄'
+if [[ "${SB_ICON_SET:-ascii}" == "nerd" ]]; then
+    ICON_DOCKERFILE="${SB_ICON_DOCKERFILE:-}"
+    ICON_MAKEFILE="${SB_ICON_MAKEFILE:-}"
+    ICON_LICENSE="${SB_ICON_LICENSE:-}"
+else
+    ICON_DOCKERFILE="${SB_ICON_DOCKERFILE:-DK}"
+    ICON_MAKEFILE="${SB_ICON_MAKEFILE:-MK}"
+    ICON_LICENSE="${SB_ICON_LICENSE:-LC}"
+fi
 
 # Configurable Key Bindings (set via SB_KEY_* environment variables, or use defaults below)
 KEY_QUIT="${SB_KEY_QUIT:-q}"
@@ -209,8 +219,9 @@ KEY_CREATE_DIR="${SB_KEY_CREATE_DIR:-N}"
 KEY_DOWNLOAD="${SB_KEY_DOWNLOAD:-w}"
 KEY_CREATE_ARCHIVE="${SB_KEY_CREATE_ARCHIVE:-z}"
 KEY_EXTRACT_ARCHIVE="${SB_KEY_EXTRACT_ARCHIVE:-x}"
+KEY_UPLOAD="${SB_KEY_UPLOAD:-u}"
 KEY_SELECT_ALL="${SB_KEY_SELECT_ALL:-*}"
-KEY_TOGGLE_HIDDEN="${SB_KEY_TOGGLE_HIDDEN:-\.}"
+KEY_TOGGLE_HIDDEN="${SB_KEY_TOGGLE_HIDDEN:-.}"
 KEY_DUST_MODE="${SB_KEY_DUST_MODE:-s}"
 KEY_TOGGLE_EXEC="${SB_KEY_TOGGLE_EXEC:-X}"
 KEY_DELETE="${SB_KEY_DELETE:-d}"
@@ -220,6 +231,7 @@ META_COL_FMT='%-12s %-11s %8s  %16s'
 DUST_PCT_FMT='%6s'
 DUST_META_COL_FMT='%-12s %-11s %8s %6s  %16s'
 cursor=1; old_cursor=0; old_scroll=-1; scroll_offset=0; files=(); metadata=(); file_icons=(); CLIPBOARD_PATH=""; CLIPBOARD_NAME=""; CLIPBOARD_MULTI=(); CLIPBOARD_MOVE=0; declare -A dir_positions; declare -A selected
+LAST_UPLOAD_URL=""
 GIT_HEADER_SUFFIX=""
 DUST_MODE=0
 declare -A dust_sizes
@@ -369,21 +381,39 @@ strip_ls_suffix() {
 }
 get_color() {
     local f="$1"
-    local clean_f clean_no_suffix base_name
+    local clean_f clean_no_suffix base_name base_lower
     clean_f="$f"
     case "${clean_f: -1}" in
         '/'|'@'|'*'|'|'|'='|'>') clean_f="${clean_f:0:${#clean_f}-1}" ;;
     esac
     clean_no_suffix="${clean_f%/}"
     base_name="${clean_no_suffix##*/}"
+    base_lower="${base_name,,}"
+    case "$base_lower" in
+        .env|package.json|cargo.toml|go.mod|pom.xml|package-lock.json|cargo.lock|yarn.lock|*.conf|*.ini|*.yaml|*.toml)
+            echo -n "$YELLOW"
+            return
+            ;;
+    esac
     if [[ "$base_name" == .* ]]; then
         [[ "$f" == */ ]] && echo -n "$HIDDEN_DIR" && return
         echo -n "$HIDDEN_FILE" && return
     fi
+    case "$base_lower" in
+        dockerfile) echo -n "$COLOR_DOCKERFILE"; return ;;
+        makefile) echo -n "$COLOR_MAKEFILE"; return ;;
+        license|copying|readme.md|changelog) echo -n "$COLOR_LICENSE"; return ;;
+        *.jpg|*.jpeg|*.png|*.gif|*.bmp|*.webp|*.tiff|*.ico|*.svg|*.heic|*.avif|*.mp4|*.mkv|*.avi|*.mov|*.webm|*.flv|*.m4v|*.ogv|*.wmv|*.mp3|*.wav|*.ogg|*.flac|*.aac|*.m4a|*.opus|*.wma|*.pdf)
+            echo -n "$COLOR_MEDIA"
+            return
+            ;;
+        *.tmp|*.bak) echo -n "$COLOR_JUNK"; return ;;
+        *.html|*.htm) echo -n "$COLOR_HTML"; return ;;
+    esac
     [[ "$f" == */ ]] && echo -n "$BLUE" && return
     [[ "$f" == *@ ]] && echo -n "$CYAN" && return
     [[ "$f" == *\* ]] && echo -n "$GREEN" && return
-    [[ "$f" =~ \.(zip|tar|gz|rar|7z)$ ]] && echo -n "$RED" && return
+    [[ "$f" =~ \.(zip|tar|tar\.gz|tgz|bz2|xz|rar|7z|gz|zst)$ ]] && echo -n "$RED" && return
     echo -n "$STATUS_VALUE"
 }
 list_entries() { local -a ls_args=(-F); (( SHOW_HIDDEN )) && ls_args+=(-A); (( LS_GROUP_DIRS )) && ls_args+=(--group-directories-first); "$LS_CMD" "${ls_args[@]}" 2>/dev/null; }
@@ -394,7 +424,7 @@ show_open_error() { local item="$1"; echo -ne "\033[?25h"; printf "\033[$((max_r
 show_loading_status() { printf "\033[%d;1H\033[KLoading \033[5m...\033[0m" $((max_rows + 4)); }
 open_in_terminal_editor() { local item="$1" editor_name; local -a editors=(); [[ -n "${VISUAL:-}" ]] && editors+=("${VISUAL%% *}"); [[ -n "${EDITOR:-}" ]] && editors+=("${EDITOR%% *}"); editors+=(sensible-editor editor nano vim vi less more); for editor_name in "${editors[@]}"; do [[ -n "$editor_name" ]] || continue; command -v "$editor_name" >/dev/null 2>&1 || continue; run_interactive_command "$editor_name" "$item" && return 0; done; return 1; }
 open_external() { local item="$1"; if is_gui_session; then command -v "$OPEN_CMD" &>/dev/null && "$OPEN_CMD" "$item" >/dev/null 2>&1 && return 0; [[ "$OPEN_CMD" != "xdg-open" ]] && command -v xdg-open &>/dev/null && xdg-open "$item" >/dev/null 2>&1 && return 0; [[ "$OPEN_CMD" != "open" ]] && command -v open &>/dev/null && open "$item" >/dev/null 2>&1 && return 0; fi; open_in_terminal_editor "$item" && return 0; show_open_error "$item"; return 1; }
-icon_for_item() { local path="$1"; local lower_name="${2,,}"; if [[ -d "$path" ]]; then printf "%s" "$ICON_DIR"; elif [[ -L "$path" ]]; then printf "%s" "$ICON_LINK"; elif [[ -x "$path" && -f "$path" ]]; then printf "%s" "$ICON_EXEC"; else case "$lower_name" in *.jpg|*.jpeg|*.png|*.gif|*.bmp|*.webp|*.tiff|*.ico|*.svg) printf "%s" "$ICON_IMAGE" ;; *.mp4|*.mkv|*.avi|*.mov|*.webm|*.flv|*.m4v) printf "%s" "$ICON_VIDEO" ;; *.mp3|*.wav|*.ogg|*.flac|*.aac|*.m4a) printf "%s" "$ICON_AUDIO" ;; *.zip|*.tar|*.tar.gz|*.tgz|*.bz2|*.xz|*.rar|*.7z|*.gz) printf "%s" "$ICON_ARCHIVE" ;; *.sh|*.bash|*.zsh|*.fish|*.py|*.js|*.ts|*.rb|*.pl|*.php) printf "%s" "$ICON_SCRIPT" ;; *.c|*.h|*.cpp|*.hpp|*.go|*.rs|*.java|*.kt|*.swift|*.cs|*.json|*.yaml|*.yml|*.toml|*.ini|*.conf|*.md|*.txt) printf "%s" "$ICON_CODE" ;; *) printf "%s" "$ICON_FILE" ;; esac; fi; }
+icon_for_item() { local path="$1"; local lower_name="${2,,}"; if [[ -d "$path" ]]; then printf "%s" "$ICON_DIR"; elif [[ -L "$path" ]]; then printf "%s" "$ICON_LINK"; elif [[ -x "$path" && -f "$path" ]]; then printf "%s" "$ICON_EXEC"; else case "$lower_name" in dockerfile) printf "%s" "$ICON_DOCKERFILE" ;; makefile) printf "%s" "$ICON_MAKEFILE" ;; license) printf "%s" "$ICON_LICENSE" ;; *.jpg|*.jpeg|*.png|*.gif|*.bmp|*.webp|*.tiff|*.ico|*.svg|*.heic|*.avif) printf "%s" "$ICON_IMAGE" ;; *.mp4|*.mkv|*.avi|*.mov|*.webm|*.flv|*.m4v|*.ogv|*.wmv) printf "%s" "$ICON_VIDEO" ;; *.mp3|*.wav|*.ogg|*.flac|*.aac|*.m4a|*.opus|*.wma) printf "%s" "$ICON_AUDIO" ;; *.zip|*.tar|*.tar.gz|*.tgz|*.bz2|*.xz|*.rar|*.7z|*.gz|*.zst) printf "%s" "$ICON_ARCHIVE" ;; *.pdf|*.doc|*.docx|*.odt|*.rtf|*.xls|*.xlsx|*.csv|*.ppt|*.pptx) printf "%s" "$ICON_DOCUMENT" ;; *.sh|*.bash|*.zsh|*.fish|*.py|*.js|*.ts|*.rb|*.pl|*.php|*.lua|*.ps1) printf "%s" "$ICON_SCRIPT" ;; *.json|*.jsonl|*.ndjson|*.geojson) printf "%s" "$ICON_JSON" ;; *.yaml|*.yml|*.toml|*.ini|*.conf|*.xml|*.sql) printf "%s" "$ICON_CONFIG" ;; *.md|*.txt|*.tex|*.rst) printf "%s" "$ICON_TEXT" ;; *.c|*.h|*.cpp|*.hpp|*.go|*.rs|*.java|*.kt|*.swift|*.cs) printf "%s" "$ICON_CODE" ;; *) printf "%s" "$ICON_DEFAULT" ;; esac; fi; }
 icon_for_list_item() {
     local item="$1"
     local clean_f lower_name
@@ -410,13 +440,20 @@ icon_for_list_item() {
         *\*) printf "%s" "$ICON_EXEC" ;;
         *)
             case "$lower_name" in
-                *.jpg|*.jpeg|*.png|*.gif|*.bmp|*.webp|*.tiff|*.ico|*.svg) printf "%s" "$ICON_IMAGE" ;;
-                *.mp4|*.mkv|*.avi|*.mov|*.webm|*.flv|*.m4v) printf "%s" "$ICON_VIDEO" ;;
-                *.mp3|*.wav|*.ogg|*.flac|*.aac|*.m4a) printf "%s" "$ICON_AUDIO" ;;
-                *.zip|*.tar|*.tar.gz|*.tgz|*.bz2|*.xz|*.rar|*.7z|*.gz) printf "%s" "$ICON_ARCHIVE" ;;
-                *.sh|*.bash|*.zsh|*.fish|*.py|*.js|*.ts|*.rb|*.pl|*.php) printf "%s" "$ICON_SCRIPT" ;;
-                *.c|*.h|*.cpp|*.hpp|*.go|*.rs|*.java|*.kt|*.swift|*.cs|*.json|*.yaml|*.yml|*.toml|*.ini|*.conf|*.md|*.txt) printf "%s" "$ICON_CODE" ;;
-                *) printf "%s" "$ICON_FILE" ;;
+                dockerfile) printf "%s" "$ICON_DOCKERFILE" ;;
+                makefile) printf "%s" "$ICON_MAKEFILE" ;;
+                license) printf "%s" "$ICON_LICENSE" ;;
+                *.jpg|*.jpeg|*.png|*.gif|*.bmp|*.webp|*.tiff|*.ico|*.svg|*.heic|*.avif) printf "%s" "$ICON_IMAGE" ;;
+                *.mp4|*.mkv|*.avi|*.mov|*.webm|*.flv|*.m4v|*.ogv|*.wmv) printf "%s" "$ICON_VIDEO" ;;
+                *.mp3|*.wav|*.ogg|*.flac|*.aac|*.m4a|*.opus|*.wma) printf "%s" "$ICON_AUDIO" ;;
+                *.zip|*.tar|*.tar.gz|*.tgz|*.bz2|*.xz|*.rar|*.7z|*.gz|*.zst) printf "%s" "$ICON_ARCHIVE" ;;
+                *.pdf|*.doc|*.docx|*.odt|*.rtf|*.xls|*.xlsx|*.csv|*.ppt|*.pptx) printf "%s" "$ICON_DOCUMENT" ;;
+                *.sh|*.bash|*.zsh|*.fish|*.py|*.js|*.ts|*.rb|*.pl|*.php|*.lua|*.ps1) printf "%s" "$ICON_SCRIPT" ;;
+                *.json|*.jsonl|*.ndjson|*.geojson) printf "%s" "$ICON_JSON" ;;
+                *.yaml|*.yml|*.toml|*.ini|*.conf|*.xml|*.sql) printf "%s" "$ICON_CONFIG" ;;
+                *.md|*.txt|*.tex|*.rst) printf "%s" "$ICON_TEXT" ;;
+                *.c|*.h|*.cpp|*.hpp|*.go|*.rs|*.java|*.kt|*.swift|*.cs) printf "%s" "$ICON_CODE" ;;
+                *) printf "%s" "$ICON_DEFAULT" ;;
             esac
             ;;
     esac
@@ -550,13 +587,20 @@ populate_display_data_bulk() {
             lower_name="${clean_f##*/}"
             lower_name="${lower_name,,}"
             case "$lower_name" in
-                *.jpg|*.jpeg|*.png|*.gif|*.bmp|*.webp|*.tiff|*.ico|*.svg) file_icons+=("$ICON_IMAGE") ;;
-                *.mp4|*.mkv|*.avi|*.mov|*.webm|*.flv|*.m4v) file_icons+=("$ICON_VIDEO") ;;
-                *.mp3|*.wav|*.ogg|*.flac|*.aac|*.m4a) file_icons+=("$ICON_AUDIO") ;;
-                *.zip|*.tar|*.tar.gz|*.tgz|*.bz2|*.xz|*.rar|*.7z|*.gz) file_icons+=("$ICON_ARCHIVE") ;;
-                *.sh|*.bash|*.zsh|*.fish|*.py|*.js|*.ts|*.rb|*.pl|*.php) file_icons+=("$ICON_SCRIPT") ;;
-                *.c|*.h|*.cpp|*.hpp|*.go|*.rs|*.java|*.kt|*.swift|*.cs|*.json|*.yaml|*.yml|*.toml|*.ini|*.conf|*.md|*.txt) file_icons+=("$ICON_CODE") ;;
-                *) file_icons+=("$ICON_FILE") ;;
+                dockerfile) file_icons+=("$ICON_DOCKERFILE") ;;
+                makefile) file_icons+=("$ICON_MAKEFILE") ;;
+                license) file_icons+=("$ICON_LICENSE") ;;
+                *.jpg|*.jpeg|*.png|*.gif|*.bmp|*.webp|*.tiff|*.ico|*.svg|*.heic|*.avif) file_icons+=("$ICON_IMAGE") ;;
+                *.mp4|*.mkv|*.avi|*.mov|*.webm|*.flv|*.m4v|*.ogv|*.wmv) file_icons+=("$ICON_VIDEO") ;;
+                *.mp3|*.wav|*.ogg|*.flac|*.aac|*.m4a|*.opus|*.wma) file_icons+=("$ICON_AUDIO") ;;
+                *.zip|*.tar|*.tar.gz|*.tgz|*.bz2|*.xz|*.rar|*.7z|*.gz|*.zst) file_icons+=("$ICON_ARCHIVE") ;;
+                *.pdf|*.doc|*.docx|*.odt|*.rtf|*.xls|*.xlsx|*.csv|*.ppt|*.pptx) file_icons+=("$ICON_DOCUMENT") ;;
+                *.sh|*.bash|*.zsh|*.fish|*.py|*.js|*.ts|*.rb|*.pl|*.php|*.lua|*.ps1) file_icons+=("$ICON_SCRIPT") ;;
+                *.json|*.jsonl|*.ndjson|*.geojson) file_icons+=("$ICON_JSON") ;;
+                *.yaml|*.yml|*.toml|*.ini|*.conf|*.xml|*.sql) file_icons+=("$ICON_CONFIG") ;;
+                *.md|*.txt|*.tex|*.rst) file_icons+=("$ICON_TEXT") ;;
+                *.c|*.h|*.cpp|*.hpp|*.go|*.rs|*.java|*.kt|*.swift|*.cs) file_icons+=("$ICON_CODE") ;;
+                *) file_icons+=("$ICON_DEFAULT") ;;
             esac
         fi
 
@@ -1116,6 +1160,24 @@ preview_audio_in_terminal() {
 }
 open_file() { local item="$1"; if command -v chafa &>/dev/null && [[ "$item" =~ \.(jpg|jpeg|png|gif|bmp|webp|tiff|ico)$ ]]; then preview_image_in_terminal "$item"; else open_external "$item"; fi; }
 open_with_less() { local item="$1"; [[ -f "$item" ]] || return; run_interactive_command less -- "$item"; }
+is_fuse_zip_mountable() {
+    local item="$1"
+    local lower_item="${item,,}"
+
+    case "$lower_item" in
+        *.zip|*.zipx|*.jar|*.war|*.ear|*.apk|*.xpi|*.whl|*.cbz|*.epub|*.docx|*.docm|*.dotx|*.dotm|*.xlsx|*.xlsm|*.xltx|*.xltm|*.pptx|*.pptm|*.ppsx|*.ppsm|*.potx|*.potm|*.odt|*.ods|*.odp|*.odg|*.odf|*.odm|*.ott|*.ots|*.otp|*.otg|*.oxt|*.vsdx)
+            return 0
+            ;;
+    esac
+
+    if command -v file &>/dev/null; then
+        local mime
+        mime=$(file -b --mime-type -- "$item" 2>/dev/null)
+        [[ "$mime" == "application/zip" ]] && return 0
+    fi
+
+    return 1
+}
 open_with_preview() {
     local item="$1" lower_item
     [[ -f "$item" ]] || return
@@ -1137,7 +1199,7 @@ open_with_preview() {
         else
             run_interactive_command bash -lc 'pdftotext -layout -nopgbrk -- "$1" - | less -R' _ "$item"
         fi
-    elif command -v fuse-zip &>/dev/null && command -v ouch &>/dev/null && [[ "$lower_item" =~ \.zip$ ]]; then
+    elif command -v fuse-zip &>/dev/null && is_fuse_zip_mountable "$item"; then
         zip_mount_and_navigate "$item"
     elif command -v ouch &>/dev/null && [[ "$lower_item" =~ \.(zip|tar|tar\.gz|tgz|bz2|xz|rar|7z|gz)$ ]]; then
         # Pipe through less so archive contents stay visible instead of flashing.
@@ -1234,7 +1296,7 @@ show_help() {
     if (( rows < 15 || cols < 70 )); then
         printf "%b" "${HELP_SECTION}Navigation${NC}  ${HELP_KEY}Up/Down${NC} move, ${HELP_KEY}Enter${NC} open, ${HELP_KEY}Left${NC} parent, ${HELP_KEY}~${NC} home\n"
         printf "%b" "${HELP_SECTION}Select${NC}      ${HELP_KEY}Insert/Space${NC} toggle, ${HELP_KEY}*${NC} all, ${HELP_KEY}c${NC} copy, ${HELP_KEY}m${NC} move, ${HELP_KEY}v${NC} paste\n"
-        printf "%b" "${HELP_SECTION}Files${NC}       ${HELP_KEY}n${NC} file, ${HELP_KEY}N${NC} folder, ${HELP_KEY}w${NC} download, ${HELP_KEY}z${NC} archive, ${HELP_KEY}x${NC} extract, ${HELP_KEY}e${NC} edit, ${HELP_KEY}o${NC} open, ${HELP_KEY}l${NC} less, ${HELP_KEY}d${NC} delete, ${HELP_KEY}X${NC} chmod\n"
+        printf "%b" "${HELP_SECTION}Files${NC}       ${HELP_KEY}n${NC} file, ${HELP_KEY}N${NC} folder, ${HELP_KEY}w${NC} download, ${HELP_KEY}u${NC} upload, ${HELP_KEY}z${NC} archive, ${HELP_KEY}x${NC} extract, ${HELP_KEY}e${NC} edit, ${HELP_KEY}o${NC} open, ${HELP_KEY}l${NC} less, ${HELP_KEY}d${NC} delete, ${HELP_KEY}X${NC} chmod\n"
         printf "%b" "${HELP_SECTION}Sort${NC}        ${HELP_KEY}Ctrl+N${NC} name, ${HELP_KEY}Ctrl+D${NC} date, ${HELP_KEY}Ctrl+S${NC} size, ${HELP_KEY}Ctrl+X${NC} ext\n"
         printf "%b" "${HELP_SECTION}View${NC}        ${HELP_KEY}.${NC} hidden, ${HELP_KEY}s${NC} dust, ${HELP_KEY}S${NC} SSH, ${HELP_KEY}i${NC} integrations, ${HELP_KEY}[ / ]${NC} name -/+, ${HELP_KEY}{ / }${NC} min/max, ${HELP_KEY}b${NC} bookmarks, ${HELP_KEY}h${NC} help, ${HELP_KEY}q${NC} quit\n\n"
         printf "%b" "${HELP_ACCENT}Press any key to return...${NC}"
@@ -1265,6 +1327,7 @@ show_help() {
         "m            Move selected"
         "v            Paste copied"
         "w            Download URL here"
+        "u            Upload to catbox.moe"
         "z            Archive selection/item (zip/tar)"
         "x            Extract archive(s)"
         "C            Compare 2 files"
@@ -2217,6 +2280,97 @@ extract_archive_item() {
     fi
     redraw_cursor
 }
+upload_to_catbox() {
+    if ! command -v curl &>/dev/null; then
+        printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}curl is not installed${NC}"
+        redraw_cursor
+        return
+    fi
+
+    local -a files_to_upload=()
+    local idx raw_item clean_item
+    local upload_url="" upload_rc=0
+
+    # Collect selected or current item
+    if (( ${#selected[@]} > 0 )); then
+        for (( idx=0; idx<${#files[@]}; idx++ )); do
+            [[ -n "${selected[$idx]+x}" ]] || continue
+            raw_item="${files[$idx]}"
+            clean_item=$(strip_ls_suffix "$raw_item")
+            [[ -n "$clean_item" && "$clean_item" != "(Empty Directory)" && -f "$clean_item" ]] && files_to_upload+=("$clean_item")
+        done
+    else
+        raw_item="$(get_item)"
+        clean_item=$(strip_ls_suffix "$raw_item")
+        if [[ -f "$clean_item" ]]; then
+            files_to_upload+=("$clean_item")
+        fi
+    fi
+
+    (( ${#files_to_upload[@]} > 0 )) || {
+        printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}No files selected. Select file(s) to upload.${NC}"
+        redraw_cursor
+        return
+    }
+
+    draw_ui
+    printf "\033[$((max_rows + 3));1H\033[K%b" "${STATUS_LABEL}Connecting to catbox.moe...${NC}"
+    redraw_cursor
+
+    # Upload each file
+    local file base_name cb_status
+    LAST_UPLOAD_URL=""
+    
+    for file in "${files_to_upload[@]}"; do
+        base_name="$(basename -- "$file")"
+        
+        draw_ui
+        printf "\033[$((max_rows + 3));1H\033[K%b" "${STATUS_LABEL}Uploading: ${base_name}${NC}"
+        redraw_cursor
+        
+        # catbox.moe returns a plain text URL on success.
+        upload_url=$(curl -fsS -F "reqtype=fileupload" -F "fileToUpload=@${file}" "https://catbox.moe/user/api.php" 2>&1)
+        upload_rc=$?
+        upload_url=${upload_url//$'\r'/}
+        upload_url=${upload_url%%$'\n'*}
+
+        if (( upload_rc == 0 )) && [[ -n "$upload_url" ]] && [[ "$upload_url" =~ ^https?:// ]]; then
+            # Success - URL was returned
+            LAST_UPLOAD_URL="$upload_url"
+            
+            # Copy URL to clipboard
+            if string_to_clipboard "$upload_url"; then
+                cb_status="${STATUS_LABEL}✓ copied${NC}"
+            else
+                cb_status="${AMBER}(no clipboard tool)${NC}"
+            fi
+
+            draw_ui
+            printf "\033[$((max_rows + 3));1H\033[K%b" "${CYAN}${upload_url}${NC} ${cb_status}"
+            redraw_cursor
+            sleep 3
+        else
+            # Error - show what went wrong
+            draw_ui
+            printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}✗ Upload error (code: $upload_rc)${NC}\n"
+            if [[ -n "$upload_url" ]]; then
+                printf "  %b\n" "${AMBER}${upload_url}${NC}"
+            else
+                printf "  %b\n" "${AMBER}Connection failed. Check internet or catbox.moe availability.${NC}"
+            fi
+            redraw_cursor
+            sleep 4
+        fi
+    done
+
+    draw_ui
+    if [[ -n "$LAST_UPLOAD_URL" ]]; then
+        printf "\033[$((max_rows + 3));1H\033[K%b" "${GREEN}✓ Upload successful${NC} - ${CYAN}URL in clipboard${NC}"
+    else
+        printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}Upload process ended with errors${NC}"
+    fi
+    redraw_cursor
+}
 download_from_url() {
     local use_tool=""
     if command -v curl &>/dev/null; then
@@ -2378,6 +2532,26 @@ compare_selected_with_delta() {
     run_interactive_command bash -lc 'diff -u -- "$1" "$2" | delta --side-by-side --width="$3" --paging=never | less -RS' _ "${items[0]}" "${items[1]}" "$term_cols"
 }
 copy_paths_to_system_clipboard() { local -a items=(); if (( ${#selected[@]} > 0 )); then for idx in "${!selected[@]}"; do local f="${files[$idx]}"; local last="${f: -1}"; case "$last" in '/'|'@'|'*'|'|'|'='|'>') f="${f:0:${#f}-1}" ;; esac; [[ -n "$f" && "$f" != "(Empty Directory)" ]] && items+=("$(pwd)/$f"); done; else local item; item=$(get_item); if [[ -n "$item" && "$item" != "(Empty Directory)" ]]; then items+=("$(pwd)/$item"); else items+=("$(pwd)"); fi; fi; (( ${#items[@]} > 0 )) || return 1; local payload; payload=$(printf "%s\n" "${items[@]}"); if command -v wl-copy &>/dev/null; then printf "%s" "$payload" | wl-copy; elif command -v xclip &>/dev/null; then printf "%s" "$payload" | xclip -selection clipboard; elif command -v xsel &>/dev/null; then printf "%s" "$payload" | xsel --clipboard --input; elif command -v pbcopy &>/dev/null; then printf "%s" "$payload" | pbcopy; else return 2; fi; return 0; }
+
+string_to_clipboard() {
+    local str="$1"
+    if command -v wl-copy &>/dev/null; then
+        printf "%s" "$str" | wl-copy
+        return 0
+    elif command -v xclip &>/dev/null; then
+        printf "%s" "$str" | xclip -selection clipboard
+        return 0
+    elif command -v xsel &>/dev/null; then
+        printf "%s" "$str" | xsel --clipboard --input
+        return 0
+    elif command -v pbcopy &>/dev/null; then
+        printf "%s" "$str" | pbcopy
+        return 0
+    else
+        return 2
+    fi
+}
+
 normalize_key() {
     local key="$1"
     # Check Home key (custom + defaults)
@@ -2446,7 +2620,7 @@ case "$key" in
 "$KEY_PAGE_DOWN") old_cursor=$cursor; ((cursor += max_rows)); (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor != old_cursor )) && redraw_cursor ;;
 "$KEY_HOME_DIR") dir_positions["$(pwd)"]=$cursor; if cd "$HOME" 2>/dev/null; then clear_selection; get_terminal_size; show_loading_status; update_files; cursor=${dir_positions["$(pwd)"]:-1}; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; draw_ui; else draw_ui; printf "\033[$((max_rows + 3));1H\033[K%b" "${RED}Permission denied: cannot access home directory${NC}"; fi ;;
 "$KEY_COPY") if (( ${#selected[@]} > 0 )); then copy_selected; else item=$(get_item); if [[ "$item" != "(Empty Directory)" ]]; then CLIPBOARD_MULTI=(); CLIPBOARD_MOVE=0; CLIPBOARD_PATH="$(pwd)/$item"; CLIPBOARD_NAME="$item"; redraw_cursor; fi; fi ;;
-"$KEY_COPY_ABSOLUTE") if copy_paths_to_system_clipboard; then printf "\033[$((max_rows + 3));1H\033[K%b" "${GREEN}Copied absolute path(s) to system clipboard.${NC}"; else rc=$?; if (( rc == 2 )); then printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}No clipboard tool found. Install wl-clipboard, xclip, or xsel.${NC}"; else printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}Nothing to copy.${NC}"; fi; fi; redraw_cursor ;;
+"$KEY_COPY_ABSOLUTE") if [[ -n "$LAST_UPLOAD_URL" ]]; then if string_to_clipboard "$LAST_UPLOAD_URL"; then printf "\033[$((max_rows + 3));1H\033[K%b" "${GREEN}Upload URL copied to clipboard${NC}"; else printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}No clipboard tool found.${NC}"; fi; else if copy_paths_to_system_clipboard; then printf "\033[$((max_rows + 3));1H\033[K%b" "${GREEN}Copied absolute path(s) to system clipboard.${NC}"; else rc=$?; if (( rc == 2 )); then printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}No clipboard tool found. Install wl-clipboard, xclip, or xsel.${NC}"; else printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}Nothing to copy.${NC}"; fi; fi; fi; redraw_cursor ;;
 "$KEY_COMPARE_DELTA") compare_selected_with_delta ;;
 "$KEY_PASTE") if (( ${#CLIPBOARD_MULTI[@]} > 0 )); then echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -r -p "Paste ${#CLIPBOARD_MULTI[@]} item(s) here? [y/N]: " confirm; stty -echo cbreak -ixon intr undef; echo -ne "\033[?25l"; if [[ "$confirm" =~ ^[Yy]$ ]]; then for src in "${CLIPBOARD_MULTI[@]}"; do bname=$(basename "$src"); dest="$bname"; if [[ -e "$dest" ]]; then echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -i "$dest" -p "Paste '$bname' as: " dest; stty -echo cbreak -ixon intr undef; echo -ne "\033[?25l"; fi; if (( CLIPBOARD_MOVE )); then mv -- "$src" "$dest" 2>/dev/null; else cp -r -- "$src" "$dest" 2>/dev/null; fi; done; if (( CLIPBOARD_MOVE )); then CLIPBOARD_MULTI=(); CLIPBOARD_MOVE=0; CLIPBOARD_NAME=""; clear_selection; fi; update_files; draw_ui; fi; elif [[ -n "$CLIPBOARD_PATH" ]]; then dest="$CLIPBOARD_NAME"; [[ -e "$dest" ]] && { echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -i "$dest" -p "New name: " dest; stty -echo cbreak -ixon intr undef; echo -ne "\033[?25l"; }; cp -r "$CLIPBOARD_PATH" "$dest" 2>/dev/null && { update_files; draw_ui; }; fi ;;
 "$KEY_SORT_NAME") SORT_MODE="name"; SORT_NAME_DESC=$((1 - SORT_NAME_DESC)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
@@ -2466,12 +2640,13 @@ case "$key" in
 "$KEY_CREATE_FILE") create_file_item ;;
 "$KEY_CREATE_DIR") create_dir_item ;;
 "$KEY_DOWNLOAD") download_from_url ;;
+"$KEY_UPLOAD") upload_to_catbox ;;
 "$KEY_CREATE_ARCHIVE") create_archive_item ;;
 "$KEY_EXTRACT_ARCHIVE") extract_archive_item ;;
 "$KEY_HELP"|$'\eOP'|$'\e[11~') show_help ;;
 "$KEY_BOOKMARKS") show_bookmarks ;;
 "$KEY_SELECT_ALL") toggle_select_all ;;
-"$KEY_TOGGLE_HIDDEN") SHOW_HIDDEN=$((1 - SHOW_HIDDEN)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
+"$KEY_TOGGLE_HIDDEN"|'.') SHOW_HIDDEN=$((1 - SHOW_HIDDEN)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
 "$KEY_DUST_MODE")
     if command -v dust &>/dev/null; then
         DUST_MODE=$((1 - DUST_MODE))

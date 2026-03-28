@@ -20,6 +20,7 @@ A lightweight terminal file browser written in Bash.
 - Copy absolute path(s) of selected/current item to system clipboard with `Ctrl+C`
 - Create a new file (`n`) or folder (`N`)
 - Download a file from a URL into the current folder with `w`
+- Upload selected file(s) to catbox.moe with `u`
 - Create an archive from selected items (or current item) with `z` (`.zip`, `.tar.gz`, `.tgz`, or `.tar`)
 - Extract archive(s) with `x`, choose destination folder, and for multiple archives optionally extract each into its own archive-named folder
 - Delete selected item(s) with confirmation (`d`)
@@ -62,8 +63,9 @@ A lightweight terminal file browser written in Bash.
 - Linux or Unix-like environment
 - `bash`
 - Core utils used by the script (`ls`, `cp`, `sed`, `awk`, `tput`, `stty`)
+- `curl` or `wget` (for downloading URLs with `w` and uploading files with `u`)
 - Optional: `xdg-open` (for opening files in a graphical session)
-- Optional: `wl-copy` (`wl-clipboard`) or `xclip` or `xsel` (for system clipboard path copy via `C`)
+- Optional: `wl-copy` (`wl-clipboard`) or `xclip` or `xsel` (for system clipboard path copy via `Ctrl+C` and URL copy after `u` upload)
 - One of `nano`, `vim`, `vi`, `less`, or another editor via `$EDITOR`/`$VISUAL` for headless servers
 - Optional: `git` (for branch/status info in header)
 - Optional: `chafa` (for inline image preview)
@@ -241,6 +243,7 @@ After you quit (`q`), the script writes the current working directory to the exp
 | `n` | Create a new file |
 | `N` | Create a new folder |
 | `w` | Download URL into current directory |
+| `u` | Upload selected file(s) to catbox.moe |
 | `z` | Create archive from selected item(s) (`.zip`/`.tar.gz`/`.tgz`/`.tar`) |
 | `x` | Extract archive(s), prompt for destination, and optionally split multiple archives into separate archive-named folders |
 | `g` | Search text with ripgrep |
@@ -310,6 +313,7 @@ export SB_KEY_CREATE_DIR="N"             # Default: N (uppercase)
 export SB_KEY_RENAME="r"                 # Default: r
 export SB_KEY_TOGGLE_EXEC="X"            # Default: X
 export SB_KEY_DOWNLOAD="w"               # Default: w
+export SB_KEY_UPLOAD="u"                 # Default: u (catbox.moe)
 export SB_KEY_CREATE_ARCHIVE="z"         # Default: z
 export SB_KEY_EXTRACT_ARCHIVE="x"        # Default: x
 export SB_KEY_EDIT="e"                   # Default: e
