@@ -207,10 +207,12 @@ KEY_JUMP_PATH="${SB_KEY_JUMP_PATH:-$'\t'}"
 KEY_CREATE_FILE="${SB_KEY_CREATE_FILE:-n}"
 KEY_CREATE_DIR="${SB_KEY_CREATE_DIR:-N}"
 KEY_DOWNLOAD="${SB_KEY_DOWNLOAD:-w}"
+KEY_CREATE_ARCHIVE="${SB_KEY_CREATE_ARCHIVE:-z}"
+KEY_EXTRACT_ARCHIVE="${SB_KEY_EXTRACT_ARCHIVE:-x}"
 KEY_SELECT_ALL="${SB_KEY_SELECT_ALL:-*}"
 KEY_TOGGLE_HIDDEN="${SB_KEY_TOGGLE_HIDDEN:-\.}"
 KEY_DUST_MODE="${SB_KEY_DUST_MODE:-s}"
-KEY_TOGGLE_EXEC="${SB_KEY_TOGGLE_EXEC:-x}"
+KEY_TOGGLE_EXEC="${SB_KEY_TOGGLE_EXEC:-X}"
 KEY_DELETE="${SB_KEY_DELETE:-d}"
 
 DEFAULT_META='----------|----------|-----|----------------'
@@ -1232,7 +1234,7 @@ show_help() {
     if (( rows < 15 || cols < 70 )); then
         printf "%b" "${HELP_SECTION}Navigation${NC}  ${HELP_KEY}Up/Down${NC} move, ${HELP_KEY}Enter${NC} open, ${HELP_KEY}Left${NC} parent, ${HELP_KEY}~${NC} home\n"
         printf "%b" "${HELP_SECTION}Select${NC}      ${HELP_KEY}Insert/Space${NC} toggle, ${HELP_KEY}*${NC} all, ${HELP_KEY}c${NC} copy, ${HELP_KEY}m${NC} move, ${HELP_KEY}v${NC} paste\n"
-        printf "%b" "${HELP_SECTION}Files${NC}       ${HELP_KEY}n${NC} file, ${HELP_KEY}N${NC} folder, ${HELP_KEY}w${NC} download, ${HELP_KEY}e${NC} edit, ${HELP_KEY}o${NC} open, ${HELP_KEY}l${NC} less, ${HELP_KEY}d${NC} delete, ${HELP_KEY}x${NC} chmod\n"
+        printf "%b" "${HELP_SECTION}Files${NC}       ${HELP_KEY}n${NC} file, ${HELP_KEY}N${NC} folder, ${HELP_KEY}w${NC} download, ${HELP_KEY}z${NC} archive, ${HELP_KEY}x${NC} extract, ${HELP_KEY}e${NC} edit, ${HELP_KEY}o${NC} open, ${HELP_KEY}l${NC} less, ${HELP_KEY}d${NC} delete, ${HELP_KEY}X${NC} chmod\n"
         printf "%b" "${HELP_SECTION}Sort${NC}        ${HELP_KEY}Ctrl+N${NC} name, ${HELP_KEY}Ctrl+D${NC} date, ${HELP_KEY}Ctrl+S${NC} size, ${HELP_KEY}Ctrl+X${NC} ext\n"
         printf "%b" "${HELP_SECTION}View${NC}        ${HELP_KEY}.${NC} hidden, ${HELP_KEY}s${NC} dust, ${HELP_KEY}S${NC} SSH, ${HELP_KEY}i${NC} integrations, ${HELP_KEY}[ / ]${NC} name -/+, ${HELP_KEY}{ / }${NC} min/max, ${HELP_KEY}b${NC} bookmarks, ${HELP_KEY}h${NC} help, ${HELP_KEY}q${NC} quit\n\n"
         printf "%b" "${HELP_ACCENT}Press any key to return...${NC}"
@@ -1263,6 +1265,8 @@ show_help() {
         "m            Move selected"
         "v            Paste copied"
         "w            Download URL here"
+        "z            Archive selection/item (zip/tar)"
+        "x            Extract archive(s)"
         "C            Compare 2 files"
         "Ctrl+C       Copy absolute path(s)"
         "r            Rename (single/bulk)"
@@ -1274,7 +1278,7 @@ show_help() {
         "e            Edit in CLI editor"
         "o            Open in GUI app"
         "l            Open in less"
-        "x            Toggle executable bit"
+        "X            Toggle executable bit"
         "d            Delete selected"
         ""
         "Sort"
@@ -1905,6 +1909,299 @@ jump_to_path() {
 }
 create_file_item() { local name=""; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -p "New file name: " name; stty -echo cbreak -ixon intr undef; echo -ne "\033[?25l"; [[ -z "$name" ]] && { redraw_cursor; return; }; touch -- "$name" 2>/dev/null && { update_files; draw_ui; } || redraw_cursor; }
 create_dir_item() { local name=""; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -p "New folder name: " name; stty -echo cbreak -ixon intr undef; echo -ne "\033[?25l"; [[ -z "$name" ]] && { redraw_cursor; return; }; mkdir -p -- "$name" 2>/dev/null && { update_files; draw_ui; } || redraw_cursor; }
+create_archive_item() {
+    local -a items=()
+    local idx raw_item clean_item
+
+    if (( ${#selected[@]} > 0 )); then
+        # Keep sb view order when archiving multiple selections.
+        for (( idx=0; idx<${#files[@]}; idx++ )); do
+            [[ -n "${selected[$idx]+x}" ]] || continue
+            raw_item="${files[$idx]}"
+            clean_item=$(strip_ls_suffix "$raw_item")
+            [[ -n "$clean_item" && "$clean_item" != "(Empty Directory)" ]] && items+=("$clean_item")
+        done
+    else
+        raw_item="$(get_item)"
+        clean_item=$(strip_ls_suffix "$raw_item")
+        [[ -n "$clean_item" && "$clean_item" != "(Empty Directory)" ]] && items+=("$clean_item")
+    fi
+
+    (( ${#items[@]} > 0 )) || {
+        printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}Nothing to archive.${NC}"
+        redraw_cursor
+        return
+    }
+
+    local archive_name="" default_name="archive.zip" confirm=""
+    if (( ${#items[@]} == 1 )); then
+        default_name="${items[0]}.zip"
+    fi
+
+    echo -ne "\033[?25h"
+    printf "\033[$((max_rows + 3));1H\033[K"
+    stty echo
+    read -e -i "$default_name" -p "Archive name (.zip/.tar.gz/.tgz/.tar): " archive_name
+    stty -echo cbreak -ixon intr undef
+    echo -ne "\033[?25l"
+
+    [[ -z "$archive_name" ]] && archive_name="$default_name"
+
+    # Default to zip when no recognized archive extension is provided.
+    if [[ "$archive_name" != *.zip && "$archive_name" != *.tar.gz && "$archive_name" != *.tgz && "$archive_name" != *.tar ]]; then
+        archive_name="${archive_name}.zip"
+    fi
+
+    if [[ -e "$archive_name" ]]; then
+        echo -ne "\033[?25h"
+        printf "\033[$((max_rows + 3));1H\033[K"
+        stty echo
+        read -r -p "'$archive_name' exists. Overwrite? [y/N]: " confirm
+        stty -echo cbreak -ixon intr undef
+        echo -ne "\033[?25l"
+        [[ "$confirm" =~ ^[Yy]$ ]] || { redraw_cursor; return; }
+    fi
+
+    local archive_rc=0
+    if [[ "$archive_name" == *.zip ]]; then
+        command -v zip &>/dev/null || {
+            printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}zip is not installed.${NC}"
+            redraw_cursor
+            return
+        }
+        [[ -e "$archive_name" ]] && rm -f -- "$archive_name"
+        # zip syntax is: zip [options] archive.zip files... (no standalone -- before archive name)
+        run_interactive_command zip -r "$archive_name" "${items[@]}"
+        archive_rc=$?
+    else
+        command -v tar &>/dev/null || {
+            printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}tar is not installed.${NC}"
+            redraw_cursor
+            return
+        }
+        case "$archive_name" in
+            *.tar.gz|*.tgz)
+                run_interactive_command tar -czf "$archive_name" -- "${items[@]}"
+                archive_rc=$?
+                ;;
+            *.tar)
+                run_interactive_command tar -cf "$archive_name" -- "${items[@]}"
+                archive_rc=$?
+                ;;
+            *)
+                printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}Unsupported archive extension.${NC}"
+                redraw_cursor
+                return
+                ;;
+        esac
+    fi
+
+    if (( archive_rc == 0 )); then
+        clear_selection
+        update_files
+        draw_ui
+        printf "\033[$((max_rows + 3));1H\033[K%b" "${GREEN}Created archive: ${archive_name}${NC}"
+    else
+        draw_ui
+        printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}Failed to create archive (exit ${archive_rc}).${NC}"
+    fi
+    redraw_cursor
+}
+extract_archive_item() {
+    local -a archives=()
+    local -a selected_names=()
+    local idx raw_item clean_item lower
+    local keep_selection=0
+
+    if (( ${#selected[@]} > 0 )); then
+        keep_selection=1
+        # Capture selected item names so we can restore selection after update_files reindexes rows.
+        for (( idx=0; idx<${#files[@]}; idx++ )); do
+            [[ -n "${selected[$idx]+x}" ]] || continue
+            clean_item=$(strip_ls_suffix "${files[$idx]}")
+            [[ -n "$clean_item" && "$clean_item" != "(Empty Directory)" ]] && selected_names+=("$clean_item")
+        done
+    fi
+
+    if (( ${#selected[@]} > 0 )); then
+        for (( idx=0; idx<${#files[@]}; idx++ )); do
+            [[ -n "${selected[$idx]+x}" ]] || continue
+            raw_item="${files[$idx]}"
+            clean_item=$(strip_ls_suffix "$raw_item")
+            lower="${clean_item,,}"
+            case "$lower" in
+                *.zip|*.tar|*.tar.gz|*.tgz|*.gz|*.bz2|*.xz|*.7z|*.rar) archives+=("$clean_item") ;;
+            esac
+        done
+    else
+        raw_item="$(get_item)"
+        clean_item=$(strip_ls_suffix "$raw_item")
+        lower="${clean_item,,}"
+        case "$lower" in
+            *.zip|*.tar|*.tar.gz|*.tgz|*.gz|*.bz2|*.xz|*.7z|*.rar) archives+=("$clean_item") ;;
+        esac
+    fi
+
+    (( ${#archives[@]} > 0 )) || {
+        printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}No archive selected. Choose a .zip/.tar/.tar.gz/.tgz/.gz/.bz2/.xz/.7z/.rar file.${NC}"
+        redraw_cursor
+        return
+    }
+
+    local dest_dir="" rc=0 fail_count=0 separate_dirs=0 separate_answer=""
+    echo -ne "\033[?25h"
+    printf "\033[$((max_rows + 3));1H\033[K"
+    stty echo
+    read -e -i "$(pwd)" -p "Extract to directory: " dest_dir
+    stty -echo cbreak -ixon intr undef
+    echo -ne "\033[?25l"
+
+    [[ -z "$dest_dir" ]] && dest_dir="$(pwd)"
+    dest_dir="${dest_dir/#\~/$HOME}"
+
+    if ! mkdir -p -- "$dest_dir" 2>/dev/null; then
+        printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}Cannot create/access destination: ${dest_dir}${NC}"
+        redraw_cursor
+        return
+    fi
+
+    if (( ${#archives[@]} > 1 )); then
+        echo -ne "\033[?25h"
+        printf "\033[$((max_rows + 3));1H\033[K"
+        stty echo
+        read -r -p "Extract each archive into its own folder? [Y/n]: " separate_answer
+        stty -echo cbreak -ixon intr undef
+        echo -ne "\033[?25l"
+        [[ ! "$separate_answer" =~ ^[Nn]$ ]] && separate_dirs=1
+    fi
+
+    local arc out_file base_name target_dir folder_name
+    for arc in "${archives[@]}"; do
+        lower="${arc,,}"
+        rc=0
+        target_dir="$dest_dir"
+
+        if (( separate_dirs )); then
+            folder_name="$(basename -- "$arc")"
+            case "${folder_name,,}" in
+                *.tar.gz) folder_name="${folder_name%.[tT][aA][rR].[gG][zZ]}" ;;
+                *.tgz) folder_name="${folder_name%.[tT][gG][zZ]}" ;;
+                *.tar) folder_name="${folder_name%.[tT][aA][rR]}" ;;
+                *.zip) folder_name="${folder_name%.[zZ][iI][pP]}" ;;
+                *.bz2) folder_name="${folder_name%.[bB][zZ]2}" ;;
+                *.gz) folder_name="${folder_name%.[gG][zZ]}" ;;
+                *.xz) folder_name="${folder_name%.[xX][zZ]}" ;;
+                *.7z) folder_name="${folder_name%.7[zZ]}" ;;
+                *.rar) folder_name="${folder_name%.[rR][aA][rR]}" ;;
+            esac
+            [[ -z "$folder_name" ]] && folder_name="archive"
+            target_dir="${dest_dir}/${folder_name}"
+            if ! mkdir -p -- "$target_dir" 2>/dev/null; then
+                ((fail_count++))
+                continue
+            fi
+        fi
+
+        case "$lower" in
+            *.zip)
+                if command -v unzip &>/dev/null; then
+                    run_interactive_command unzip -o -- "$arc" -d "$target_dir"
+                    rc=$?
+                elif command -v bsdtar &>/dev/null; then
+                    run_interactive_command bsdtar -xf "$arc" -C "$target_dir"
+                    rc=$?
+                else
+                    rc=127
+                fi
+                ;;
+            *.tar.gz|*.tgz)
+                if command -v tar &>/dev/null; then
+                    run_interactive_command tar -xzf "$arc" -C "$target_dir"
+                    rc=$?
+                else
+                    rc=127
+                fi
+                ;;
+            *.tar)
+                if command -v tar &>/dev/null; then
+                    run_interactive_command tar -xf "$arc" -C "$target_dir"
+                    rc=$?
+                else
+                    rc=127
+                fi
+                ;;
+            *.gz)
+                if command -v gzip &>/dev/null; then
+                    base_name="$(basename -- "${arc%.gz}")"
+                    out_file="${target_dir}/${base_name}"
+                    run_interactive_command sh -c 'gzip -dc -- "$1" > "$2"' _ "$arc" "$out_file"
+                    rc=$?
+                else
+                    rc=127
+                fi
+                ;;
+            *.bz2)
+                if command -v bzip2 &>/dev/null; then
+                    base_name="$(basename -- "${arc%.bz2}")"
+                    out_file="${target_dir}/${base_name}"
+                    run_interactive_command sh -c 'bzip2 -dc -- "$1" > "$2"' _ "$arc" "$out_file"
+                    rc=$?
+                else
+                    rc=127
+                fi
+                ;;
+            *.xz)
+                if command -v xz &>/dev/null; then
+                    base_name="$(basename -- "${arc%.xz}")"
+                    out_file="${target_dir}/${base_name}"
+                    run_interactive_command sh -c 'xz -dc -- "$1" > "$2"' _ "$arc" "$out_file"
+                    rc=$?
+                else
+                    rc=127
+                fi
+                ;;
+            *.7z|*.rar)
+                if command -v 7z &>/dev/null; then
+                    run_interactive_command 7z x -y "-o${target_dir}" -- "$arc"
+                    rc=$?
+                elif command -v bsdtar &>/dev/null; then
+                    run_interactive_command bsdtar -xf "$arc" -C "$target_dir"
+                    rc=$?
+                else
+                    rc=127
+                fi
+                ;;
+            *)
+                rc=2
+                ;;
+        esac
+
+        (( rc == 0 )) || ((fail_count++))
+    done
+
+    update_files
+
+    if (( keep_selection )); then
+        local -A _restore_selected=()
+        local _name _idx _clean
+        for _name in "${selected_names[@]}"; do
+            _restore_selected["$_name"]=1
+        done
+        clear_selection
+        for (( _idx=0; _idx<${#files[@]}; _idx++ )); do
+            _clean=$(strip_ls_suffix "${files[$_idx]}")
+            [[ -n "${_restore_selected[$_clean]+x}" ]] && selected[$_idx]=1
+        done
+    fi
+
+    draw_ui
+    if (( fail_count == 0 )); then
+        printf "\033[$((max_rows + 3));1H\033[K%b" "${GREEN}Extracted ${#archives[@]} archive(s) to: ${dest_dir}${NC}"
+    else
+        printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}Extracted with ${fail_count} failure(s). Check installed tools (unzip/tar/gzip/bzip2/xz/7z).${NC}"
+    fi
+    redraw_cursor
+}
 download_from_url() {
     local use_tool=""
     if command -v curl &>/dev/null; then
@@ -2045,7 +2342,7 @@ compare_selected_with_delta() {
     done
 
     if (( ${#items[@]} != 2 )); then
-        printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}Select exactly 2 files, then press D.${NC}"
+        printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}Select exactly 2 files, then press compare key.${NC}"
         redraw_cursor
         return
     fi
@@ -2154,6 +2451,8 @@ case "$key" in
 "$KEY_CREATE_FILE") create_file_item ;;
 "$KEY_CREATE_DIR") create_dir_item ;;
 "$KEY_DOWNLOAD") download_from_url ;;
+"$KEY_CREATE_ARCHIVE") create_archive_item ;;
+"$KEY_EXTRACT_ARCHIVE") extract_archive_item ;;
 "$KEY_HELP"|$'\eOP'|$'\e[11~') show_help ;;
 "$KEY_BOOKMARKS") show_bookmarks ;;
 "$KEY_SELECT_ALL") toggle_select_all ;;

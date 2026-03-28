@@ -20,9 +20,11 @@ A lightweight terminal file browser written in Bash.
 - Copy absolute path(s) of selected/current item to system clipboard with `Ctrl+C`
 - Create a new file (`n`) or folder (`N`)
 - Download a file from a URL into the current folder with `w`
+- Create an archive from selected items (or current item) with `z` (`.zip`, `.tar.gz`, `.tgz`, or `.tar`)
+- Extract archive(s) with `x`, choose destination folder, and for multiple archives optionally extract each into its own archive-named folder
 - Delete selected item(s) with confirmation (`d`)
 - Batch rename with `r` (uses `moreutils`/`vidir`): renames selected items, or all visible items when nothing is selected
-- Toggle executable permission on selected item (`x`)
+- Toggle executable permission on selected item (`X`)
 - Open selected file in `less` (`l`)
 - Edit selected file in terminal editor (`e`)
 - Open selected file/folder in GUI associated app (`o`)
@@ -239,12 +241,14 @@ After you quit (`q`), the script writes the current working directory to the exp
 | `n` | Create a new file |
 | `N` | Create a new folder |
 | `w` | Download URL into current directory |
+| `z` | Create archive from selected item(s) (`.zip`/`.tar.gz`/`.tgz`/`.tar`) |
+| `x` | Extract archive(s), prompt for destination, and optionally split multiple archives into separate archive-named folders |
 | `g` | Search text with ripgrep |
 | `i` | Show integration status |
 | `l` | Open selected file in `less` |
 | `e` | Edit selected file in CLI editor (`$VISUAL`/`$EDITOR` fallback chain) |
 | `o` | Open selected item in GUI associated app |
-| `x` | Toggle executable permission on selected item |
+| `X` | Toggle executable permission on selected item |
 | `d` | Delete selected item(s) |
 | `.` | Toggle hidden files |
 | `Ctrl+N` | Sort by name (toggle ascending / descending) |
@@ -304,8 +308,10 @@ export SB_KEY_DELETE="d"                 # Default: d
 export SB_KEY_CREATE_FILE="n"            # Default: n
 export SB_KEY_CREATE_DIR="N"             # Default: N (uppercase)
 export SB_KEY_RENAME="r"                 # Default: r
-export SB_KEY_TOGGLE_EXEC="x"            # Default: x
+export SB_KEY_TOGGLE_EXEC="X"            # Default: X
 export SB_KEY_DOWNLOAD="w"               # Default: w
+export SB_KEY_CREATE_ARCHIVE="z"         # Default: z
+export SB_KEY_EXTRACT_ARCHIVE="x"        # Default: x
 export SB_KEY_EDIT="e"                   # Default: e
 export SB_KEY_OPEN_GUI="o"               # Default: o
 export SB_KEY_LESS="l"                   # Default: l
