@@ -122,7 +122,7 @@ if (( BASH_VERSINFO[0] < 4 )); then
 fi
 
 HIGHLIGHT='\033[1;44m'; BLUE='\033[1;34m'; YELLOW='\033[38;5;100m'; AMBER='\033[1;38;5;172m'; GREEN='\033[1;32m'; CYAN='\033[1;36m'; RED='\033[1;31m'; NC='\033[0m'; SELECT='\033[48;5;66m'; STATUS_LABEL='\033[38;5;244m'; STATUS_VALUE='\033[1;97m'; HIDDEN_FILE='\033[0m'; HIDDEN_DIR='\033[38;5;67m'
-COLOR_DOCKERFILE='\033[38;2;36;150;237m'; COLOR_MAKEFILE='\033[38;2;171;178;191m'; COLOR_LICENSE='\033[38;2;255;191;0m'; COLOR_MEDIA='\033[1;35m'; COLOR_JUNK='\033[38;5;240m'; COLOR_HTML='\033[38;5;28m'
+COLOR_DOCKERFILE='\033[38;2;36;150;237m'; COLOR_MAKEFILE='\033[38;2;171;178;191m'; COLOR_LICENSE='\033[38;2;255;191;0m'; COLOR_MEDIA='\033[1;35m'; COLOR_JUNK='\033[38;5;240m'; COLOR_HTML='\033[1;38;5;202m'
 
 EXPORT_FILE=""
 NAME_COL_WIDTH_OVERRIDE=""
@@ -168,14 +168,68 @@ while (($# > 0)); do
     esac
 done
 ICON_DIR='📁'; ICON_LINK='🔗'; ICON_FILE='📄'; ICON_EXEC='🛠'; ICON_IMAGE='🖼'; ICON_VIDEO='🎬'; ICON_AUDIO='🎵'; ICON_ARCHIVE='📦'; ICON_DOCUMENT='📄'; ICON_SCRIPT='📜'; ICON_JSON='{}'; ICON_CONFIG='⚙'; ICON_TEXT='📝'; ICON_CODE='💻'; ICON_AGE='🔐'; ICON_DEFAULT='📄'
-if [[ "${SB_ICON_SET:-ascii}" == "nerd" ]]; then
+if [[ "${SB_ICON_SET:-nerd}" == "nerd" ]]; then
+    ICON_DIR=''
+    ICON_LINK=''
+    ICON_FILE=''
+    ICON_EXEC=''
+    ICON_IMAGE=''
+    ICON_VIDEO=''
+    ICON_AUDIO=''
+    ICON_ARCHIVE=''
+    ICON_DOCUMENT=''
+    ICON_SCRIPT=''
+    ICON_JSON=''
+    ICON_CONFIG=''
+    ICON_TEXT=''
+    ICON_CODE=''
+    ICON_AGE=''
+    ICON_DEFAULT=''
     ICON_DOCKERFILE="${SB_ICON_DOCKERFILE:-}"
     ICON_MAKEFILE="${SB_ICON_MAKEFILE:-}"
     ICON_LICENSE="${SB_ICON_LICENSE:-}"
+    ICON_HTML="${SB_ICON_HTML:-}"
+    ICON_PY="${SB_ICON_PY:-}"
+    ICON_JS="${SB_ICON_JS:-}"
+    ICON_TS="${SB_ICON_TS:-}"
+    ICON_REACT="${SB_ICON_REACT:-}"
+    ICON_GO="${SB_ICON_GO:-}"
+    ICON_RUST="${SB_ICON_RUST:-}"
+    ICON_JAVA="${SB_ICON_JAVA:-}"
+    ICON_C="${SB_ICON_C:-}"
+    ICON_CPP="${SB_ICON_CPP:-}"
+    ICON_CSS="${SB_ICON_CSS:-}"
+    ICON_MARKDOWN="${SB_ICON_MARKDOWN:-}"
+    ICON_ENV="${SB_ICON_ENV:-}"
+    ICON_GITIGNORE="${SB_ICON_GITIGNORE:-}"
+    ICON_NODE="${SB_ICON_NODE:-}"
+    ICON_CARGO="${SB_ICON_CARGO:-}"
+    ICON_GOMOD="${SB_ICON_GOMOD:-}"
+    ICON_XML="${SB_ICON_XML:-}"
+    ICON_CSV="${SB_ICON_CSV:-}"
 else
     ICON_DOCKERFILE="${SB_ICON_DOCKERFILE:-DK}"
     ICON_MAKEFILE="${SB_ICON_MAKEFILE:-MK}"
     ICON_LICENSE="${SB_ICON_LICENSE:-LC}"
+    ICON_HTML="${SB_ICON_HTML:-HT}"
+    ICON_PY="${SB_ICON_PY:-PY}"
+    ICON_JS="${SB_ICON_JS:-JS}"
+    ICON_TS="${SB_ICON_TS:-TS}"
+    ICON_REACT="${SB_ICON_REACT:-RX}"
+    ICON_GO="${SB_ICON_GO:-GO}"
+    ICON_RUST="${SB_ICON_RUST:-RS}"
+    ICON_JAVA="${SB_ICON_JAVA:-JV}"
+    ICON_C="${SB_ICON_C:-C }"
+    ICON_CPP="${SB_ICON_CPP:-C+}"
+    ICON_CSS="${SB_ICON_CSS:-CS}"
+    ICON_MARKDOWN="${SB_ICON_MARKDOWN:-MD}"
+    ICON_ENV="${SB_ICON_ENV:-EV}"
+    ICON_GITIGNORE="${SB_ICON_GITIGNORE:-GI}"
+    ICON_NODE="${SB_ICON_NODE:-NP}"
+    ICON_CARGO="${SB_ICON_CARGO:-CG}"
+    ICON_GOMOD="${SB_ICON_GOMOD:-GM}"
+    ICON_XML="${SB_ICON_XML:-XM}"
+    ICON_CSV="${SB_ICON_CSV:-CV}"
 fi
 
 # Configurable Key Bindings (set via SB_KEY_* environment variables, or use defaults below)
@@ -256,6 +310,7 @@ NAME_COL_WIDTH=22
 NAME_COL_MIN=10
 NAME_COL_MAX=120
 NAME_COL_WIDTH_AUTO=1
+NAME_COL_START=4
 BASE_MIN_COLS=56
 if [[ -n "$NAME_COL_WIDTH_OVERRIDE" ]]; then
     if [[ "$NAME_COL_WIDTH_OVERRIDE" =~ ^[0-9]+$ ]] && (( NAME_COL_WIDTH_OVERRIDE >= NAME_COL_MIN && NAME_COL_WIDTH_OVERRIDE <= NAME_COL_MAX )); then
@@ -418,6 +473,11 @@ get_color() {
     [[ "$f" =~ \.(zip|tar|tar\.gz|tgz|bz2|xz|rar|7z|gz|zst)$ ]] && echo -n "$RED" && return
     echo -n "$STATUS_VALUE"
 }
+format_icon() {
+    local f_name="$1"
+    local icon="$2"
+    printf "%b%s%b" "$(get_color "$f_name")" "$icon" "$NC"
+}
 list_entries() { local -a ls_args=(-F); (( SHOW_HIDDEN )) && ls_args+=(-A); (( LS_GROUP_DIRS )) && ls_args+=(--group-directories-first); "$LS_CMD" "${ls_args[@]}" 2>/dev/null; }
 is_gui_session() { [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" || -n "${MIR_SOCKET:-}" || "$OS_NAME" == "Darwin" ]]; }
 restore_browser_ui() { stty -echo cbreak -ixon intr undef; printf "\033[2J\033[1;1H\033[?25l"; get_terminal_size; show_loading_status; update_files; draw_ui; }
@@ -426,7 +486,55 @@ show_open_error() { local item="$1"; echo -ne "\033[?25h"; printf "\033[$((max_r
 show_loading_status() { printf "\033[%d;1H\033[KLoading \033[5m...\033[0m" $((max_rows + 4)); }
 open_in_terminal_editor() { local item="$1" editor_name; local -a editors=(); [[ -n "${VISUAL:-}" ]] && editors+=("${VISUAL%% *}"); [[ -n "${EDITOR:-}" ]] && editors+=("${EDITOR%% *}"); editors+=(sensible-editor editor nano vim vi less more); for editor_name in "${editors[@]}"; do [[ -n "$editor_name" ]] || continue; command -v "$editor_name" >/dev/null 2>&1 || continue; run_interactive_command "$editor_name" "$item" && return 0; done; return 1; }
 open_external() { local item="$1"; if is_gui_session; then command -v "$OPEN_CMD" &>/dev/null && "$OPEN_CMD" "$item" >/dev/null 2>&1 && return 0; [[ "$OPEN_CMD" != "xdg-open" ]] && command -v xdg-open &>/dev/null && xdg-open "$item" >/dev/null 2>&1 && return 0; [[ "$OPEN_CMD" != "open" ]] && command -v open &>/dev/null && open "$item" >/dev/null 2>&1 && return 0; fi; open_in_terminal_editor "$item" && return 0; show_open_error "$item"; return 1; }
-icon_for_item() { local path="$1"; local lower_name="${2,,}"; if [[ -d "$path" ]]; then printf "%s" "$ICON_DIR"; elif [[ -L "$path" ]]; then printf "%s" "$ICON_LINK"; elif [[ -x "$path" && -f "$path" ]]; then printf "%s" "$ICON_EXEC"; else case "$lower_name" in dockerfile) printf "%s" "$ICON_DOCKERFILE" ;; makefile) printf "%s" "$ICON_MAKEFILE" ;; license) printf "%s" "$ICON_LICENSE" ;; *.age) printf "%s" "$ICON_AGE" ;; *.jpg|*.jpeg|*.png|*.gif|*.bmp|*.webp|*.tiff|*.ico|*.svg|*.heic|*.avif) printf "%s" "$ICON_IMAGE" ;; *.mp4|*.mkv|*.avi|*.mov|*.webm|*.flv|*.m4v|*.ogv|*.wmv) printf "%s" "$ICON_VIDEO" ;; *.mp3|*.wav|*.ogg|*.flac|*.aac|*.m4a|*.opus|*.wma) printf "%s" "$ICON_AUDIO" ;; *.zip|*.tar|*.tar.gz|*.tgz|*.bz2|*.xz|*.rar|*.7z|*.gz|*.zst) printf "%s" "$ICON_ARCHIVE" ;; *.pdf|*.doc|*.docx|*.odt|*.rtf|*.xls|*.xlsx|*.csv|*.ppt|*.pptx) printf "%s" "$ICON_DOCUMENT" ;; *.sh|*.bash|*.zsh|*.fish|*.py|*.js|*.ts|*.rb|*.pl|*.php|*.lua|*.ps1) printf "%s" "$ICON_SCRIPT" ;; *.json|*.jsonl|*.ndjson|*.geojson) printf "%s" "$ICON_JSON" ;; *.yaml|*.yml|*.toml|*.ini|*.conf|*.xml|*.sql) printf "%s" "$ICON_CONFIG" ;; *.md|*.txt|*.tex|*.rst) printf "%s" "$ICON_TEXT" ;; *.c|*.h|*.cpp|*.hpp|*.go|*.rs|*.java|*.kt|*.swift|*.cs) printf "%s" "$ICON_CODE" ;; *) printf "%s" "$ICON_DEFAULT" ;; esac; fi; }
+icon_for_item() {
+    local path="$1"
+    local lower_name="${2,,}"
+
+    if [[ -d "$path" ]]; then
+        printf "%s" "$ICON_DIR"
+    elif [[ -L "$path" ]]; then
+        printf "%s" "$ICON_LINK"
+    elif [[ -x "$path" && -f "$path" ]]; then
+        printf "%s" "$ICON_EXEC"
+    else
+        case "$lower_name" in
+            dockerfile) printf "%s" "$ICON_DOCKERFILE" ;;
+            makefile) printf "%s" "$ICON_MAKEFILE" ;;
+            license) printf "%s" "$ICON_LICENSE" ;;
+            .env) printf "%s" "$ICON_ENV" ;;
+            .gitignore) printf "%s" "$ICON_GITIGNORE" ;;
+            package.json) printf "%s" "$ICON_NODE" ;;
+            cargo.toml) printf "%s" "$ICON_CARGO" ;;
+            go.mod) printf "%s" "$ICON_GOMOD" ;;
+            *.age) printf "%s" "$ICON_AGE" ;;
+            *.html|*.htm) printf "%s" "$ICON_HTML" ;;
+            *.jsx|*.tsx) printf "%s" "$ICON_REACT" ;;
+            *.py) printf "%s" "$ICON_PY" ;;
+            *.js|*.mjs|*.cjs) printf "%s" "$ICON_JS" ;;
+            *.ts) printf "%s" "$ICON_TS" ;;
+            *.go) printf "%s" "$ICON_GO" ;;
+            *.rs) printf "%s" "$ICON_RUST" ;;
+            *.java) printf "%s" "$ICON_JAVA" ;;
+            *.c|*.h|*.cs) printf "%s" "$ICON_C" ;;
+            *.cpp|*.hpp|*.cc|*.cxx) printf "%s" "$ICON_CPP" ;;
+            *.css|*.scss|*.sass|*.less) printf "%s" "$ICON_CSS" ;;
+            *.md|*.markdown) printf "%s" "$ICON_MARKDOWN" ;;
+            *.xml) printf "%s" "$ICON_XML" ;;
+            *.csv) printf "%s" "$ICON_CSV" ;;
+            *.jpg|*.jpeg|*.png|*.gif|*.bmp|*.webp|*.tiff|*.ico|*.svg|*.heic|*.avif) printf "%s" "$ICON_IMAGE" ;;
+            *.mp4|*.mkv|*.avi|*.mov|*.webm|*.flv|*.m4v|*.ogv|*.wmv) printf "%s" "$ICON_VIDEO" ;;
+            *.mp3|*.wav|*.ogg|*.flac|*.aac|*.m4a|*.opus|*.wma) printf "%s" "$ICON_AUDIO" ;;
+            *.zip|*.tar|*.tar.gz|*.tgz|*.bz2|*.xz|*.rar|*.7z|*.gz|*.zst) printf "%s" "$ICON_ARCHIVE" ;;
+            *.pdf|*.doc|*.docx|*.odt|*.rtf|*.xls|*.xlsx|*.ppt|*.pptx) printf "%s" "$ICON_DOCUMENT" ;;
+            *.sh|*.bash|*.zsh|*.fish|*.rb|*.pl|*.php|*.lua|*.ps1) printf "%s" "$ICON_SCRIPT" ;;
+            *.json|*.jsonl|*.ndjson|*.geojson) printf "%s" "$ICON_JSON" ;;
+            *.yaml|*.yml|*.toml|*.ini|*.conf|*.sql) printf "%s" "$ICON_CONFIG" ;;
+            *.txt|*.tex|*.rst) printf "%s" "$ICON_TEXT" ;;
+            *.kt|*.swift) printf "%s" "$ICON_CODE" ;;
+            *) printf "%s" "$ICON_DEFAULT" ;;
+        esac
+    fi
+}
 icon_for_list_item() {
     local item="$1"
     local clean_f lower_name
@@ -445,17 +553,36 @@ icon_for_list_item() {
                 dockerfile) printf "%s" "$ICON_DOCKERFILE" ;;
                 makefile) printf "%s" "$ICON_MAKEFILE" ;;
                 license) printf "%s" "$ICON_LICENSE" ;;
+                .env) printf "%s" "$ICON_ENV" ;;
+                .gitignore) printf "%s" "$ICON_GITIGNORE" ;;
+                package.json) printf "%s" "$ICON_NODE" ;;
+                cargo.toml) printf "%s" "$ICON_CARGO" ;;
+                go.mod) printf "%s" "$ICON_GOMOD" ;;
                 *.age) printf "%s" "$ICON_AGE" ;;
+                *.html|*.htm) printf "%s" "$ICON_HTML" ;;
+                *.jsx|*.tsx) printf "%s" "$ICON_REACT" ;;
+                *.py) printf "%s" "$ICON_PY" ;;
+                *.js|*.mjs|*.cjs) printf "%s" "$ICON_JS" ;;
+                *.ts) printf "%s" "$ICON_TS" ;;
+                *.go) printf "%s" "$ICON_GO" ;;
+                *.rs) printf "%s" "$ICON_RUST" ;;
+                *.java) printf "%s" "$ICON_JAVA" ;;
+                *.c|*.h|*.cs) printf "%s" "$ICON_C" ;;
+                *.cpp|*.hpp|*.cc|*.cxx) printf "%s" "$ICON_CPP" ;;
+                *.css|*.scss|*.sass|*.less) printf "%s" "$ICON_CSS" ;;
+                *.md|*.markdown) printf "%s" "$ICON_MARKDOWN" ;;
+                *.xml) printf "%s" "$ICON_XML" ;;
+                *.csv) printf "%s" "$ICON_CSV" ;;
                 *.jpg|*.jpeg|*.png|*.gif|*.bmp|*.webp|*.tiff|*.ico|*.svg|*.heic|*.avif) printf "%s" "$ICON_IMAGE" ;;
                 *.mp4|*.mkv|*.avi|*.mov|*.webm|*.flv|*.m4v|*.ogv|*.wmv) printf "%s" "$ICON_VIDEO" ;;
                 *.mp3|*.wav|*.ogg|*.flac|*.aac|*.m4a|*.opus|*.wma) printf "%s" "$ICON_AUDIO" ;;
                 *.zip|*.tar|*.tar.gz|*.tgz|*.bz2|*.xz|*.rar|*.7z|*.gz|*.zst) printf "%s" "$ICON_ARCHIVE" ;;
-                *.pdf|*.doc|*.docx|*.odt|*.rtf|*.xls|*.xlsx|*.csv|*.ppt|*.pptx) printf "%s" "$ICON_DOCUMENT" ;;
-                *.sh|*.bash|*.zsh|*.fish|*.py|*.js|*.ts|*.rb|*.pl|*.php|*.lua|*.ps1) printf "%s" "$ICON_SCRIPT" ;;
+                *.pdf|*.doc|*.docx|*.odt|*.rtf|*.xls|*.xlsx|*.ppt|*.pptx) printf "%s" "$ICON_DOCUMENT" ;;
+                *.sh|*.bash|*.zsh|*.fish|*.rb|*.pl|*.php|*.lua|*.ps1) printf "%s" "$ICON_SCRIPT" ;;
                 *.json|*.jsonl|*.ndjson|*.geojson) printf "%s" "$ICON_JSON" ;;
-                *.yaml|*.yml|*.toml|*.ini|*.conf|*.xml|*.sql) printf "%s" "$ICON_CONFIG" ;;
-                *.md|*.txt|*.tex|*.rst) printf "%s" "$ICON_TEXT" ;;
-                *.c|*.h|*.cpp|*.hpp|*.go|*.rs|*.java|*.kt|*.swift|*.cs) printf "%s" "$ICON_CODE" ;;
+                *.yaml|*.yml|*.toml|*.ini|*.conf|*.sql) printf "%s" "$ICON_CONFIG" ;;
+                *.txt|*.tex|*.rst) printf "%s" "$ICON_TEXT" ;;
+                *.kt|*.swift) printf "%s" "$ICON_CODE" ;;
                 *) printf "%s" "$ICON_DEFAULT" ;;
             esac
             ;;
@@ -593,17 +720,36 @@ populate_display_data_bulk() {
                 dockerfile) file_icons+=("$ICON_DOCKERFILE") ;;
                 makefile) file_icons+=("$ICON_MAKEFILE") ;;
                 license) file_icons+=("$ICON_LICENSE") ;;
+                .env) file_icons+=("$ICON_ENV") ;;
+                .gitignore) file_icons+=("$ICON_GITIGNORE") ;;
+                package.json) file_icons+=("$ICON_NODE") ;;
+                cargo.toml) file_icons+=("$ICON_CARGO") ;;
+                go.mod) file_icons+=("$ICON_GOMOD") ;;
                 *.age) file_icons+=("$ICON_AGE") ;;
+                *.html|*.htm) file_icons+=("$ICON_HTML") ;;
+                *.jsx|*.tsx) file_icons+=("$ICON_REACT") ;;
+                *.py) file_icons+=("$ICON_PY") ;;
+                *.js|*.mjs|*.cjs) file_icons+=("$ICON_JS") ;;
+                *.ts) file_icons+=("$ICON_TS") ;;
+                *.go) file_icons+=("$ICON_GO") ;;
+                *.rs) file_icons+=("$ICON_RUST") ;;
+                *.java) file_icons+=("$ICON_JAVA") ;;
+                *.c|*.h|*.cs) file_icons+=("$ICON_C") ;;
+                *.cpp|*.hpp|*.cc|*.cxx) file_icons+=("$ICON_CPP") ;;
+                *.css|*.scss|*.sass|*.less) file_icons+=("$ICON_CSS") ;;
+                *.md|*.markdown) file_icons+=("$ICON_MARKDOWN") ;;
+                *.xml) file_icons+=("$ICON_XML") ;;
+                *.csv) file_icons+=("$ICON_CSV") ;;
                 *.jpg|*.jpeg|*.png|*.gif|*.bmp|*.webp|*.tiff|*.ico|*.svg|*.heic|*.avif) file_icons+=("$ICON_IMAGE") ;;
                 *.mp4|*.mkv|*.avi|*.mov|*.webm|*.flv|*.m4v|*.ogv|*.wmv) file_icons+=("$ICON_VIDEO") ;;
                 *.mp3|*.wav|*.ogg|*.flac|*.aac|*.m4a|*.opus|*.wma) file_icons+=("$ICON_AUDIO") ;;
                 *.zip|*.tar|*.tar.gz|*.tgz|*.bz2|*.xz|*.rar|*.7z|*.gz|*.zst) file_icons+=("$ICON_ARCHIVE") ;;
-                *.pdf|*.doc|*.docx|*.odt|*.rtf|*.xls|*.xlsx|*.csv|*.ppt|*.pptx) file_icons+=("$ICON_DOCUMENT") ;;
-                *.sh|*.bash|*.zsh|*.fish|*.py|*.js|*.ts|*.rb|*.pl|*.php|*.lua|*.ps1) file_icons+=("$ICON_SCRIPT") ;;
+                *.pdf|*.doc|*.docx|*.odt|*.rtf|*.xls|*.xlsx|*.ppt|*.pptx) file_icons+=("$ICON_DOCUMENT") ;;
+                *.sh|*.bash|*.zsh|*.fish|*.rb|*.pl|*.php|*.lua|*.ps1) file_icons+=("$ICON_SCRIPT") ;;
                 *.json|*.jsonl|*.ndjson|*.geojson) file_icons+=("$ICON_JSON") ;;
-                *.yaml|*.yml|*.toml|*.ini|*.conf|*.xml|*.sql) file_icons+=("$ICON_CONFIG") ;;
-                *.md|*.txt|*.tex|*.rst) file_icons+=("$ICON_TEXT") ;;
-                *.c|*.h|*.cpp|*.hpp|*.go|*.rs|*.java|*.kt|*.swift|*.cs) file_icons+=("$ICON_CODE") ;;
+                *.yaml|*.yml|*.toml|*.ini|*.conf|*.sql) file_icons+=("$ICON_CONFIG") ;;
+                *.txt|*.tex|*.rst) file_icons+=("$ICON_TEXT") ;;
+                *.kt|*.swift) file_icons+=("$ICON_CODE") ;;
                 *) file_icons+=("$ICON_DEFAULT") ;;
             esac
         fi
@@ -810,7 +956,7 @@ _mb_col_w() {
 draw_line() {
     local idx=$1
     local row=$2
-    local f_name clean_name display_name full_display_name file_icon meta owner_display sel_mark m_owner m_perms m_size m_mod
+    local f_name clean_name display_name full_display_name file_icon file_icon_raw meta owner_display sel_mark m_owner m_perms m_size m_mod
     local dust_size="" dust_percent=""
     local expanded_width show_expanded_name=0 extra_cols
     # ensure_row_data "$idx"
@@ -821,12 +967,13 @@ draw_line() {
     _mb_col_w "$display_name" "$NAME_COL_WIDTH"; local name_col_w=$_MB_COL_W
     extra_cols=$(extra_meta_cols)
     expanded_width=$((NAME_COL_WIDTH + 52 + extra_cols))
-    local max_expanded_width=$((term_cols - 4))
+    local max_expanded_width=$((term_cols - NAME_COL_START + 1))
     (( expanded_width > max_expanded_width )) && expanded_width=$max_expanded_width
     (( expanded_width < NAME_COL_WIDTH )) && expanded_width=$NAME_COL_WIDTH
     full_display_name="${f_name:0:expanded_width}"
     (( ${#f_name} > NAME_COL_WIDTH )) && show_expanded_name=1
-    file_icon="${file_icons[$idx]:-$ICON_FILE}"
+    file_icon_raw="${file_icons[$idx]:-$ICON_FILE}"
+    file_icon="$(format_icon "$f_name" "$file_icon_raw")"
     
     # Handle dust mode display
     local dust_display=""
@@ -846,29 +993,29 @@ draw_line() {
     [[ -n "${selected[$idx]+x}" ]] && sel_mark="*"
     printf "\033[${row};1H\033[K"
     if (( idx + 1 == cursor )); then
-        printf "%1s%s" "$sel_mark" "$file_icon"
+        printf "%1s%b" "$sel_mark" "$file_icon"
         if (( show_expanded_name )); then
-            printf "\033[5G${HIGHLIGHT}%-*s${NC}" "$expanded_width" "$full_display_name"
+            printf "\033[%dG${HIGHLIGHT}%-*s${NC}" "$NAME_COL_START" "$expanded_width" "$full_display_name"
         else
             if (( DUST_MODE )) && [[ -n "$dust_display" ]]; then
-                printf "\033[5G${HIGHLIGHT}%-*s $DUST_META_COL_FMT${NC}" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$dust_size" "$dust_percent" "$m_mod"
+                printf "\033[%dG${HIGHLIGHT}%-*s $DUST_META_COL_FMT${NC}" "$NAME_COL_START" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$dust_size" "$dust_percent" "$m_mod"
             else
-                printf "\033[5G${HIGHLIGHT}%-*s $META_COL_FMT${NC}" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"
+                printf "\033[%dG${HIGHLIGHT}%-*s $META_COL_FMT${NC}" "$NAME_COL_START" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"
             fi
         fi
     elif [[ -n "${selected[$idx]+x}" ]]; then
-        printf "%1s%s" "$sel_mark" "$file_icon"
+        printf "%1s%b" "$sel_mark" "$file_icon"
         if (( DUST_MODE )) && [[ -n "$dust_display" ]]; then
-            printf "\033[5G${SELECT}%-*s $DUST_META_COL_FMT${NC}" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$dust_size" "$dust_percent" "$m_mod"
+            printf "\033[%dG${SELECT}%-*s $DUST_META_COL_FMT${NC}" "$NAME_COL_START" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$dust_size" "$dust_percent" "$m_mod"
         else
-            printf "\033[5G${SELECT}%-*s $META_COL_FMT${NC}" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"
+            printf "\033[%dG${SELECT}%-*s $META_COL_FMT${NC}" "$NAME_COL_START" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"
         fi
     else
-        printf "%1s%s${NC}" "$sel_mark" "$file_icon"
+        printf "%1s%b" "$sel_mark" "$file_icon"
         if (( DUST_MODE )) && [[ -n "$dust_display" ]]; then
-            printf "$(get_color "$f_name")\033[5G%-*s${NC} $DUST_META_COL_FMT" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$dust_size" "$dust_percent" "$m_mod"
+            printf "$(get_color "$f_name")\033[%dG%-*s${NC} $DUST_META_COL_FMT" "$NAME_COL_START" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$dust_size" "$dust_percent" "$m_mod"
         else
-            printf "$(get_color "$f_name")\033[5G%-*s${NC} $META_COL_FMT" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"
+            printf "$(get_color "$f_name")\033[%dG%-*s${NC} $META_COL_FMT" "$NAME_COL_START" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod"
         fi
     fi
 }
@@ -894,6 +1041,7 @@ draw_status_line() {
 }
 scroll_list_once() { local direction="$1"; local top=3; local bottom=$((max_rows + 2)); local old_idx=$((old_cursor - 1)); local new_idx=$((cursor - 1)); printf "\033[%d;%dr" "$top" "$bottom"; if [[ "$direction" == "down" ]]; then printf "\033[%d;1H\033[M" "$top"; if (( old_idx >= scroll_offset && old_idx < scroll_offset + max_rows )); then draw_line "$old_idx" $((bottom - 1)); fi; if (( new_idx >= scroll_offset && new_idx < scroll_offset + max_rows )); then draw_line "$new_idx" "$bottom"; fi; else printf "\033[%d;1H\033[L" "$top"; if (( new_idx >= scroll_offset && new_idx < scroll_offset + max_rows )); then draw_line "$new_idx" "$top"; fi; if (( old_idx >= scroll_offset && old_idx < scroll_offset + max_rows )); then draw_line "$old_idx" $((top + 1)); fi; fi; printf "\033[r"; draw_status_line; }
 draw_ui() {
+    local rows_only=${1:-0}
     if is_terminal_too_narrow; then
         fit_name_col_to_terminal || true
     fi
@@ -912,32 +1060,34 @@ draw_ui() {
     local buffer=""
 
     buffer+=$'\e[H\e[?25l'
-    buffer+=$'\e[1;1H\e[K'
-    header_prefix="${USER_HOST} » "
-    header_value="$(pwd)${GIT_HEADER_SUFFIX}"
-    header_path=$(fit_status_path "$header_value" "$header_prefix")
-    header_display="$header_path"
-    if [[ -n "$GIT_HEADER_SUFFIX" && "$header_display" == *"$GIT_HEADER_SUFFIX" ]]; then
-        local header_path_only="${header_display%"$GIT_HEADER_SUFFIX"}"
-        local header_git_suffix="$GIT_HEADER_SUFFIX"
-        # Keep dirty marker visible even with darker git suffix color.
-        [[ "$header_git_suffix" == *"*)" ]] && header_git_suffix="${header_git_suffix/%\*)/${YELLOW}*${STATUS_LABEL})}"
-        buffer+=$(printf "%b%b%b%b\n" "${STATUS_LABEL}${header_prefix}${NC}" "${STATUS_VALUE}${header_path_only}" "${STATUS_LABEL}${header_git_suffix}" "${NC}")
-    else
-        # Fallback for truncated paths where suffix detection is ambiguous.
-        [[ "$header_display" == *"*)" ]] && header_display="${header_display/%\*)/${YELLOW}*${STATUS_VALUE})}"
-        buffer+=$(printf "%b%b%b\n" "${STATUS_LABEL}${header_prefix}${NC}" "${STATUS_VALUE}${header_display}" "${NC}")
+    if (( !rows_only )); then
+        buffer+=$'\e[1;1H\e[K'
+        header_prefix="${USER_HOST} » "
+        header_value="$(pwd)${GIT_HEADER_SUFFIX}"
+        header_path=$(fit_status_path "$header_value" "$header_prefix")
+        header_display="$header_path"
+        if [[ -n "$GIT_HEADER_SUFFIX" && "$header_display" == *"$GIT_HEADER_SUFFIX" ]]; then
+            local header_path_only="${header_display%"$GIT_HEADER_SUFFIX"}"
+            local header_git_suffix="$GIT_HEADER_SUFFIX"
+            # Keep dirty marker visible even with darker git suffix color.
+            [[ "$header_git_suffix" == *"*)" ]] && header_git_suffix="${header_git_suffix/%\*)/${YELLOW}*${STATUS_LABEL})}"
+            buffer+=$(printf "%b%b%b%b\n" "${STATUS_LABEL}${header_prefix}${NC}" "${STATUS_VALUE}${header_path_only}" "${STATUS_LABEL}${header_git_suffix}" "${NC}")
+        else
+            # Fallback for truncated paths where suffix detection is ambiguous.
+            [[ "$header_display" == *"*)" ]] && header_display="${header_display/%\*)/${YELLOW}*${STATUS_VALUE})}"
+            buffer+=$(printf "%b%b%b\n" "${STATUS_LABEL}${header_prefix}${NC}" "${STATUS_VALUE}${header_display}" "${NC}")
+        fi
+        buffer+=$'\e[2;1H'
+        for (( i=0; i<term_cols-1; i++ )); do buffer+="─"; done
+        buffer+=$'\n'
     fi
-    buffer+=$'\e[2;1H'
-    for (( i=0; i<term_cols-1; i++ )); do buffer+="─"; done
-    buffer+=$'\n'
 
     for (( i=0; i<max_rows; i++ )); do
         local idx=$((scroll_offset + i))
         local row=$((i + 3))
         buffer+=$'\e['$row$';1H\e[K'
         if (( idx < total )); then
-            local f_name clean_name display_name full_display_name file_icon meta sel_mark owner_display m_owner m_perms m_size m_mod
+            local f_name clean_name display_name full_display_name file_icon file_icon_raw meta sel_mark owner_display m_owner m_perms m_size m_mod
             local dust_size="" dust_percent=""
             local expanded_width show_expanded_name=0 extra_cols
             local dust_display=""
@@ -949,12 +1099,13 @@ draw_ui() {
             _mb_col_w "$display_name" "$NAME_COL_WIDTH"; local name_col_w=$_MB_COL_W
             extra_cols=$(extra_meta_cols)
             expanded_width=$((NAME_COL_WIDTH + 52 + extra_cols))
-            local max_expanded_width=$((term_cols - 4))
+            local max_expanded_width=$((term_cols - NAME_COL_START + 1))
             (( expanded_width > max_expanded_width )) && expanded_width=$max_expanded_width
             (( expanded_width < NAME_COL_WIDTH )) && expanded_width=$NAME_COL_WIDTH
             full_display_name="${f_name:0:expanded_width}"
             (( ${#f_name} > NAME_COL_WIDTH )) && show_expanded_name=1
-            file_icon="${file_icons[$idx]:-$ICON_FILE}"
+            file_icon_raw="${file_icons[$idx]:-$ICON_FILE}"
+            file_icon="$(format_icon "$f_name" "$file_icon_raw")"
             sel_mark=" "
             [[ -n "${selected[$idx]+x}" ]] && sel_mark="*"
             
@@ -973,43 +1124,45 @@ draw_ui() {
             
             if (( idx + 1 == cursor )); then
                 if (( show_expanded_name )); then
-                    buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${HIGHLIGHT}$(printf "%-*s" "$expanded_width" "$full_display_name")${NC}"
+                    buffer+="$(printf "%1s%b" "$sel_mark" "$file_icon")\033[${NAME_COL_START}G${HIGHLIGHT}$(printf "%-*s" "$expanded_width" "$full_display_name")${NC}"
                 else
                     if (( DUST_MODE )) && [[ -n "$dust_display" ]]; then
-                        buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${HIGHLIGHT}$(printf "%-*s $DUST_META_COL_FMT" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$dust_size" "$dust_percent" "$m_mod")${NC}"
+                        buffer+="$(printf "%1s%b" "$sel_mark" "$file_icon")\033[${NAME_COL_START}G${HIGHLIGHT}$(printf "%-*s $DUST_META_COL_FMT" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$dust_size" "$dust_percent" "$m_mod")${NC}"
                     else
-                        buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${HIGHLIGHT}$(printf "%-*s $META_COL_FMT" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod")${NC}"
+                        buffer+="$(printf "%1s%b" "$sel_mark" "$file_icon")\033[${NAME_COL_START}G${HIGHLIGHT}$(printf "%-*s $META_COL_FMT" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod")${NC}"
                     fi
                 fi
             elif [[ -n "${selected[$idx]+x}" ]]; then
                 if (( DUST_MODE )) && [[ -n "$dust_display" ]]; then
-                    buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${SELECT}$(printf "%-*s $DUST_META_COL_FMT" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$dust_size" "$dust_percent" "$m_mod")${NC}"
+                    buffer+="$(printf "%1s%b" "$sel_mark" "$file_icon")\033[${NAME_COL_START}G${SELECT}$(printf "%-*s $DUST_META_COL_FMT" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$dust_size" "$dust_percent" "$m_mod")${NC}"
                 else
-                    buffer+="$(printf "%1s%s" "$sel_mark" "$file_icon")\033[5G${SELECT}$(printf "%-*s $META_COL_FMT" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod")${NC}"
+                    buffer+="$(printf "%1s%b" "$sel_mark" "$file_icon")\033[${NAME_COL_START}G${SELECT}$(printf "%-*s $META_COL_FMT" "$name_col_w" "$display_name" "$owner_display" "$m_perms" "$m_size" "$m_mod")${NC}"
                 fi
             else
-                buffer+="$(printf "%1s%s${NC}" "$sel_mark" "$file_icon")"
+                buffer+="$(printf "%1s%b" "$sel_mark" "$file_icon")"
                 if (( DUST_MODE )) && [[ -n "$dust_display" ]]; then
-                    buffer+="$(get_color "$f_name")\033[5G$(printf "%-*s" "$name_col_w" "$display_name")${NC}"
+                    buffer+="$(get_color "$f_name")\033[${NAME_COL_START}G$(printf "%-*s" "$name_col_w" "$display_name")${NC}"
                     buffer+=$(printf " $DUST_META_COL_FMT" "$owner_display" "$m_perms" "$dust_size" "$dust_percent" "$m_mod")
                 else
-                    buffer+="$(get_color "$f_name")\033[5G$(printf "%-*s" "$name_col_w" "$display_name")${NC}"
+                    buffer+="$(get_color "$f_name")\033[${NAME_COL_START}G$(printf "%-*s" "$name_col_w" "$display_name")${NC}"
                     buffer+=$(printf " $META_COL_FMT" "$owner_display" "$m_perms" "$m_size" "$m_mod")
                 fi
             fi
         fi
     done
 
-    buffer+=$'\e['$((max_rows + 3))$';1H'
-    for (( i=0; i<term_cols-1; i++ )); do buffer+="─"; done
-    sel_progress=$(printf "%*d/%d" "$digits" "$sel_count" "$total")
-    sort_display=$(get_sort_display)
-    if (( DUST_MODE )); then
-        dust_total_segment="    ${STATUS_LABEL}T:${NC} ${STATUS_VALUE}${DUST_TOTAL:-0B}${NC}"
+    if (( !rows_only )); then
+        buffer+=$'\e['$((max_rows + 3))$';1H'
+        for (( i=0; i<term_cols-1; i++ )); do buffer+="─"; done
+        sel_progress=$(printf "%*d/%d" "$digits" "$sel_count" "$total")
+        sort_display=$(get_sort_display)
+        if (( DUST_MODE )); then
+            dust_total_segment="    ${STATUS_LABEL}T:${NC} ${STATUS_VALUE}${DUST_TOTAL:-0B}${NC}"
+        fi
+        fixed_display="${STATUS_LABEL}[${NC} ${STATUS_VALUE}${sel_progress}${NC} ${STATUS_LABEL}Selected${NC} ${STATUS_LABEL}]${NC}    ${STATUS_LABEL}S:${NC} ${STATUS_VALUE}${sort_display}${NC}    ${STATUS_LABEL}H:${NC} ${STATUS_VALUE}${hidden_status}${NC}    ${STATUS_LABEL}Clip:${NC} ${STATUS_VALUE}${clip_value}${NC}${dust_total_segment}"
+        buffer+=$'\e['$((max_rows + 4))$';1H\e[K'
+        buffer+="$fixed_display${NC}"
     fi
-    fixed_display="${STATUS_LABEL}[${NC} ${STATUS_VALUE}${sel_progress}${NC} ${STATUS_LABEL}Selected${NC} ${STATUS_LABEL}]${NC}    ${STATUS_LABEL}S:${NC} ${STATUS_VALUE}${sort_display}${NC}    ${STATUS_LABEL}H:${NC} ${STATUS_VALUE}${hidden_status}${NC}    ${STATUS_LABEL}Clip:${NC} ${STATUS_VALUE}${clip_value}${NC}${dust_total_segment}"
-    buffer+=$'\e['$((max_rows + 4))$';1H\e[K'
-    buffer+="$fixed_display${NC}"
     printf "%b" "$buffer"
     old_cursor=$cursor
     old_scroll=$scroll_offset
@@ -2749,6 +2902,61 @@ string_to_clipboard() {
     fi
 }
 
+PENDING_KEY=""
+READ_KEY_RESULT=""
+
+read_key_event() {
+    local timeout="${1-}"
+    local key="" key_rest=""
+
+    if [[ -n "$PENDING_KEY" ]]; then
+        READ_KEY_RESULT="$PENDING_KEY"
+        PENDING_KEY=""
+        return 0
+    fi
+
+    if [[ -n "$timeout" ]]; then
+        IFS= read -rsN1 -t "$timeout" key || return 1
+    else
+        IFS= read -rsN1 key
+    fi
+
+    if [[ "$key" == $'\e' ]]; then
+        while IFS= read -rsN1 -t "$READ_TIMEOUT" key_rest; do key+="$key_rest"; done
+    fi
+
+    READ_KEY_RESULT="$key"
+    return 0
+}
+
+apply_name_col_resize_burst() {
+    local delta="$1"
+    local target next_key
+
+    target=$((NAME_COL_WIDTH + delta))
+
+    # Tiny debounce: coalesce rapid repeated [ / ] keypresses into one redraw.
+    while read_key_event "0.015"; do
+        next_key="$READ_KEY_RESULT"
+        case "$next_key" in
+            "$KEY_COLUMN_SHRINK") (( target-- )) ;;
+            "$KEY_COLUMN_GROW") (( target++ )) ;;
+            *)
+                PENDING_KEY="$next_key"
+                break
+                ;;
+        esac
+    done
+
+    (( target < NAME_COL_MIN )) && target=$NAME_COL_MIN
+    (( target > NAME_COL_MAX )) && target=$NAME_COL_MAX
+
+    if (( target != NAME_COL_WIDTH )); then
+        NAME_COL_WIDTH=$target
+        draw_ui 1
+    fi
+}
+
 normalize_key() {
     local key="$1"
     # Check Home key (custom + defaults)
@@ -2780,8 +2988,8 @@ normalize_key() {
 
 echo -ne "\033[?25l"; get_terminal_size; startup_auto_name_col_width; show_loading_status; update_files; draw_ui
 while true; do
-IFS= read -rsN1 key
-if [[ $key == $'\e' ]]; then while IFS= read -rsN1 -t $READ_TIMEOUT key_rest; do key+="$key_rest"; done; fi
+read_key_event
+key="$READ_KEY_RESULT"
 # Normalize multi-key sequences to action IDs
 action=$(normalize_key "$key")
 # Handle multi-key actions first
@@ -2802,10 +3010,10 @@ case "$key" in
 "$KEY_QUIT") break ;;
 "$KEY_HELP"|$'\eOP'|$'\e[11~') show_help ;;
 "$KEY_BOOKMARKS") show_bookmarks ;;
-"$KEY_COLUMN_SHRINK") (( NAME_COL_WIDTH > NAME_COL_MIN )) && ((NAME_COL_WIDTH--)) && draw_ui ;;
-"$KEY_COLUMN_GROW") (( NAME_COL_WIDTH < NAME_COL_MAX )) && ((NAME_COL_WIDTH++)) && draw_ui ;;
-"$KEY_COLUMN_MIN") NAME_COL_WIDTH=$NAME_COL_MIN; draw_ui ;;
-"$KEY_COLUMN_MAX") NAME_COL_WIDTH=$NAME_COL_MAX; draw_ui ;;
+"$KEY_COLUMN_SHRINK") (( NAME_COL_WIDTH > NAME_COL_MIN )) && apply_name_col_resize_burst -1 ;;
+"$KEY_COLUMN_GROW") (( NAME_COL_WIDTH < NAME_COL_MAX )) && apply_name_col_resize_burst 1 ;;
+"$KEY_COLUMN_MIN") (( NAME_COL_WIDTH != NAME_COL_MIN )) && NAME_COL_WIDTH=$NAME_COL_MIN && draw_ui 1 ;;
+"$KEY_COLUMN_MAX") (( NAME_COL_WIDTH != NAME_COL_MAX )) && NAME_COL_WIDTH=$NAME_COL_MAX && draw_ui 1 ;;
 esac
 draw_too_narrow_message
 continue
@@ -2863,10 +3071,10 @@ case "$key" in
         printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}dust is not installed${NC}"
     fi
     ;;
-"$KEY_COLUMN_SHRINK") (( NAME_COL_WIDTH > NAME_COL_MIN )) && ((NAME_COL_WIDTH--)) && draw_ui ;;
-"$KEY_COLUMN_GROW") (( NAME_COL_WIDTH < NAME_COL_MAX )) && ((NAME_COL_WIDTH++)) && draw_ui ;;
-"$KEY_COLUMN_MIN") NAME_COL_WIDTH=$NAME_COL_MIN; draw_ui ;;
-"$KEY_COLUMN_MAX") NAME_COL_WIDTH=$NAME_COL_MAX; draw_ui ;;
+"$KEY_COLUMN_SHRINK") (( NAME_COL_WIDTH > NAME_COL_MIN )) && apply_name_col_resize_burst -1 ;;
+"$KEY_COLUMN_GROW") (( NAME_COL_WIDTH < NAME_COL_MAX )) && apply_name_col_resize_burst 1 ;;
+"$KEY_COLUMN_MIN") (( NAME_COL_WIDTH != NAME_COL_MIN )) && NAME_COL_WIDTH=$NAME_COL_MIN && draw_ui 1 ;;
+"$KEY_COLUMN_MAX") (( NAME_COL_WIDTH != NAME_COL_MAX )) && NAME_COL_WIDTH=$NAME_COL_MAX && draw_ui 1 ;;
 "$KEY_TOGGLE_EXEC") item=$(get_item); toggle_executable "$item" ;;
 "$KEY_DELETE") if (( ${#selected[@]} > 0 )); then delete_selected; else item=$(get_item); delete_item "$item"; fi ;;
 [0-9]) jump_to_bookmark "$key" ;;
