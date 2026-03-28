@@ -4,6 +4,10 @@ A lightweight terminal file browser written in Bash.
 
 `sb` gives you a fast, keyboard-driven way to move through directories, open files, and copy/paste items without leaving the terminal.
 
+## Screenshot
+
+![Shell Buddy screenshot](shell_buddy_sceen_shot.png)
+
 ## Features
 
 - Fast keyboard navigation (`↑/↓`) through files and folders
@@ -50,9 +54,6 @@ A lightweight terminal file browser written in Bash.
 - UI adapts to terminal resize events
 - Optional export of final directory path on exit
 
-## Screenshot
-
-![Shell Buddy screenshot](shell_buddy_sceen_shot.png)
 
 ## Requirements
 
