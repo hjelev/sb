@@ -126,20 +126,21 @@ dir_is_writable_or_creatable() {
 default_install_dir() {
     local dir
 
-    # Priority 1: preferred well-known locations that are already on PATH
-    # $HOME/.local/bin is the XDG standard; Debian/Ubuntu/RPi OS auto-add it to PATH if it exists.
+    # Priority 1: preferred well-known user locations — pick the first that is writable/creatable.
+    # We do NOT require them to already be on PATH; the shell integration adds the PATH export.
+    # $HOME/.local/bin is the XDG standard and the best default on Debian/Ubuntu/RPi OS.
     local -a preferred=()
     [[ -n "${XDG_BIN_HOME:-}" ]] && preferred+=("$XDG_BIN_HOME")
-    preferred+=("$HOME/.local/bin" "$HOME/bin" "/usr/local/bin")
+    preferred+=("$HOME/.local/bin" "$HOME/bin")
 
     for dir in "${preferred[@]}"; do
-        if path_contains_dir "$dir" && dir_is_writable_or_creatable "$dir"; then
+        if dir_is_writable_or_creatable "$dir"; then
             printf '%s\n' "$dir"
             return 0
         fi
     done
 
-    # Priority 2: any writable directory that is already on PATH
+    # Priority 2: system locations that are already on PATH and writable (e.g. /usr/local/bin as root)
     local -a path_candidates=()
     IFS=':' read -r -a path_candidates <<< "$PATH"
     for dir in "${path_candidates[@]}"; do
@@ -150,7 +151,7 @@ default_install_dir() {
         fi
     done
 
-    # Last resort: XDG standard location — Debian-based distros auto-add it to PATH on next login
+    # Last resort: XDG standard location
     printf '%s\n' "$HOME/.local/bin"
 }
 
