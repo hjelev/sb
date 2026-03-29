@@ -42,6 +42,7 @@
     LAST_LOAD_MS=0
     LAST_LS_MS=0
     LAST_PARSE_MS=0
+    ENTRY_COUNT=0
 
     usage() {
       cat <<'EOF'
@@ -216,8 +217,11 @@ EOF
       LAST_LS_MS=$(( (t1 - t0) / 1000000 ))
       LAST_PARSE_MS=0
       LAST_LOAD_MS=$LAST_LS_MS
+      ENTRY_COUNT=${#ROWS_COLOR[@]}
 
       if (( ${#ROWS_COLOR[@]} == 0 )); then
+        ROWS_COLOR=("\033[2m(empty directory)\033[0m")
+        ROWS_PLAIN=("(empty directory)")
         cursor=0
         top=0
         return
@@ -279,7 +283,7 @@ EOF
     }
 
     draw_status() {
-      local total="${#ROWS_COLOR[@]}"
+      local total="$ENTRY_COUNT"
       local status_row=$rows
       local hidden_state="off"
       local source_state="$LIST_SOURCE"
