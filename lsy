@@ -16,23 +16,63 @@
     KEY_PGDN="${LSY_KEY_PGDN:-$'\e[6~'}"
     KEY_HOME="${LSY_KEY_HOME:-$'\e[H'}"
     KEY_END="${LSY_KEY_END:-$'\e[F'}"
+    KEY_TOGGLE_HIDDEN="${LSY_KEY_TOGGLE_HIDDEN:-.}"
     LIST_SOURCE="${LSY_LIST_SOURCE:-ls}"
     FILE_VIEWER="${LSY_FILE_VIEWER:-less}"
 
     declare -a ROWS_COLOR=()
     declare -a ROWS_PLAIN=()
+    EXPORT_FILE=""
 
     cursor=0
     top=0
     rows=0
     cols=0
     visible_rows=0
+    show_hidden=1
     orig_stty=""
     LAST_LOAD_MS=0
     LAST_LS_MS=0
     LAST_PARSE_MS=0
 
+    usage() {
+      cat <<'EOF'
+Usage: lsy [--export-path FILE] [--help]
+
+Options:
+  --export-path FILE  Write final working directory to FILE on exit.
+  --help              Show this help text and exit.
+EOF
+    }
+
+    parse_args() {
+      while (($# > 0)); do
+        case "$1" in
+          --export-path)
+            if [[ -z "${2-}" ]]; then
+              echo "Error: --export-path requires a file path." >&2
+              exit 1
+            fi
+            EXPORT_FILE="$2"
+            shift 2
+            ;;
+          --help)
+            usage
+            exit 0
+            ;;
+          *)
+            echo "Error: unknown option '$1'." >&2
+            usage >&2
+            exit 1
+            ;;
+        esac
+      done
+    }
+
     cleanup() {
+      if [[ -n "$EXPORT_FILE" ]]; then
+        pwd > "$EXPORT_FILE"
+      fi
       printf "\033[?25h"
       stty "$orig_stty" 2>/dev/null || true
       printf "\033[0m\033[2J\033[H"
@@ -52,7 +92,7 @@
     on_resize() {
       rows=$(tput lines)
       cols=$(tput cols)
-      visible_rows=$(( rows - 4 ))
+      visible_rows=$(( rows - 3 ))
       (( visible_rows < 1 )) && visible_rows=1
       draw_ui
     }
@@ -61,7 +101,8 @@
       case "$LIST_SOURCE" in
         ls)
           local -a ls_args=()
-          ls_args=(-lA --group-directories-first --time-style=long-iso --quoting-style=literal)
+          ls_args=(-lh --group-directories-first --time-style=long-iso --quoting-style=literal)
+          (( show_hidden )) && ls_args+=(-A)
           LC_ALL=C ls "${ls_args[@]}" --color=always 2>/dev/null | sed '1{/^total /d;}'
           ;;
         *)
@@ -127,10 +168,21 @@
     }
 
     draw_header() {
+      local user host cwd
+      local separator_width
+      local separator
+      user="${USER:-$(id -un 2>/dev/null || printf 'user')}"
+      host="${HOSTNAME:-$(hostname -s 2>/dev/null || hostname 2>/dev/null || printf 'host')}"
+      cwd="$(pwd -P 2>/dev/null || pwd)"
+      separator_width=$cols
+      (( separator_width < 1 )) && separator_width=1
+
       printf "\033[1;36m"
-      printf "%s\n" "LSY - single ls source"
+      printf "%s\n" "${user}@${host} » ${cwd}"
       printf "\033[0m"
-      printf "%s\n" "--------------------------------------------------------------------------"
+      printf -v separator '%*s' "$separator_width" ''
+      separator=${separator// /─}
+      printf '%s\033[K\n' "$separator"
     }
 
     draw_row() {
@@ -155,13 +207,13 @@
 
     draw_status() {
       local total="${#ROWS_COLOR[@]}"
-      local status_row=$(( rows - 1 ))
-      local help_row=$rows
+      local status_row=$rows
+      local hidden_state="off"
+      (( show_hidden )) && hidden_state="on"
 
       # Keep footer anchored regardless of current cursor location.
       printf "\033[%d;1H\033[K" "$status_row"
-      printf "\033[2m[total: %d] load:%dms (ls:%d parse:%d) | Up/Down PgUp/PgDn Home/End | %s reload | %s quit\033[0m\033[K" "$total" "$LAST_LOAD_MS" "$LAST_LS_MS" "$LAST_PARSE_MS" "$KEY_RELOAD" "$KEY_QUIT"
-      printf "\033[%d;1H\033[K" "$help_row"
+      printf "\033[2m[total: %d] hidden:%s load:%dms (ls:%d parse:%d) | Up/Down PgUp/PgDn Home/End | %s hidden | %s reload | %s quit\033[0m\033[K" "$total" "$hidden_state" "$LAST_LOAD_MS" "$LAST_LS_MS" "$LAST_PARSE_MS" "$KEY_TOGGLE_HIDDEN" "$KEY_RELOAD" "$KEY_QUIT"
     }
 
     scroll_list_once() {
@@ -246,10 +298,15 @@
       plain="${ROWS_PLAIN[$cursor]}"
       case "$LIST_SOURCE" in
         ls)
-          if [[ "$plain" =~ ^([^[:space:]]+)[[:space:]]+[0-9]+[[:space:]]+([^[:space:]]+)[[:space:]]+([^[:space:]]+)[[:space:]]+([0-9]+)[[:space:]]+([0-9]{4}-[0-9]{2}-[0-9]{2})[[:space:]]+([0-9]{2}:[0-9]{2})[[:space:]](.*)$ ]]; then
-            name="${BASH_REMATCH[7]}"
+          if [[ "$plain" =~ [0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]+[0-9]{2}:[0-9]{2}[[:space:]](.*)$ ]]; then
+            name="${BASH_REMATCH[1]}"
           else
             return 1
+          fi
+
+          # Symlink rows are rendered as "name -> target"; keep only the link name.
+          if [[ "$plain" == l* ]]; then
+            name="${name%% -> *}"
           fi
           ;;
         *)
@@ -257,7 +314,7 @@
           ;;
       esac
 
-      printf "%s" "${name%% -> *}"
+      printf "%s" "$name"
       return 0
     }
 
@@ -308,6 +365,8 @@
     }
 
     main() {
+      parse_args "$@"
+
       orig_stty=$(stty -g)
       trap cleanup EXIT
       trap on_resize SIGWINCH
@@ -330,6 +389,15 @@
             break
             ;;
           "$KEY_RELOAD")
+            load_data
+            draw_ui
+            ;;
+          "$KEY_TOGGLE_HIDDEN")
+            if (( show_hidden )); then
+              show_hidden=0
+            else
+              show_hidden=1
+            fi
             load_data
             draw_ui
             ;;
