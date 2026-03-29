@@ -297,6 +297,30 @@ GIT_DIRTY_CHECK="${SB_GIT_DIRTY_CHECK:-1}"
 GIT_HEADER_CACHE_PWD=""
 GIT_HEADER_CACHE_SUFFIX=""
 DUST_MODE=0
+SB_COLORS="${SB_COLORS:-0}"
+declare -A LS_COLOR_MAP=()
+if [[ "$SB_COLORS" != "1" && -n "${LS_COLORS:-}" ]]; then
+    IFS=':' read -ra _lsc_pairs <<< "$LS_COLORS"
+    for _lsc_pair in "${_lsc_pairs[@]}"; do
+        [[ "$_lsc_pair" == *=* ]] || continue
+        LS_COLOR_MAP["${_lsc_pair%%=*}"]="${_lsc_pair#*=}"
+    done
+    unset _lsc_pairs _lsc_pair
+fi
+if [[ "$SB_COLORS" != "1" && -z "${LS_COLORS:-}" ]] && command -v dircolors >/dev/null 2>&1; then
+    _dircolors_export="$(dircolors -b 2>/dev/null || true)"
+    if [[ "$_dircolors_export" == *"LS_COLORS='"* ]]; then
+        LS_COLORS="${_dircolors_export#*LS_COLORS='}"
+        LS_COLORS="${LS_COLORS%%';*}"
+        IFS=':' read -ra _lsc_pairs <<< "$LS_COLORS"
+        for _lsc_pair in "${_lsc_pairs[@]}"; do
+            [[ "$_lsc_pair" == *=* ]] || continue
+            LS_COLOR_MAP["${_lsc_pair%%=*}"]="${_lsc_pair#*=}"
+        done
+        unset _lsc_pairs _lsc_pair
+    fi
+    unset _dircolors_export
+fi
 declare -A dust_sizes
 DUST_TOTAL=""
 declare -A sort_mtime_cache
@@ -511,43 +535,70 @@ icon_for_lower_name() {
         *) printf "%s" "$ICON_DEFAULT" ;;
     esac
 }
-get_color() {
-    local f="$1"
-    local clean_f clean_no_suffix base_name base_lower
-    clean_f="$f"
-    case "${clean_f: -1}" in
-        '/'|'@'|'*'|'|'|'='|'>') clean_f="${clean_f:0:${#clean_f}-1}" ;;
-    esac
-    clean_no_suffix="${clean_f%/}"
-    base_name="${clean_no_suffix##*/}"
-    base_lower="${base_name,,}"
-    case "$base_lower" in
-        .env|package.json|cargo.toml|go.mod|pom.xml|package-lock.json|cargo.lock|yarn.lock|*.conf|*.ini|*.yaml|*.toml)
-            echo -n "$YELLOW"
-            return
-            ;;
-    esac
-    if [[ "$base_name" == .* ]]; then
-        [[ "$f" == */ ]] && echo -n "$HIDDEN_DIR" && return
-        echo -n "$HIDDEN_FILE" && return
-    fi
-    case "$base_lower" in
-        dockerfile) echo -n "$COLOR_DOCKERFILE"; return ;;
-        makefile) echo -n "$COLOR_MAKEFILE"; return ;;
-        license|copying|readme.md|changelog) echo -n "$COLOR_LICENSE"; return ;;
-        *.jpg|*.jpeg|*.png|*.gif|*.bmp|*.webp|*.tiff|*.ico|*.svg|*.heic|*.avif|*.mp4|*.mkv|*.avi|*.mov|*.webm|*.flv|*.m4v|*.ogv|*.wmv|*.mp3|*.wav|*.ogg|*.flac|*.aac|*.m4a|*.opus|*.wma|*.pdf)
-            echo -n "$COLOR_MEDIA"
-            return
-            ;;
-        *.tmp|*.bak) echo -n "$COLOR_JUNK"; return ;;
-        *.html|*.htm) echo -n "$COLOR_HTML"; return ;;
-    esac
-    [[ "$f" == */ ]] && echo -n "$BLUE" && return
-    [[ "$f" == *@ ]] && echo -n "$CYAN" && return
-    [[ "$f" == *\* ]] && echo -n "$GREEN" && return
-    [[ "$f" =~ \.(zip|tar|tar\.gz|tgz|bz2|xz|rar|7z|gz|zst)$ ]] && echo -n "$RED" && return
-    echo -n "$STATUS_VALUE"
-}
+if [[ "$SB_COLORS" == "1" ]]; then
+    get_color() {
+        local f="$1"
+        local clean_f clean_no_suffix base_name base_lower
+        clean_f="$f"
+        case "${clean_f: -1}" in
+            '/'|'@'|'*'|'|'|'='|'>') clean_f="${clean_f:0:${#clean_f}-1}" ;;
+        esac
+        clean_no_suffix="${clean_f%/}"
+        base_name="${clean_no_suffix##*/}"
+        base_lower="${base_name,,}"
+        case "$base_lower" in
+            .env|package.json|cargo.toml|go.mod|pom.xml|package-lock.json|cargo.lock|yarn.lock|*.conf|*.ini|*.yaml|*.toml)
+                echo -n "$YELLOW"
+                return
+                ;;
+        esac
+        if [[ "$base_name" == .* ]]; then
+            [[ "$f" == */ ]] && echo -n "$HIDDEN_DIR" && return
+            echo -n "$HIDDEN_FILE" && return
+        fi
+        case "$base_lower" in
+            dockerfile) echo -n "$COLOR_DOCKERFILE"; return ;;
+            makefile) echo -n "$COLOR_MAKEFILE"; return ;;
+            license|copying|readme.md|changelog) echo -n "$COLOR_LICENSE"; return ;;
+            *.jpg|*.jpeg|*.png|*.gif|*.bmp|*.webp|*.tiff|*.ico|*.svg|*.heic|*.avif|*.mp4|*.mkv|*.avi|*.mov|*.webm|*.flv|*.m4v|*.ogv|*.wmv|*.mp3|*.wav|*.ogg|*.flac|*.aac|*.m4a|*.opus|*.wma|*.pdf)
+                echo -n "$COLOR_MEDIA"
+                return
+                ;;
+            *.tmp|*.bak) echo -n "$COLOR_JUNK"; return ;;
+            *.html|*.htm) echo -n "$COLOR_HTML"; return ;;
+        esac
+        [[ "$f" == */ ]] && echo -n "$BLUE" && return
+        [[ "$f" == *@ ]] && echo -n "$CYAN" && return
+        [[ "$f" == *\* ]] && echo -n "$GREEN" && return
+        [[ "$f" =~ \.(zip|tar|tar\.gz|tgz|bz2|xz|rar|7z|gz|zst)$ ]] && echo -n "$RED" && return
+        echo -n "$STATUS_VALUE"
+    }
+else
+    get_color() {
+        local f="$1" code="" clean_f ext
+        clean_f="$f"
+        case "${clean_f: -1}" in
+            '/'|'@'|'*'|'|'|'='|'>') clean_f="${clean_f:0:${#clean_f}-1}" ;;
+        esac
+        if [[ "$f" == */ ]]; then
+            code="${LS_COLOR_MAP[di]:-}"
+        elif [[ "$f" == *@ ]]; then
+            code="${LS_COLOR_MAP[ln]:-}"
+        elif [[ "$f" == *\* ]]; then
+            code="${LS_COLOR_MAP[ex]:-}"
+        else
+            ext="${clean_f##*.}"
+            [[ "$ext" != "$clean_f" ]] && code="${LS_COLOR_MAP["*.${ext,,}"]:-}"
+            [[ -z "$code" ]] && code="${LS_COLOR_MAP[fi]:-}"
+        fi
+        if [[ -n "$code" && "$code" != "0" && "$code" != "00" ]]; then
+            printf '\033[%sm' "$code"
+        else
+            printf '%s' "$NC"
+        fi
+    }
+fi
+
 format_icon() {
     local f_name="$1"
     local icon="$2"
