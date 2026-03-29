@@ -201,9 +201,11 @@ append_shell_integration() {
 
         tmp_file="$(mktemp)"
         awk -v start="$marker_start" -v end="$marker_end" '
-            $0 == start { skip = 1; next }
-            $0 == end { skip = 0; next }
-            !skip { print }
+            /^[[:space:]]*$/ && !skip { pending = pending $0 "\n"; next }
+            $0 == start { pending = ""; skip = 1; next }
+            $0 == end   { skip = 0; next }
+            !skip       { printf "%s", pending; pending = ""; print }
+            END         { printf "%s", pending }
         ' "$rc_file" > "$tmp_file"
         mv "$tmp_file" "$rc_file"
 
