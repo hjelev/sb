@@ -81,6 +81,7 @@ A lightweight terminal file browser written in Bash.
 - Optional: `rg` / `ripgrep` (for in-app text search)
 - Optional: `delta` (for side-by-side file comparison)
 - Optional: `dust` (for disk usage analysis)
+- Optional: `lsd` (accelerates directory entry listing when available)
 - Optional: `moreutils` (for batch rename via `vidir`)
 - Optional: `sshfs` (for remote SSH filesystem mounts via `S` picker)
 

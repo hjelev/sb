@@ -1,0 +1,403 @@
+#!/usr/bin/env bash
+    set -uo pipefail
+
+    if (( BASH_VERSINFO[0] < 4 )); then
+      echo "lsy requires bash 4+" >&2
+      exit 1
+    fi
+
+    KEY_QUIT="${LSY_KEY_QUIT:-q}"
+    KEY_RELOAD="${LSY_KEY_RELOAD:-r}"
+    KEY_UP="${LSY_KEY_UP:-$'\e[A'}"
+    KEY_DOWN="${LSY_KEY_DOWN:-$'\e[B'}"
+    KEY_RIGHT="${LSY_KEY_RIGHT:-$'\e[C'}"
+    KEY_LEFT="${LSY_KEY_LEFT:-$'\e[D'}"
+    KEY_PGUP="${LSY_KEY_PGUP:-$'\e[5~'}"
+    KEY_PGDN="${LSY_KEY_PGDN:-$'\e[6~'}"
+    KEY_HOME="${LSY_KEY_HOME:-$'\e[H'}"
+    KEY_END="${LSY_KEY_END:-$'\e[F'}"
+    LIST_SOURCE="${LSY_LIST_SOURCE:-ls}"
+    FILE_VIEWER="${LSY_FILE_VIEWER:-less}"
+
+    declare -a ROWS_COLOR=()
+    declare -a ROWS_PLAIN=()
+
+    cursor=0
+    top=0
+    rows=0
+    cols=0
+    visible_rows=0
+    orig_stty=""
+    LAST_LOAD_MS=0
+    LAST_LS_MS=0
+    LAST_PARSE_MS=0
+
+    cleanup() {
+      printf "\033[?25h"
+      stty "$orig_stty" 2>/dev/null || true
+      printf "\033[0m\033[2J\033[H"
+    }
+
+    run_interactive_command() {
+      printf "\033[?25h"
+      stty "$orig_stty" 2>/dev/null || true
+      clear
+      "$@"
+      stty -echo -icanon time 0 min 0
+      printf "\033[?25l"
+      on_resize
+      return 0
+    }
+
+    on_resize() {
+      rows=$(tput lines)
+      cols=$(tput cols)
+      visible_rows=$(( rows - 4 ))
+      (( visible_rows < 1 )) && visible_rows=1
+      draw_ui
+    }
+
+    capture_directory_rows() {
+      case "$LIST_SOURCE" in
+        ls)
+          local -a ls_args=()
+          ls_args=(-lA --group-directories-first --time-style=long-iso --quoting-style=literal)
+          LC_ALL=C ls "${ls_args[@]}" --color=always 2>/dev/null | sed '1{/^total /d;}'
+          ;;
+        *)
+          return 1
+          ;;
+      esac
+    }
+
+    open_file_with_viewer() {
+      local item="$1"
+
+      case "$FILE_VIEWER" in
+        less)
+          command -v less >/dev/null 2>&1 || return 1
+          run_interactive_command less -- "$item"
+          ;;
+        bat)
+          command -v bat >/dev/null 2>&1 || return 1
+          run_interactive_command bat --paging=always -- "$item"
+          ;;
+        batcat)
+          command -v batcat >/dev/null 2>&1 || return 1
+          run_interactive_command batcat --paging=always -- "$item"
+          ;;
+        *)
+          return 1
+          ;;
+      esac
+      return 0
+    }
+
+    load_data() {
+      local t0 t1 t2
+
+      ROWS_COLOR=()
+      ROWS_PLAIN=()
+
+      t0=$(date +%s%N)
+      mapfile -t ROWS_COLOR < <(capture_directory_rows)
+      t1=$(date +%s%N)
+      LAST_LS_MS=$(( (t1 - t0) / 1000000 ))
+      LAST_PARSE_MS=0
+      LAST_LOAD_MS=$LAST_LS_MS
+
+      if (( ${#ROWS_COLOR[@]} == 0 )); then
+        cursor=0
+        top=0
+        return
+      fi
+
+      mapfile -t ROWS_PLAIN < <(printf '%s\n' "${ROWS_COLOR[@]}" | sed -E $'s/\x1B\[[0-9;]*m//g')
+      t2=$(date +%s%N)
+      LAST_PARSE_MS=$(( (t2 - t1) / 1000000 ))
+      LAST_LOAD_MS=$(( (t2 - t0) / 1000000 ))
+
+      (( cursor >= ${#ROWS_COLOR[@]} )) && cursor=$(( ${#ROWS_COLOR[@]} - 1 ))
+      (( cursor < 0 )) && cursor=0
+      (( top > cursor )) && top=$cursor
+      if (( cursor >= top + visible_rows )); then
+        top=$(( cursor - visible_rows + 1 ))
+      fi
+      (( top < 0 )) && top=0
+    }
+
+    draw_header() {
+      printf "\033[1;36m"
+      printf "%s\n" "LSY - single ls source"
+      printf "\033[0m"
+      printf "%s\n" "--------------------------------------------------------------------------"
+    }
+
+    draw_row() {
+      local i="$1"
+      local selected="$2"
+      local row
+
+      if (( i < 0 || i >= ${#ROWS_COLOR[@]} )); then
+        printf "\033[K\n"
+        return
+      fi
+
+      row="${ROWS_COLOR[$i]}"
+
+      if (( selected )); then
+        printf "\033[7m%s\033[0m\033[K\n" "${ROWS_PLAIN[$i]-$row}"
+        return
+      fi
+
+      printf "%s\033[K\n" "$row"
+    }
+
+    draw_status() {
+      local total="${#ROWS_COLOR[@]}"
+      local status_row=$(( rows - 1 ))
+      local help_row=$rows
+
+      # Keep footer anchored regardless of current cursor location.
+      printf "\033[%d;1H\033[K" "$status_row"
+      printf "\033[2m[total: %d] load:%dms (ls:%d parse:%d) | Up/Down PgUp/PgDn Home/End | %s reload | %s quit\033[0m\033[K" "$total" "$LAST_LOAD_MS" "$LAST_LS_MS" "$LAST_PARSE_MS" "$KEY_RELOAD" "$KEY_QUIT"
+      printf "\033[%d;1H\033[K" "$help_row"
+    }
+
+    scroll_list_once() {
+      local direction="$1"
+      local top_row=3
+      local bottom_row=$((2 + visible_rows))
+
+      printf "\033[%d;%dr" "$top_row" "$bottom_row"
+      if [[ "$direction" == "down" ]]; then
+        printf "\033[%d;1H\033[M" "$top_row"
+      else
+        printf "\033[%d;1H\033[L" "$top_row"
+      fi
+      printf "\033[r"
+    }
+
+    redraw_row_at_index() {
+      local i="$1"
+      local screen_line
+
+      (( i >= top && i < top + visible_rows )) || return
+      screen_line=$((3 + i - top))
+      printf "\033[%d;1H" "$screen_line"
+      if (( i == cursor )); then
+        draw_row "$i" 1
+      else
+        draw_row "$i" 0
+      fi
+    }
+
+    draw_ui() {
+      printf "\033[H\033[2J"
+      draw_header
+
+      local line idx
+      for (( line=0; line<visible_rows; line++ )); do
+        idx=$(( top + line ))
+        if (( idx == cursor )); then
+          draw_row "$idx" 1
+        else
+          draw_row "$idx" 0
+        fi
+      done
+
+      draw_status
+    }
+
+    read_key() {
+      local k
+      IFS= read -rsn1 k || return 1
+      if [[ "$k" == $'\e' ]]; then
+        local k2 k3
+        IFS= read -rsn1 -t 0.005 k2 || true
+        IFS= read -rsn1 -t 0.005 k3 || true
+        printf '%s' "$k$k2$k3"
+      else
+        printf '%s' "$k"
+      fi
+      return 0
+    }
+
+    move_up() {
+      (( cursor > 0 )) || return
+      ((cursor--))
+      (( cursor < top )) && top=$cursor
+    }
+
+    move_down() {
+      (( cursor + 1 < ${#ROWS_COLOR[@]} )) || return
+      ((cursor++))
+      if (( cursor >= top + visible_rows )); then
+        top=$(( cursor - visible_rows + 1 ))
+      fi
+    }
+
+    selected_path() {
+      local plain name
+      if (( cursor < 0 || cursor >= ${#ROWS_COLOR[@]} )); then
+        return 1
+      fi
+
+      plain="${ROWS_PLAIN[$cursor]}"
+      case "$LIST_SOURCE" in
+        ls)
+          if [[ "$plain" =~ ^([^[:space:]]+)[[:space:]]+[0-9]+[[:space:]]+([^[:space:]]+)[[:space:]]+([^[:space:]]+)[[:space:]]+([0-9]+)[[:space:]]+([0-9]{4}-[0-9]{2}-[0-9]{2})[[:space:]]+([0-9]{2}:[0-9]{2})[[:space:]](.*)$ ]]; then
+            name="${BASH_REMATCH[7]}"
+          else
+            return 1
+          fi
+          ;;
+        *)
+          return 1
+          ;;
+      esac
+
+      printf "%s" "${name%% -> *}"
+      return 0
+    }
+
+    go_parent_dir() {
+      cd .. 2>/dev/null || return 1
+      cursor=0
+      top=0
+      load_data
+      draw_ui
+      return 0
+    }
+
+    enter_or_open_selected() {
+      local item
+      item="$(selected_path)" || return 1
+
+      if [[ -d "$item" ]]; then
+        cd -- "$item" || return 1
+        cursor=0
+        top=0
+        load_data
+        draw_ui
+        return 0
+      fi
+
+      [[ -f "$item" ]] || return 1
+      open_file_with_viewer "$item" || return 1
+      draw_ui
+      return 0
+    }
+
+    page_up() {
+      (( cursor == 0 )) && return
+      cursor=$(( cursor - visible_rows ))
+      (( cursor < 0 )) && cursor=0
+      (( top > cursor )) && top=$cursor
+    }
+
+    page_down() {
+      local max=$(( ${#ROWS_COLOR[@]} - 1 ))
+      (( max < 0 )) && return
+      (( cursor == max )) && return
+      cursor=$(( cursor + visible_rows ))
+      (( cursor > max )) && cursor=$max
+      if (( cursor >= top + visible_rows )); then
+        top=$(( cursor - visible_rows + 1 ))
+      fi
+    }
+
+    main() {
+      orig_stty=$(stty -g)
+      trap cleanup EXIT
+      trap on_resize SIGWINCH
+
+      stty -echo -icanon time 0 min 0
+      printf "\033[?25l"
+
+      on_resize
+      load_data
+      draw_ui
+
+      while true; do
+        local key
+        local old_cursor old_top
+        key="$(read_key || true)"
+        [[ -z "$key" ]] && continue
+
+        case "$key" in
+          "$KEY_QUIT")
+            break
+            ;;
+          "$KEY_RELOAD")
+            load_data
+            draw_ui
+            ;;
+          "$KEY_UP")
+            old_cursor=$cursor
+            old_top=$top
+            move_up
+            if (( cursor != old_cursor || top != old_top )); then
+              if (( top == old_top - 1 && cursor == old_cursor - 1 )); then
+                scroll_list_once up
+                redraw_row_at_index "$old_cursor"
+                redraw_row_at_index "$cursor"
+                draw_status
+              elif (( top != old_top )); then
+                draw_ui
+              else
+                redraw_row_at_index "$old_cursor"
+                redraw_row_at_index "$cursor"
+              fi
+            fi
+            ;;
+          "$KEY_DOWN")
+            old_cursor=$cursor
+            old_top=$top
+            move_down
+            if (( cursor != old_cursor || top != old_top )); then
+              if (( top == old_top + 1 && cursor == old_cursor + 1 )); then
+                scroll_list_once down
+                redraw_row_at_index "$old_cursor"
+                redraw_row_at_index "$cursor"
+                draw_status
+              elif (( top != old_top )); then
+                draw_ui
+              else
+                redraw_row_at_index "$old_cursor"
+                redraw_row_at_index "$cursor"
+              fi
+            fi
+            ;;
+          "$KEY_PGUP")
+            page_up
+            draw_ui
+            ;;
+          "$KEY_PGDN")
+            page_down
+            draw_ui
+            ;;
+          "$KEY_LEFT")
+            go_parent_dir || true
+            ;;
+          "$KEY_RIGHT")
+            enter_or_open_selected || true
+            ;;
+          "$KEY_HOME"|$'\e[1~')
+            cursor=0
+            top=0
+            draw_ui
+            ;;
+          "$KEY_END"|$'\e[4~')
+            if (( ${#ROWS_COLOR[@]} > 0 )); then
+              cursor=$(( ${#ROWS_COLOR[@]} - 1 ))
+              top=$(( cursor - visible_rows + 1 ))
+              (( top < 0 )) && top=0
+            fi
+            draw_ui
+            ;;
+        esac
+      done
+    }
+
+    main "$@"

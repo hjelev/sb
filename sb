@@ -17,7 +17,7 @@ EOF
 
 update_self() { curl -fsSL "${SB_INSTALLER_URL:-https://raw.githubusercontent.com/hjelev/sb/master/install.sh}" | bash -s -- --install-dir "$(cd "$(dirname "$(command -v -- "$0" 2>/dev/null || printf '%s' "$0")")" && pwd -P)";}
 show_integrations() {
-    local -a integrations=("git" "chafa" "glow" "csvlens" "jnv" "ouch" "fuse-zip" "age" "pdftotext" "sox" "bat" "fzf" "rg" "delta" "dust" "vidir" "sshfs")
+    local -a integrations=("git" "chafa" "glow" "csvlens" "jnv" "ouch" "fuse-zip" "age" "pdftotext" "sox" "bat" "fzf" "rg" "delta" "dust" "vidir" "sshfs" "lsd")
 
     get_moreutils_version() {
         local ver=""
@@ -97,6 +97,7 @@ show_integrations() {
             dust) printf "Disk usage analyzer (shows folder sizes and percentages)" ;;
             vidir) printf "Batch rename (moreutils): selected items, or all visible if none selected" ;;
             sshfs) printf "SSH filesystem: browse remote hosts via sshfs (press S for picker)" ;;
+            lsd) printf "Fast directory entry listing acceleration when available" ;;
             *) printf "" ;;
         esac
     }
@@ -296,6 +297,7 @@ GIT_HEADER_SUFFIX=""
 GIT_DIRTY_CHECK="${SB_GIT_DIRTY_CHECK:-1}"
 GIT_HEADER_CACHE_PWD=""
 GIT_HEADER_CACHE_SUFFIX=""
+STATUS_LAST_RENDER=""
 DUST_MODE=0
 SB_COLORS="${SB_COLORS:-0}"
 declare -A LS_COLOR_MAP=()
@@ -328,6 +330,11 @@ declare -A sort_size_cache
 declare -A dust_size_cache_bytes
 declare -A dust_size_cache_mtime
 declare -A metadata_hydrated
+declare -A lsd_name_render_cache
+declare -A lsd_name_plain_cache
+declare -a lsd_row_render_cache
+declare -a lsd_row_plain_cache
+LSD_ROWS_CACHED=0
 SSHFS_DIR="${SB_SSHFS_DIR:-${TMPDIR:-/tmp}/sb_sshfs_${UID:-$(id -u 2>/dev/null || printf '0')}}"
 SSHFS_LAST_ERROR=""
 declare -A SSHFS_SESSION_MOUNTS
@@ -349,6 +356,8 @@ NAME_COL_MAX=120
 NAME_COL_WIDTH_AUTO=1
 NAME_COL_START=${ICON_SEP_COL_START:-4}
 BASE_MIN_COLS=56
+LIST_WITH_LSD=0
+LSD_SUPPORTS_GROUP_DIRS=0
 if [[ -n "$NAME_COL_WIDTH_OVERRIDE" ]]; then
     if [[ "$NAME_COL_WIDTH_OVERRIDE" =~ ^[0-9]+$ ]] && (( NAME_COL_WIDTH_OVERRIDE >= NAME_COL_MIN && NAME_COL_WIDTH_OVERRIDE <= NAME_COL_MAX )); then
         NAME_COL_WIDTH=$NAME_COL_WIDTH_OVERRIDE
@@ -358,7 +367,32 @@ if [[ -n "$NAME_COL_WIDTH_OVERRIDE" ]]; then
         exit 1
     fi
 fi
-init_platform() { OS_NAME=$(uname -s 2>/dev/null); OPEN_CMD="xdg-open"; LS_CMD="ls"; LS_GROUP_DIRS=0; STAT_FMT_MTIME="-c %Y"; STAT_FMT_SIZE="-c %s"; (( BASH_VERSINFO[0] >= 4 )) && READ_TIMEOUT="0.001" || READ_TIMEOUT="1"; [[ "$OS_NAME" == "Darwin" ]] && OPEN_CMD="open" && command -v gls &>/dev/null && LS_CMD="gls"; [[ "$OS_NAME" == "Darwin" && "$LS_CMD" == "ls" ]] && STAT_FMT_MTIME="-f %m" && STAT_FMT_SIZE="-f %z"; "$LS_CMD" -F --group-directories-first -d . >/dev/null 2>&1 && LS_GROUP_DIRS=1; }
+init_platform() {
+    OS_NAME=$(uname -s 2>/dev/null)
+    OPEN_CMD="xdg-open"
+    LS_CMD="ls"
+    LS_GROUP_DIRS=0
+    STAT_FMT_MTIME="-c %Y"
+    STAT_FMT_SIZE="-c %s"
+    (( BASH_VERSINFO[0] >= 4 )) && READ_TIMEOUT="0.001" || READ_TIMEOUT="1"
+
+    if [[ "$OS_NAME" == "Darwin" ]]; then
+        OPEN_CMD="open"
+        command -v gls &>/dev/null && LS_CMD="gls"
+    fi
+
+    if [[ "$OS_NAME" == "Darwin" && "$LS_CMD" == "ls" ]]; then
+        STAT_FMT_MTIME="-f %m"
+        STAT_FMT_SIZE="-f %z"
+    fi
+
+    "$LS_CMD" -F --group-directories-first -d . >/dev/null 2>&1 && LS_GROUP_DIRS=1
+
+    if command -v lsd >/dev/null 2>&1 && lsd -1 --classify --color never --icon never --blocks name --no-symlink --literal >/dev/null 2>&1; then
+        LIST_WITH_LSD=1
+        lsd -1 --classify --color never --icon never --blocks name --no-symlink --literal --group-dirs first >/dev/null 2>&1 && LSD_SUPPORTS_GROUP_DIRS=1
+    fi
+}
 HELP_SECTION=''; HELP_KEY="$STATUS_VALUE"; HELP_ACCENT="$STATUS_VALUE"
 init_platform
 USER_HOST="${USER:-$(id -un 2>/dev/null)}@$(hostname -s 2>/dev/null || hostname 2>/dev/null || printf 'unknown')"
@@ -604,7 +638,123 @@ format_icon() {
     local icon="$2"
     printf "%b%s%b" "$(get_color "$f_name")" "$icon" "$NC"
 }
-list_entries() { local -a ls_args=(-F); (( SHOW_HIDDEN )) && ls_args+=(-A); (( LS_GROUP_DIRS )) && ls_args+=(--group-directories-first); "$LS_CMD" "${ls_args[@]}" 2>/dev/null; }
+list_entries() {
+    if (( LIST_WITH_LSD )); then
+        local -a lsd_args=(-1 --classify --color never --icon never --blocks name --no-symlink --literal)
+        (( SHOW_HIDDEN )) && lsd_args+=(--almost-all)
+        (( LSD_SUPPORTS_GROUP_DIRS )) && lsd_args+=(--group-dirs first)
+        lsd "${lsd_args[@]}" 2>/dev/null
+        return
+    fi
+
+    local -a ls_args=(-F)
+    (( SHOW_HIDDEN )) && ls_args+=(-A)
+    (( LS_GROUP_DIRS )) && ls_args+=(--group-directories-first)
+    "$LS_CMD" "${ls_args[@]}" 2>/dev/null
+}
+
+lsd_render_name() {
+    local clean_name="$1"
+    local rendered=""
+
+    [[ -n "$clean_name" ]] || {
+        printf ""
+        return
+    }
+
+    if [[ -n "${lsd_name_render_cache[$clean_name]+x}" ]]; then
+        printf "%s" "${lsd_name_render_cache[$clean_name]}"
+        return
+    fi
+
+    rendered=$(lsd -1 -d --classify --color always --icon always --group-dirs none --sort none --blocks name --no-symlink --literal -- "$clean_name" 2>/dev/null | head -n 1)
+    [[ -z "$rendered" ]] && rendered="$clean_name"
+    lsd_name_render_cache["$clean_name"]="$rendered"
+    printf "%s" "$rendered"
+}
+
+lsd_render_name_plain() {
+    local clean_name="$1"
+    local rendered=""
+
+    [[ -n "$clean_name" ]] || {
+        printf ""
+        return
+    }
+
+    if [[ -n "${lsd_name_plain_cache[$clean_name]+x}" ]]; then
+        printf "%s" "${lsd_name_plain_cache[$clean_name]}"
+        return
+    fi
+
+    rendered=$(lsd -1 -d --classify --color never --icon always --group-dirs none --sort none --blocks name --no-symlink --literal -- "$clean_name" 2>/dev/null | head -n 1)
+    [[ -z "$rendered" ]] && rendered="$clean_name"
+    lsd_name_plain_cache["$clean_name"]="$rendered"
+    printf "%s" "$rendered"
+}
+
+warm_lsd_visible_window() {
+    local start_idx="$1"
+    local end_idx="$2"
+    local -a uncached_names=()
+    local -a uncached_indices=()
+    local idx f_name clean_name
+
+    (( LIST_WITH_LSD )) || return
+
+    (( start_idx < 0 )) && start_idx=0
+    (( end_idx >= ${#files[@]} )) && end_idx=$(( ${#files[@]} - 1 ))
+    (( end_idx < start_idx )) && return
+
+    for (( idx=start_idx; idx<=end_idx; idx++ )); do
+        f_name="${files[$idx]-}"
+        [[ -z "$f_name" || "$f_name" == "(Empty Directory)" ]] && continue
+        if [[ -n "${lsd_row_render_cache[$idx]-}" && -n "${lsd_row_plain_cache[$idx]-}" ]]; then
+            continue
+        fi
+
+        clean_name=$(strip_ls_suffix "$f_name")
+        [[ -z "$clean_name" ]] && continue
+
+        uncached_names+=("$clean_name")
+        uncached_indices+=("$idx")
+    done
+
+    (( ${#uncached_names[@]} == 0 )) && return
+
+    local -a colored_lines=() plain_lines=()
+    mapfile -t colored_lines < <(lsd -1 -d --classify --color always --icon always --group-dirs none --sort none --blocks permission,user,size,date,name --date date --no-symlink --literal -- "${uncached_names[@]}" 2>/dev/null)
+    mapfile -t plain_lines   < <(lsd -1 -d --classify --color never  --icon always --group-dirs none --sort none --blocks permission,user,size,date,name --date date --no-symlink --literal -- "${uncached_names[@]}" 2>/dev/null)
+
+    local i total_uncached=${#uncached_names[@]}
+    for (( i=0; i<total_uncached; i++ )); do
+        local name="${uncached_names[$i]}"
+        local row_idx="${uncached_indices[$i]}"
+        local colored="${colored_lines[$i]-}"
+        local plain="${plain_lines[$i]-}"
+        [[ -z "$colored" ]] && colored="$name"
+        [[ -z "$plain"   ]] && plain="$name"
+        lsd_row_render_cache[$row_idx]="$colored"
+        lsd_row_plain_cache[$row_idx]="$plain"
+        lsd_name_render_cache["$name"]="$colored"
+        lsd_name_plain_cache["$name"]="$plain"
+    done
+}
+
+warm_lsd_folder_cache() {
+    (( LIST_WITH_LSD )) || return
+    (( LSD_ROWS_CACHED )) && return
+
+    local total=${#files[@]}
+    if (( total <= 0 )); then
+        LSD_ROWS_CACHED=1
+        return
+    fi
+
+    warm_lsd_visible_window 0 $((total - 1))
+    LSD_ROWS_CACHED=1
+}
+
 is_gui_session() { [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" || -n "${MIR_SOCKET:-}" || "$OS_NAME" == "Darwin" ]]; }
 restore_browser_ui() { stty -echo cbreak -ixon intr undef; printf "\033[2J\033[1;1H\033[?25l"; get_terminal_size; show_loading_status; update_files; draw_ui; }
 run_interactive_command() { echo -ne "\033[?25h"; stty "$orig_stty"; clear; "$@"; local status=$?; restore_browser_ui; return $status; }
@@ -971,9 +1121,8 @@ get_item_size_bytes() {
 update_dust_sizes() {
     dust_sizes=()
     DUST_TOTAL=""
-    if ! command -v dust &>/dev/null || (( ! DUST_MODE )); then
-        return
-    fi
+    (( DUST_MODE )) || return
+    command -v dust &>/dev/null || return
 
     local item clean_item bytes total_bytes=0 percent human_size
     local -A raw_sizes
@@ -1010,6 +1159,11 @@ update_files() {
     metadata_hydrated=()
     sort_mtime_cache=()
     sort_size_cache=()
+    lsd_name_render_cache=()
+    lsd_name_plain_cache=()
+    lsd_row_render_cache=()
+    lsd_row_plain_cache=()
+    LSD_ROWS_CACHED=0
     update_git_header_suffix
     mapfile -t files < <(list_entries)
     sort_files_by_mode
@@ -1019,6 +1173,7 @@ update_files() {
         file_icons=("$ICON_DIR")
     fi
     update_dust_sizes
+    warm_lsd_folder_cache
     (( cursor > ${#files[@]} )) && cursor=${#files[@]}
 }
 
@@ -1064,13 +1219,40 @@ _mb_col_w() {
 draw_line() {
     local idx=$1
     local row=$2
-    local f_name clean_name display_name full_display_name file_icon file_icon_raw meta owner_display sel_mark m_owner m_perms m_size m_mod
+    local f_name clean_name display_name full_display_name file_icon file_icon_raw meta owner_display sel_mark m_owner m_perms m_size m_mod lsd_name lsd_name_plain
     local dust_size="" dust_percent=""
     local expanded_width show_expanded_name=0 extra_cols
-    hydrate_visible_metadata "$idx" "$idx"
-    ensure_row_data "$idx"
     f_name="${files[$idx]}"
     clean_name=$(strip_ls_suffix "$f_name")
+    sel_mark=" "
+    [[ -n "${selected[$idx]+x}" ]] && sel_mark="*"
+
+    if (( LIST_WITH_LSD )) && [[ "$f_name" != "(Empty Directory)" ]]; then
+        local lsd_name_col_start=$((NAME_COL_START - 3))
+        local row_colored row_plain
+        (( lsd_name_col_start < 1 )) && lsd_name_col_start=1
+
+        row_colored="${lsd_row_render_cache[$idx]-$clean_name}"
+        row_plain="${lsd_row_plain_cache[$idx]-$clean_name}"
+
+        printf "\033[${row};1H\033[K"
+        printf "%1s" "$sel_mark"
+
+        if (( idx + 1 == cursor )); then
+            printf "\033[%dG${HIGHLIGHT}%s${NC}" "$lsd_name_col_start" "$row_plain"
+            return
+        fi
+        if [[ -n "${selected[$idx]+x}" ]]; then
+            printf "\033[%dG${SELECT}%s${NC}" "$lsd_name_col_start" "$row_plain"
+            return
+        fi
+
+        printf "\033[%dG%s" "$lsd_name_col_start" "$row_colored"
+        return
+    fi
+
+    hydrate_visible_metadata "$idx" "$idx"
+    ensure_row_data "$idx"
     display_name="${f_name:0:NAME_COL_WIDTH}"
     local name_col_w
     _mb_col_w "$display_name" "$NAME_COL_WIDTH"; local name_col_w=$_MB_COL_W
@@ -1083,6 +1265,14 @@ draw_line() {
     (( ${#f_name} > NAME_COL_WIDTH )) && show_expanded_name=1
     file_icon_raw="${file_icons[$idx]:-$ICON_FILE}"
     file_icon="$(format_icon "$f_name" "$file_icon_raw")"
+    lsd_name=""
+    lsd_name_plain=""
+    if (( LIST_WITH_LSD )) && [[ "$f_name" != "(Empty Directory)" ]]; then
+        lsd_name="$(lsd_render_name "$clean_name")"
+        if (( idx + 1 == cursor )) || [[ -n "${selected[$idx]+x}" ]] || (( show_expanded_name )); then
+            lsd_name_plain="$(lsd_render_name_plain "$clean_name")"
+        fi
+    fi
     
     # Handle dust mode display
     local dust_display=""
@@ -1098,8 +1288,6 @@ draw_line() {
     IFS='|' read -r m_owner m_perms m_size m_mod <<< "$meta"
     owner_display="${m_owner:0:12}"
     
-    sel_mark=" "
-    [[ -n "${selected[$idx]+x}" ]] && sel_mark="*"
     printf "\033[${row};1H\033[K"
     if (( idx + 1 == cursor )); then
         printf "%1s%b" "$sel_mark" "$file_icon"
@@ -1145,10 +1333,36 @@ draw_status_line() {
     fi
 
     fixed_display="${STATUS_LABEL}[${NC} ${STATUS_VALUE}${sel_progress}${NC} ${STATUS_LABEL}Selected${NC} ${STATUS_LABEL}]${NC}    ${STATUS_LABEL}S:${NC} ${STATUS_VALUE}${sort_display}${NC}    ${STATUS_LABEL}H:${NC} ${STATUS_VALUE}${hidden_status}${NC}    ${STATUS_LABEL}Clip:${NC} ${STATUS_VALUE}${clip_value}${NC}${dust_total_segment}"
+
+    # Skip status repaint when content is unchanged to reduce per-key redraw overhead.
+    [[ "$fixed_display" == "$STATUS_LAST_RENDER" ]] && return
+
     printf "\033[%d;1H\033[K" $((max_rows + 4))
     printf "%b%b" "$fixed_display" "$NC"
+    STATUS_LAST_RENDER="$fixed_display"
 }
-scroll_list_once() { local direction="$1"; local top=3; local bottom=$((max_rows + 2)); local old_idx=$((old_cursor - 1)); local new_idx=$((cursor - 1)); printf "\033[%d;%dr" "$top" "$bottom"; if [[ "$direction" == "down" ]]; then printf "\033[%d;1H\033[M" "$top"; if (( old_idx >= scroll_offset && old_idx < scroll_offset + max_rows )); then draw_line "$old_idx" $((bottom - 1)); fi; if (( new_idx >= scroll_offset && new_idx < scroll_offset + max_rows )); then draw_line "$new_idx" "$bottom"; fi; else printf "\033[%d;1H\033[L" "$top"; if (( new_idx >= scroll_offset && new_idx < scroll_offset + max_rows )); then draw_line "$new_idx" "$top"; fi; if (( old_idx >= scroll_offset && old_idx < scroll_offset + max_rows )); then draw_line "$old_idx" $((top + 1)); fi; fi; printf "\033[r"; draw_status_line; }
+scroll_list_once() {
+    local direction="$1"
+    local top=3
+    local bottom=$((max_rows + 2))
+    local old_idx=$((old_cursor - 1))
+    local new_idx=$((cursor - 1))
+
+    # This function is called only for +/-1 scroll transitions from redraw_cursor,
+    # so affected old/new rows are known and can be redrawn without visibility guards.
+    printf "\033[%d;%dr" "$top" "$bottom"
+    if [[ "$direction" == "down" ]]; then
+        printf "\033[%d;1H\033[M" "$top"
+        draw_line "$old_idx" $((bottom - 1))
+        draw_line "$new_idx" "$bottom"
+    else
+        printf "\033[%d;1H\033[L" "$top"
+        draw_line "$new_idx" "$top"
+        draw_line "$old_idx" $((top + 1))
+    fi
+    printf "\033[r"
+    draw_status_line
+}
 draw_ui() {
     local rows_only=${1:-0}
     if is_terminal_too_narrow; then
@@ -1168,7 +1382,9 @@ draw_ui() {
     local sel_progress sort_display fixed_display dust_total_segment="" header_prefix header_path header_value header_display
     local buffer=""
 
-    hydrate_visible_metadata "$scroll_offset" "$((scroll_offset + max_rows - 1))"
+    if (( ! LIST_WITH_LSD )); then
+        hydrate_visible_metadata "$scroll_offset" "$((scroll_offset + max_rows - 1))"
+    fi
 
     buffer+=$'\e[H\e[?25l'
     if (( !rows_only )); then
@@ -1191,6 +1407,45 @@ draw_ui() {
         buffer+=$'\e[2;1H'
         for (( i=0; i<term_cols-1; i++ )); do buffer+="─"; done
         buffer+=$'\n'
+    fi
+
+    if (( LIST_WITH_LSD )); then
+        if (( !rows_only )); then
+            buffer+=$'\e['$((max_rows + 3))$';1H'
+            for (( i=0; i<term_cols-1; i++ )); do buffer+="─"; done
+            sel_progress=$(printf "%*d/%d" "$digits" "$sel_count" "$total")
+            sort_display=$(get_sort_display)
+            if (( DUST_MODE )); then
+                dust_total_segment="    ${STATUS_LABEL}T:${NC} ${STATUS_VALUE}${DUST_TOTAL:-0B}${NC}"
+            fi
+            fixed_display="${STATUS_LABEL}[${NC} ${STATUS_VALUE}${sel_progress}${NC} ${STATUS_LABEL}Selected${NC} ${STATUS_LABEL}]${NC}    ${STATUS_LABEL}S:${NC} ${STATUS_VALUE}${sort_display}${NC}    ${STATUS_LABEL}H:${NC} ${STATUS_VALUE}${hidden_status}${NC}    ${STATUS_LABEL}Clip:${NC} ${STATUS_VALUE}${clip_value}${NC}${dust_total_segment}"
+            buffer+=$'\e['$((max_rows + 4))$';1H\e[K'
+            buffer+="$fixed_display${NC}"
+        fi
+
+        printf "%b" "$buffer"
+        if (( !rows_only )); then
+            STATUS_LAST_RENDER="$fixed_display"
+        fi
+        warm_lsd_folder_cache
+        for (( i=0; i<max_rows; i++ )); do
+            local idx=$((scroll_offset + i))
+            local row=$((i + 3))
+            if (( idx < total )); then
+                draw_line "$idx" "$row"
+            fi
+        done
+        local visible_count=$(( total - scroll_offset ))
+        (( visible_count < 0 )) && visible_count=0
+        if (( visible_count < max_rows )); then
+            for (( i=visible_count; i<max_rows; i++ )); do
+                local row=$((i + 3))
+                printf "\033[%d;1H\033[K" "$row"
+            done
+        fi
+        old_cursor=$cursor
+        old_scroll=$scroll_offset
+        return
     fi
 
     for (( i=0; i<max_rows; i++ )); do
@@ -1275,10 +1530,46 @@ draw_ui() {
         buffer+="$fixed_display${NC}"
     fi
     printf "%b" "$buffer"
+    if (( !rows_only )); then
+        STATUS_LAST_RENDER="$fixed_display"
+    fi
     old_cursor=$cursor
     old_scroll=$scroll_offset
 }
-redraw_cursor() { local previous_scroll=$scroll_offset; ensure_cursor_visible; if (( scroll_offset == previous_scroll + 1 && cursor == old_cursor + 1 )); then scroll_list_once down; old_cursor=$cursor; old_scroll=$scroll_offset; return; fi; if (( scroll_offset == previous_scroll - 1 && cursor == old_cursor - 1 )); then scroll_list_once up; old_cursor=$cursor; old_scroll=$scroll_offset; return; fi; if (( scroll_offset != previous_scroll )); then draw_ui; return; fi; if (( old_cursor > 0 && old_cursor != cursor )); then local old_idx=$(( old_cursor - 1 )); if (( old_idx >= scroll_offset && old_idx < scroll_offset + max_rows )); then draw_line "$old_idx" $((old_idx - scroll_offset + 3)); fi; fi; local new_idx=$(( cursor - 1 )); if (( new_idx >= scroll_offset && new_idx < scroll_offset + max_rows )); then draw_line "$new_idx" $((new_idx - scroll_offset + 3)); fi; draw_status_line; old_cursor=$cursor; old_scroll=$scroll_offset; }
+redraw_cursor() {
+    local previous_scroll=$scroll_offset
+    ensure_cursor_visible
+
+    if (( scroll_offset == previous_scroll + 1 && cursor == old_cursor + 1 )); then
+        scroll_list_once down
+        old_cursor=$cursor
+        old_scroll=$scroll_offset
+        return
+    fi
+    if (( scroll_offset == previous_scroll - 1 && cursor == old_cursor - 1 )); then
+        scroll_list_once up
+        old_cursor=$cursor
+        old_scroll=$scroll_offset
+        return
+    fi
+    if (( scroll_offset != previous_scroll )); then
+        draw_ui
+        return
+    fi
+    if (( old_cursor > 0 && old_cursor != cursor )); then
+        local old_idx=$(( old_cursor - 1 ))
+        if (( old_idx >= scroll_offset && old_idx < scroll_offset + max_rows )); then
+            draw_line "$old_idx" $((old_idx - scroll_offset + 3))
+        fi
+    fi
+    local new_idx=$(( cursor - 1 ))
+    if (( new_idx >= scroll_offset && new_idx < scroll_offset + max_rows )); then
+        draw_line "$new_idx" $((new_idx - scroll_offset + 3))
+    fi
+    draw_status_line
+    old_cursor=$cursor
+    old_scroll=$scroll_offset
+}
 get_item() {
     [[ $cursor -gt 0 && $cursor -le ${#files[@]} ]] && strip_ls_suffix "${files[$((cursor-1))]}"
 }
