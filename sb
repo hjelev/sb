@@ -238,8 +238,10 @@ KEY_HELP="${SB_KEY_HELP:-h}"
 KEY_BOOKMARKS="${SB_KEY_BOOKMARKS:-b}"
 KEY_COLUMN_SHRINK="${SB_KEY_COLUMN_SHRINK:-[}"
 KEY_COLUMN_GROW="${SB_KEY_COLUMN_GROW:-]}"
-KEY_COLUMN_MIN="${SB_KEY_COLUMN_MIN:-{}"
-KEY_COLUMN_MAX="${SB_KEY_COLUMN_MAX:-}}"
+KEY_COLUMN_MIN="${SB_KEY_COLUMN_MIN-}"
+[[ -z "$KEY_COLUMN_MIN" ]] && KEY_COLUMN_MIN="{"
+KEY_COLUMN_MAX="${SB_KEY_COLUMN_MAX-}"
+[[ -z "$KEY_COLUMN_MAX" ]] && KEY_COLUMN_MAX="}"
 KEY_NAV_UP="${SB_KEY_NAV_UP:-$'\e[A'}"
 KEY_NAV_DOWN="${SB_KEY_NAV_DOWN:-$'\e[B'}"
 KEY_PAGE_UP="${SB_KEY_PAGE_UP:-$'\e[5~'}"
@@ -289,9 +291,17 @@ DUST_META_COL_FMT='%-12s %-11s %8s %6s  %16s'
 cursor=1; old_cursor=0; old_scroll=-1; scroll_offset=0; files=(); metadata=(); file_icons=(); CLIPBOARD_PATH=""; CLIPBOARD_NAME=""; CLIPBOARD_MULTI=(); CLIPBOARD_MOVE=0; declare -A dir_positions; declare -A selected
 LAST_UPLOAD_URL=""
 GIT_HEADER_SUFFIX=""
+GIT_DIRTY_CHECK="${SB_GIT_DIRTY_CHECK:-1}"
+GIT_HEADER_CACHE_PWD=""
+GIT_HEADER_CACHE_SUFFIX=""
 DUST_MODE=0
 declare -A dust_sizes
 DUST_TOTAL=""
+declare -A sort_mtime_cache
+declare -A sort_size_cache
+declare -A dust_size_cache_bytes
+declare -A dust_size_cache_mtime
+declare -A metadata_hydrated
 SSHFS_DIR="${SB_SSHFS_DIR:-${TMPDIR:-/tmp}/sb_sshfs_${UID:-$(id -u 2>/dev/null || printf '0')}}"
 SSHFS_LAST_ERROR=""
 declare -A SSHFS_SESSION_MOUNTS
@@ -302,6 +312,7 @@ declare -A ZIP_MOUNT_SOURCE_FILE
 SSHPICK_LABEL_WIDTH=0
 SHOW_HIDDEN=0
 SORT_MODE="name"
+SORT_ACTIVE=0
 SORT_NAME_DESC=0
 SORT_DATE_DESC=0
 SORT_SIZE_DESC=0
@@ -400,18 +411,41 @@ handle_resize() { get_terminal_size; old_cursor=-1; old_scroll=-1; stty -echo cb
 trap cleanup EXIT; trap handle_resize SIGWINCH; stty -echo cbreak -ixon intr undef
 get_terminal_size() { term_rows=$(tput lines); term_cols=$(tput cols); max_rows=$((term_rows - 4)); }
 update_git_header_suffix() {
+    local current_dir="$PWD"
+
+    if [[ "$GIT_HEADER_CACHE_PWD" == "$current_dir" ]]; then
+        GIT_HEADER_SUFFIX="$GIT_HEADER_CACHE_SUFFIX"
+        return
+    fi
+
     GIT_HEADER_SUFFIX=""
-    command -v git &>/dev/null || return
-    git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return
+    command -v git &>/dev/null || {
+        GIT_HEADER_CACHE_PWD="$current_dir"
+        GIT_HEADER_CACHE_SUFFIX="$GIT_HEADER_SUFFIX"
+        return
+    }
+    git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
+        GIT_HEADER_CACHE_PWD="$current_dir"
+        GIT_HEADER_CACHE_SUFFIX="$GIT_HEADER_SUFFIX"
+        return
+    }
 
     local branch dirty="" status_output
     branch=$(git branch --show-current 2>/dev/null)
     [[ -z "$branch" ]] && branch=$(git rev-parse --short HEAD 2>/dev/null)
-    [[ -z "$branch" ]] && return
+    [[ -z "$branch" ]] && {
+        GIT_HEADER_CACHE_PWD="$current_dir"
+        GIT_HEADER_CACHE_SUFFIX="$GIT_HEADER_SUFFIX"
+        return
+    }
 
-    status_output=$(git status --porcelain=v1 --untracked-files=normal 2>/dev/null)
-    [[ -n "$status_output" ]] && dirty="*"
+    if (( GIT_DIRTY_CHECK )); then
+        status_output=$(git status --porcelain=v1 --untracked-files=normal 2>/dev/null)
+        [[ -n "$status_output" ]] && dirty="*"
+    fi
     GIT_HEADER_SUFFIX=" (${branch}${dirty})"
+    GIT_HEADER_CACHE_PWD="$current_dir"
+    GIT_HEADER_CACHE_SUFFIX="$GIT_HEADER_SUFFIX"
 }
 extra_meta_cols() { (( DUST_MODE )) && echo 7 || echo 0; }
 required_term_cols() { local extra_cols; extra_cols=$(extra_meta_cols); echo $((BASE_MIN_COLS + NAME_COL_WIDTH + extra_cols)); }
@@ -434,6 +468,45 @@ strip_ls_suffix() {
     case "$last_char" in
         '/'|'@'|'*'|'|'|'='|'>') printf "%s" "${item:0:${#item}-1}" ;;
         *) printf "%s" "$item" ;;
+    esac
+}
+icon_for_lower_name() {
+    local lower_name="$1"
+    case "$lower_name" in
+        dockerfile) printf "%s" "$ICON_DOCKERFILE" ;;
+        makefile) printf "%s" "$ICON_MAKEFILE" ;;
+        license) printf "%s" "$ICON_LICENSE" ;;
+        .env) printf "%s" "$ICON_ENV" ;;
+        .gitignore) printf "%s" "$ICON_GITIGNORE" ;;
+        package.json) printf "%s" "$ICON_NODE" ;;
+        cargo.toml) printf "%s" "$ICON_CARGO" ;;
+        go.mod) printf "%s" "$ICON_GOMOD" ;;
+        *.age) printf "%s" "$ICON_AGE" ;;
+        *.html|*.htm) printf "%s" "$ICON_HTML" ;;
+        *.jsx|*.tsx) printf "%s" "$ICON_REACT" ;;
+        *.py) printf "%s" "$ICON_PY" ;;
+        *.js|*.mjs|*.cjs) printf "%s" "$ICON_JS" ;;
+        *.ts) printf "%s" "$ICON_TS" ;;
+        *.go) printf "%s" "$ICON_GO" ;;
+        *.rs) printf "%s" "$ICON_RUST" ;;
+        *.java) printf "%s" "$ICON_JAVA" ;;
+        *.c|*.h|*.cs) printf "%s" "$ICON_C" ;;
+        *.cpp|*.hpp|*.cc|*.cxx) printf "%s" "$ICON_CPP" ;;
+        *.css|*.scss|*.sass|*.less) printf "%s" "$ICON_CSS" ;;
+        *.md|*.markdown) printf "%s" "$ICON_MARKDOWN" ;;
+        *.xml) printf "%s" "$ICON_XML" ;;
+        *.csv) printf "%s" "$ICON_CSV" ;;
+        *.jpg|*.jpeg|*.png|*.gif|*.bmp|*.webp|*.tiff|*.ico|*.svg|*.heic|*.avif) printf "%s" "$ICON_IMAGE" ;;
+        *.mp4|*.mkv|*.avi|*.mov|*.webm|*.flv|*.m4v|*.ogv|*.wmv) printf "%s" "$ICON_VIDEO" ;;
+        *.mp3|*.wav|*.ogg|*.flac|*.aac|*.m4a|*.opus|*.wma) printf "%s" "$ICON_AUDIO" ;;
+        *.zip|*.tar|*.tar.gz|*.tgz|*.bz2|*.xz|*.rar|*.7z|*.gz|*.zst) printf "%s" "$ICON_ARCHIVE" ;;
+        *.pdf|*.doc|*.docx|*.odt|*.rtf|*.xls|*.xlsx|*.ppt|*.pptx) printf "%s" "$ICON_DOCUMENT" ;;
+        *.sh|*.bash|*.zsh|*.fish|*.rb|*.pl|*.php|*.lua|*.ps1) printf "%s" "$ICON_SCRIPT" ;;
+        *.json|*.jsonl|*.ndjson|*.geojson) printf "%s" "$ICON_JSON" ;;
+        *.yaml|*.yml|*.toml|*.ini|*.conf|*.sql) printf "%s" "$ICON_CONFIG" ;;
+        *.txt|*.tex|*.rst) printf "%s" "$ICON_TEXT" ;;
+        *.kt|*.swift) printf "%s" "$ICON_CODE" ;;
+        *) printf "%s" "$ICON_DEFAULT" ;;
     esac
 }
 get_color() {
@@ -497,96 +570,51 @@ icon_for_item() {
     elif [[ -x "$path" && -f "$path" ]]; then
         printf "%s" "$ICON_EXEC"
     else
-        case "$lower_name" in
-            dockerfile) printf "%s" "$ICON_DOCKERFILE" ;;
-            makefile) printf "%s" "$ICON_MAKEFILE" ;;
-            license) printf "%s" "$ICON_LICENSE" ;;
-            .env) printf "%s" "$ICON_ENV" ;;
-            .gitignore) printf "%s" "$ICON_GITIGNORE" ;;
-            package.json) printf "%s" "$ICON_NODE" ;;
-            cargo.toml) printf "%s" "$ICON_CARGO" ;;
-            go.mod) printf "%s" "$ICON_GOMOD" ;;
-            *.age) printf "%s" "$ICON_AGE" ;;
-            *.html|*.htm) printf "%s" "$ICON_HTML" ;;
-            *.jsx|*.tsx) printf "%s" "$ICON_REACT" ;;
-            *.py) printf "%s" "$ICON_PY" ;;
-            *.js|*.mjs|*.cjs) printf "%s" "$ICON_JS" ;;
-            *.ts) printf "%s" "$ICON_TS" ;;
-            *.go) printf "%s" "$ICON_GO" ;;
-            *.rs) printf "%s" "$ICON_RUST" ;;
-            *.java) printf "%s" "$ICON_JAVA" ;;
-            *.c|*.h|*.cs) printf "%s" "$ICON_C" ;;
-            *.cpp|*.hpp|*.cc|*.cxx) printf "%s" "$ICON_CPP" ;;
-            *.css|*.scss|*.sass|*.less) printf "%s" "$ICON_CSS" ;;
-            *.md|*.markdown) printf "%s" "$ICON_MARKDOWN" ;;
-            *.xml) printf "%s" "$ICON_XML" ;;
-            *.csv) printf "%s" "$ICON_CSV" ;;
-            *.jpg|*.jpeg|*.png|*.gif|*.bmp|*.webp|*.tiff|*.ico|*.svg|*.heic|*.avif) printf "%s" "$ICON_IMAGE" ;;
-            *.mp4|*.mkv|*.avi|*.mov|*.webm|*.flv|*.m4v|*.ogv|*.wmv) printf "%s" "$ICON_VIDEO" ;;
-            *.mp3|*.wav|*.ogg|*.flac|*.aac|*.m4a|*.opus|*.wma) printf "%s" "$ICON_AUDIO" ;;
-            *.zip|*.tar|*.tar.gz|*.tgz|*.bz2|*.xz|*.rar|*.7z|*.gz|*.zst) printf "%s" "$ICON_ARCHIVE" ;;
-            *.pdf|*.doc|*.docx|*.odt|*.rtf|*.xls|*.xlsx|*.ppt|*.pptx) printf "%s" "$ICON_DOCUMENT" ;;
-            *.sh|*.bash|*.zsh|*.fish|*.rb|*.pl|*.php|*.lua|*.ps1) printf "%s" "$ICON_SCRIPT" ;;
-            *.json|*.jsonl|*.ndjson|*.geojson) printf "%s" "$ICON_JSON" ;;
-            *.yaml|*.yml|*.toml|*.ini|*.conf|*.sql) printf "%s" "$ICON_CONFIG" ;;
-            *.txt|*.tex|*.rst) printf "%s" "$ICON_TEXT" ;;
-            *.kt|*.swift) printf "%s" "$ICON_CODE" ;;
-            *) printf "%s" "$ICON_DEFAULT" ;;
-        esac
+        icon_for_lower_name "$lower_name"
     fi
 }
 icon_for_list_item() {
     local item="$1"
     local clean_f lower_name
-    clean_f="$item"
-    case "${clean_f: -1}" in
-        '/'|'@'|'*'|'|'|'='|'>') clean_f="${clean_f:0:${#clean_f}-1}" ;;
-    esac
+    clean_f=$(strip_ls_suffix "$item")
     lower_name="${clean_f##*/}"
     lower_name="${lower_name,,}"
     case "$item" in
         */) printf "%s" "$ICON_DIR" ;;
         *@) printf "%s" "$ICON_LINK" ;;
         *\*) printf "%s" "$ICON_EXEC" ;;
-        *)
-            case "$lower_name" in
-                dockerfile) printf "%s" "$ICON_DOCKERFILE" ;;
-                makefile) printf "%s" "$ICON_MAKEFILE" ;;
-                license) printf "%s" "$ICON_LICENSE" ;;
-                .env) printf "%s" "$ICON_ENV" ;;
-                .gitignore) printf "%s" "$ICON_GITIGNORE" ;;
-                package.json) printf "%s" "$ICON_NODE" ;;
-                cargo.toml) printf "%s" "$ICON_CARGO" ;;
-                go.mod) printf "%s" "$ICON_GOMOD" ;;
-                *.age) printf "%s" "$ICON_AGE" ;;
-                *.html|*.htm) printf "%s" "$ICON_HTML" ;;
-                *.jsx|*.tsx) printf "%s" "$ICON_REACT" ;;
-                *.py) printf "%s" "$ICON_PY" ;;
-                *.js|*.mjs|*.cjs) printf "%s" "$ICON_JS" ;;
-                *.ts) printf "%s" "$ICON_TS" ;;
-                *.go) printf "%s" "$ICON_GO" ;;
-                *.rs) printf "%s" "$ICON_RUST" ;;
-                *.java) printf "%s" "$ICON_JAVA" ;;
-                *.c|*.h|*.cs) printf "%s" "$ICON_C" ;;
-                *.cpp|*.hpp|*.cc|*.cxx) printf "%s" "$ICON_CPP" ;;
-                *.css|*.scss|*.sass|*.less) printf "%s" "$ICON_CSS" ;;
-                *.md|*.markdown) printf "%s" "$ICON_MARKDOWN" ;;
-                *.xml) printf "%s" "$ICON_XML" ;;
-                *.csv) printf "%s" "$ICON_CSV" ;;
-                *.jpg|*.jpeg|*.png|*.gif|*.bmp|*.webp|*.tiff|*.ico|*.svg|*.heic|*.avif) printf "%s" "$ICON_IMAGE" ;;
-                *.mp4|*.mkv|*.avi|*.mov|*.webm|*.flv|*.m4v|*.ogv|*.wmv) printf "%s" "$ICON_VIDEO" ;;
-                *.mp3|*.wav|*.ogg|*.flac|*.aac|*.m4a|*.opus|*.wma) printf "%s" "$ICON_AUDIO" ;;
-                *.zip|*.tar|*.tar.gz|*.tgz|*.bz2|*.xz|*.rar|*.7z|*.gz|*.zst) printf "%s" "$ICON_ARCHIVE" ;;
-                *.pdf|*.doc|*.docx|*.odt|*.rtf|*.xls|*.xlsx|*.ppt|*.pptx) printf "%s" "$ICON_DOCUMENT" ;;
-                *.sh|*.bash|*.zsh|*.fish|*.rb|*.pl|*.php|*.lua|*.ps1) printf "%s" "$ICON_SCRIPT" ;;
-                *.json|*.jsonl|*.ndjson|*.geojson) printf "%s" "$ICON_JSON" ;;
-                *.yaml|*.yml|*.toml|*.ini|*.conf|*.sql) printf "%s" "$ICON_CONFIG" ;;
-                *.txt|*.tex|*.rst) printf "%s" "$ICON_TEXT" ;;
-                *.kt|*.swift) printf "%s" "$ICON_CODE" ;;
-                *) printf "%s" "$ICON_DEFAULT" ;;
-            esac
-            ;;
+        *) icon_for_lower_name "$lower_name" ;;
     esac
+}
+refresh_sort_stat_cache() {
+    local -a clean_items=()
+    local item clean_item mtime size filename
+
+    sort_mtime_cache=()
+    sort_size_cache=()
+
+    for item in "${files[@]}"; do
+        [[ "$item" == "(Empty Directory)" ]] && continue
+        clean_item=$(strip_ls_suffix "$item")
+        [[ -n "$clean_item" ]] || continue
+        clean_items+=("$clean_item")
+    done
+
+    (( ${#clean_items[@]} > 0 )) || return
+
+    if [[ "$OS_NAME" == "Darwin" && "$LS_CMD" == "ls" ]]; then
+        while IFS='|' read -r mtime size filename; do
+            [[ -n "$filename" ]] || continue
+            sort_mtime_cache["$filename"]="$mtime"
+            sort_size_cache["$filename"]="$size"
+        done < <(stat -f '%m|%z|%N' -- "${clean_items[@]}" 2>/dev/null)
+    else
+        while IFS='|' read -r mtime size filename; do
+            [[ -n "$filename" ]] || continue
+            sort_mtime_cache["$filename"]="$mtime"
+            sort_size_cache["$filename"]="$size"
+        done < <(stat -c '%Y|%s|%n' -- "${clean_items[@]}" 2>/dev/null)
+    fi
 }
 SORT_RESULT=()
 sort_items_by_mode() {
@@ -604,23 +632,17 @@ sort_items_by_mode() {
                 key="${base,,}"
                 ;;
             date)
-                # Strip ls suffix from item before stat
-                clean_item="$item"
-                last_char="${clean_item: -1}"
-                case "$last_char" in
-                    '/'|'@'|'*'|'|'|'='|'>') clean_item="${clean_item:0:${#clean_item}-1}" ;;
-                esac
-                mtime=$(stat $STAT_FMT_MTIME -- "$clean_item" 2>/dev/null || echo 0)
+                clean_item=$(strip_ls_suffix "$item")
+                mtime="${sort_mtime_cache[$clean_item]-}"
+                [[ -z "$mtime" ]] && mtime=$(stat $STAT_FMT_MTIME -- "$clean_item" 2>/dev/null || echo 0)
+                sort_mtime_cache["$clean_item"]="$mtime"
                 key=$(printf "%020d" "$mtime")
                 ;;
             size)
-                # Strip ls suffix from item before stat
-                clean_item="$item"
-                last_char="${clean_item: -1}"
-                case "$last_char" in
-                    '/'|'@'|'*'|'|'|'='|'>') clean_item="${clean_item:0:${#clean_item}-1}" ;;
-                esac
-                size=$(stat $STAT_FMT_SIZE -- "$clean_item" 2>/dev/null || echo 0)
+                clean_item=$(strip_ls_suffix "$item")
+                size="${sort_size_cache[$clean_item]-}"
+                [[ -z "$size" ]] && size=$(stat $STAT_FMT_SIZE -- "$clean_item" 2>/dev/null || echo 0)
+                sort_size_cache["$clean_item"]="$size"
                 key=$(printf "%020d" "$size")
                 ;;
             ext)
@@ -650,6 +672,14 @@ sort_items_by_mode() {
 sort_files_by_mode() {
     local -a dirs=() non_dirs=() sorted_dirs=() sorted_non_dirs=()
     local f clean_f
+
+    (( SORT_ACTIVE )) || return
+
+    # Date/size sorts need stat data; keep it lazy so default folder opens stay fast.
+    if [[ "$SORT_MODE" == "date" || "$SORT_MODE" == "size" ]]; then
+        refresh_sort_stat_cache
+    fi
+
     for f in "${files[@]}"; do
         if [[ "$f" == */ ]]; then
             dirs+=("$f")
@@ -663,24 +693,34 @@ sort_files_by_mode() {
     sorted_non_dirs=("${SORT_RESULT[@]}")
     files=("${sorted_dirs[@]}" "${sorted_non_dirs[@]}")
 }
-get_sort_display() { local mode_label="Name"; local is_desc=0; case "$SORT_MODE" in name) mode_label="Name"; is_desc=$SORT_NAME_DESC ;; date) mode_label="Date"; is_desc=$SORT_DATE_DESC ;; size) mode_label="Size"; is_desc=$SORT_SIZE_DESC ;; ext) mode_label="Ext"; is_desc=$SORT_EXT_DESC ;; esac; if (( is_desc )); then printf "%s↓" "$mode_label"; else printf "%s↑" "$mode_label"; fi; }
-build_item_meta() {
-    local clean_f="$1"
-    if [[ -e "$clean_f" || -L "$clean_f" ]]; then
-        if [[ "$OS_NAME" == "Darwin" && "$LS_CMD" == "ls" ]]; then
-            LC_TIME=C stat -f '%Su|%Sp|%z|%Sm' -t '%Y-%m-%d %H:%M' -- "$clean_f" 2>/dev/null && return
-        fi
-        LC_TIME=C ls -ldh --time-style=long-iso -- "$clean_f" 2>/dev/null | awk '{printf "%s|%s|%s|%s %s", $3, $1, $5, $6, $7}' && return
+get_sort_display() {
+    local mode_label="Name"
+    local is_desc=0
+
+    (( SORT_ACTIVE )) || {
+        printf "Native"
+        return
+    }
+
+    case "$SORT_MODE" in
+        name) mode_label="Name"; is_desc=$SORT_NAME_DESC ;;
+        date) mode_label="Date"; is_desc=$SORT_DATE_DESC ;;
+        size) mode_label="Size"; is_desc=$SORT_SIZE_DESC ;;
+        ext) mode_label="Ext"; is_desc=$SORT_EXT_DESC ;;
+    esac
+    if (( is_desc )); then
+        printf "%s↓" "$mode_label"
+    else
+        printf "%s↑" "$mode_label"
     fi
-    printf "%s" "$DEFAULT_META"
 }
 populate_display_data_bulk() {
     local -a clean_items=()
-    local f clean_f lower_name last_char
-    local i idx
+    local -a clean_item_indices=()
+    local f clean_f
+    local i idx meta_pos
     local perms owner size date time
     local default_meta="$DEFAULT_META"
-    local -A item_to_idx
 
     file_icons=()
     metadata=()
@@ -693,101 +733,34 @@ populate_display_data_bulk() {
             continue
         fi
 
-        clean_f="$f"
-        last_char="${clean_f: -1}"
-        case "$last_char" in
-            '/')
-                file_icons+=("$ICON_DIR")
-                clean_f="${clean_f:0:${#clean_f}-1}"
-                ;;
-            '@')
-                file_icons+=("$ICON_LINK")
-                clean_f="${clean_f:0:${#clean_f}-1}"
-                ;;
-            '*')
-                file_icons+=("$ICON_EXEC")
-                clean_f="${clean_f:0:${#clean_f}-1}"
-                ;;
-            '|'|'='|'>')
-                clean_f="${clean_f:0:${#clean_f}-1}"
-                ;;
-        esac
-
-        if [[ "$last_char" != '/' && "$last_char" != '@' && "$last_char" != '*' ]]; then
-            lower_name="${clean_f##*/}"
-            lower_name="${lower_name,,}"
-            case "$lower_name" in
-                dockerfile) file_icons+=("$ICON_DOCKERFILE") ;;
-                makefile) file_icons+=("$ICON_MAKEFILE") ;;
-                license) file_icons+=("$ICON_LICENSE") ;;
-                .env) file_icons+=("$ICON_ENV") ;;
-                .gitignore) file_icons+=("$ICON_GITIGNORE") ;;
-                package.json) file_icons+=("$ICON_NODE") ;;
-                cargo.toml) file_icons+=("$ICON_CARGO") ;;
-                go.mod) file_icons+=("$ICON_GOMOD") ;;
-                *.age) file_icons+=("$ICON_AGE") ;;
-                *.html|*.htm) file_icons+=("$ICON_HTML") ;;
-                *.jsx|*.tsx) file_icons+=("$ICON_REACT") ;;
-                *.py) file_icons+=("$ICON_PY") ;;
-                *.js|*.mjs|*.cjs) file_icons+=("$ICON_JS") ;;
-                *.ts) file_icons+=("$ICON_TS") ;;
-                *.go) file_icons+=("$ICON_GO") ;;
-                *.rs) file_icons+=("$ICON_RUST") ;;
-                *.java) file_icons+=("$ICON_JAVA") ;;
-                *.c|*.h|*.cs) file_icons+=("$ICON_C") ;;
-                *.cpp|*.hpp|*.cc|*.cxx) file_icons+=("$ICON_CPP") ;;
-                *.css|*.scss|*.sass|*.less) file_icons+=("$ICON_CSS") ;;
-                *.md|*.markdown) file_icons+=("$ICON_MARKDOWN") ;;
-                *.xml) file_icons+=("$ICON_XML") ;;
-                *.csv) file_icons+=("$ICON_CSV") ;;
-                *.jpg|*.jpeg|*.png|*.gif|*.bmp|*.webp|*.tiff|*.ico|*.svg|*.heic|*.avif) file_icons+=("$ICON_IMAGE") ;;
-                *.mp4|*.mkv|*.avi|*.mov|*.webm|*.flv|*.m4v|*.ogv|*.wmv) file_icons+=("$ICON_VIDEO") ;;
-                *.mp3|*.wav|*.ogg|*.flac|*.aac|*.m4a|*.opus|*.wma) file_icons+=("$ICON_AUDIO") ;;
-                *.zip|*.tar|*.tar.gz|*.tgz|*.bz2|*.xz|*.rar|*.7z|*.gz|*.zst) file_icons+=("$ICON_ARCHIVE") ;;
-                *.pdf|*.doc|*.docx|*.odt|*.rtf|*.xls|*.xlsx|*.ppt|*.pptx) file_icons+=("$ICON_DOCUMENT") ;;
-                *.sh|*.bash|*.zsh|*.fish|*.rb|*.pl|*.php|*.lua|*.ps1) file_icons+=("$ICON_SCRIPT") ;;
-                *.json|*.jsonl|*.ndjson|*.geojson) file_icons+=("$ICON_JSON") ;;
-                *.yaml|*.yml|*.toml|*.ini|*.conf|*.sql) file_icons+=("$ICON_CONFIG") ;;
-                *.txt|*.tex|*.rst) file_icons+=("$ICON_TEXT") ;;
-                *.kt|*.swift) file_icons+=("$ICON_CODE") ;;
-                *) file_icons+=("$ICON_DEFAULT") ;;
-            esac
-        fi
+        clean_f=$(strip_ls_suffix "$f")
 
         clean_items+=("$clean_f")
-        item_to_idx["$clean_f"]=$i
+        clean_item_indices+=("$i")
     done
 
     (( ${#clean_items[@]} == 0 )) && return
 
     if [[ "$OS_NAME" == "Darwin" && "$LS_CMD" == "ls" ]]; then
+        meta_pos=0
         while IFS='|' read -r owner perms size date time filename; do
-            [[ -z "$owner" || -z "$perms" || -z "$size" || -z "$date" || -z "$time" || -z "$filename" ]] && continue
-            if [[ -n "${item_to_idx[$filename]}" ]]; then
-                idx=${item_to_idx[$filename]}
-                metadata[$idx]="${owner}|${perms}|${size}|${date} ${time}"
-            fi
+            [[ -z "$owner" || -z "$perms" || -z "$size" || -z "$date" || -z "$time" ]] && continue
+            (( meta_pos >= ${#clean_item_indices[@]} )) && break
+            idx=${clean_item_indices[$meta_pos]}
+            metadata[$idx]="${owner}|${perms}|${size}|${date} ${time}"
+            ((meta_pos++))
         done < <(LC_TIME=C stat -f '%Su|%Sp|%z|%Sm|%N' -t '%Y-%m-%d|%H:%M' -- "${clean_items[@]}" 2>/dev/null)
     else
+        meta_pos=0
         while IFS='|' read -r perms owner size date time filename; do
-            [[ -z "$owner" || -z "$perms" || -z "$size" || -z "$date" || -z "$time" || -z "$filename" ]] && continue
-
-            # Match by filename to handle ls output being in any order
-            if [[ -n "${item_to_idx[$filename]}" ]]; then
-                idx=${item_to_idx[$filename]}
-                metadata[$idx]="${owner}|${perms}|${size}|${date} ${time}"
-            fi
+            [[ -z "$owner" || -z "$perms" || -z "$size" || -z "$date" || -z "$time" ]] && continue
+            (( meta_pos >= ${#clean_item_indices[@]} )) && break
+            idx=${clean_item_indices[$meta_pos]}
+            metadata[$idx]="${owner}|${perms}|${size}|${date} ${time}"
+            ((meta_pos++))
         done < <(LC_TIME=C "$LS_CMD" -ldh --time-style=long-iso -- "${clean_items[@]}" 2>/dev/null | awk '{
             perms=$1; owner=$3; size=$5; date=$6; time=$7
-            filename=""
-            for(i=8;i<=NF;i++) {
-                if(i>8) filename=filename" "
-                filename=filename$i
-            }
-            # Strip " -> target" part for symlinks
-            idx=index(filename, " ->")
-            if(idx>0) filename=substr(filename, 1, idx-1)
-            printf "%s|%s|%s|%s|%s|%s\n", perms, owner, size, date, time, filename
+            printf "%s|%s|%s|%s|%s|_\n", perms, owner, size, date, time
         }')
     fi
 }
@@ -805,6 +778,73 @@ ensure_row_data() {
         file_icons[$idx]="$(icon_for_list_item "$f_name")"
     fi
     [[ -z "${metadata[$idx]+x}" ]] && metadata[$idx]="$DEFAULT_META"
+}
+
+hydrate_visible_metadata() {
+    local start_idx="$1"
+    local end_idx="$2"
+    local -a clean_items=()
+    local -a item_indices=()
+    local idx f_name clean_f
+    local owner perms size date time filename meta_pos
+
+    (( start_idx < 0 )) && start_idx=0
+    (( end_idx >= ${#files[@]} )) && end_idx=$(( ${#files[@]} - 1 ))
+    (( end_idx < start_idx )) && return
+
+    for (( idx=start_idx; idx<=end_idx; idx++ )); do
+        [[ -n "${metadata_hydrated[$idx]+x}" ]] && continue
+        f_name="${files[$idx]-}"
+        if [[ -z "$f_name" || "$f_name" == "(Empty Directory)" ]]; then
+            metadata[$idx]="$DEFAULT_META"
+            metadata_hydrated[$idx]=1
+            continue
+        fi
+
+        clean_f=$(strip_ls_suffix "$f_name")
+        [[ -n "$clean_f" ]] || {
+            metadata[$idx]="$DEFAULT_META"
+            metadata_hydrated[$idx]=1
+            continue
+        }
+
+        clean_items+=("$clean_f")
+        item_indices+=("$idx")
+    done
+
+    (( ${#clean_items[@]} == 0 )) && return
+
+    if [[ "$OS_NAME" == "Darwin" && "$LS_CMD" == "ls" ]]; then
+        meta_pos=0
+        while IFS='|' read -r owner perms size date time filename; do
+            [[ -z "$owner" || -z "$perms" || -z "$size" || -z "$date" || -z "$time" ]] && continue
+            (( meta_pos >= ${#item_indices[@]} )) && break
+            idx=${item_indices[$meta_pos]}
+            metadata[$idx]="${owner}|${perms}|${size}|${date} ${time}"
+            metadata_hydrated[$idx]=1
+            ((meta_pos++))
+        done < <(LC_TIME=C stat -f '%Su|%Sp|%z|%Sm|%N' -t '%Y-%m-%d|%H:%M' -- "${clean_items[@]}" 2>/dev/null)
+    else
+        meta_pos=0
+        while IFS='|' read -r perms owner size date time filename; do
+            [[ -z "$owner" || -z "$perms" || -z "$size" || -z "$date" || -z "$time" ]] && continue
+            (( meta_pos >= ${#item_indices[@]} )) && break
+            idx=${item_indices[$meta_pos]}
+            metadata[$idx]="${owner}|${perms}|${size}|${date} ${time}"
+            metadata_hydrated[$idx]=1
+            ((meta_pos++))
+        done < <(LC_TIME=C "$LS_CMD" -ldh --time-style=long-iso -- "${clean_items[@]}" 2>/dev/null | awk '{
+            perms=$1; owner=$3; size=$5; date=$6; time=$7
+            printf "%s|%s|%s|%s|%s|_\n", perms, owner, size, date, time
+        }')
+    fi
+
+    for (( ; meta_pos < ${#item_indices[@]}; meta_pos++ )); do
+        idx=${item_indices[$meta_pos]}
+        [[ -n "${metadata_hydrated[$idx]+x}" ]] && continue
+        metadata[$idx]="$DEFAULT_META"
+        metadata_hydrated[$idx]=1
+    done
 }
 
 format_bytes_human() {
@@ -837,28 +877,42 @@ format_bytes_human() {
 
 get_item_size_bytes() {
     local item="$1"
+    local abs_item="$PWD/$item"
+    local mtime bytes fs_type
+
     [[ -e "$item" || -L "$item" ]] || { printf "0"; return; }
+
+    mtime=$(stat $STAT_FMT_MTIME -- "$item" 2>/dev/null || echo 0)
+    if [[ "${dust_size_cache_mtime[$abs_item]-}" == "$mtime" && -n "${dust_size_cache_bytes[$abs_item]-}" ]]; then
+        printf "%s" "${dust_size_cache_bytes[$abs_item]}"
+        return
+    fi
 
     if [[ -d "$item" && ! -L "$item" ]]; then
         if [[ "$OS_NAME" != "Darwin" ]]; then
-            local fs_type
             fs_type=$(stat -f -c %T -- "$item" 2>/dev/null)
             case "$fs_type" in
                 proc|sysfs|devtmpfs|devpts|tmpfs|cgroup|cgroup2fs|mqueue|bpf|tracefs|debugfs|configfs|securityfs|fusectl|pstore|efivarfs|autofs)
-                    stat $STAT_FMT_SIZE -- "$item" 2>/dev/null || printf "0"
-                    return
+                    bytes=$(stat $STAT_FMT_SIZE -- "$item" 2>/dev/null || echo 0)
                     ;;
             esac
         fi
 
-        if [[ "$OS_NAME" == "Darwin" ]]; then
-            du -sk -- "$item" 2>/dev/null | awk '{print $1 * 1024}'
-        else
-            du -sb --apparent-size -- "$item" 2>/dev/null | awk '{print $1}'
+        if [[ -z "${bytes:-}" ]]; then
+            if [[ "$OS_NAME" == "Darwin" ]]; then
+                bytes=$(du -sk -- "$item" 2>/dev/null | awk '{print $1 * 1024}')
+            else
+                bytes=$(du -sb --apparent-size -- "$item" 2>/dev/null | awk '{print $1}')
+            fi
         fi
     else
-        stat $STAT_FMT_SIZE -- "$item" 2>/dev/null || printf "0"
+        bytes=$(stat $STAT_FMT_SIZE -- "$item" 2>/dev/null || echo 0)
     fi
+
+    [[ "$bytes" =~ ^[0-9]+$ ]] || bytes=0
+    dust_size_cache_mtime["$abs_item"]="$mtime"
+    dust_size_cache_bytes["$abs_item"]="$bytes"
+    printf "%s" "$bytes"
 }
 
 update_dust_sizes() {
@@ -900,6 +954,9 @@ update_files() {
     files=()
     metadata=()
     file_icons=()
+    metadata_hydrated=()
+    sort_mtime_cache=()
+    sort_size_cache=()
     update_git_header_suffix
     mapfile -t files < <(list_entries)
     sort_files_by_mode
@@ -907,8 +964,6 @@ update_files() {
         files=("(Empty Directory)")
         metadata=("$DEFAULT_META")
         file_icons=("$ICON_DIR")
-    else
-        populate_display_data_bulk
     fi
     update_dust_sizes
     (( cursor > ${#files[@]} )) && cursor=${#files[@]}
@@ -959,7 +1014,8 @@ draw_line() {
     local f_name clean_name display_name full_display_name file_icon file_icon_raw meta owner_display sel_mark m_owner m_perms m_size m_mod
     local dust_size="" dust_percent=""
     local expanded_width show_expanded_name=0 extra_cols
-    # ensure_row_data "$idx"
+    hydrate_visible_metadata "$idx" "$idx"
+    ensure_row_data "$idx"
     f_name="${files[$idx]}"
     clean_name=$(strip_ls_suffix "$f_name")
     display_name="${f_name:0:NAME_COL_WIDTH}"
@@ -1059,6 +1115,8 @@ draw_ui() {
     local sel_progress sort_display fixed_display dust_total_segment="" header_prefix header_path header_value header_display
     local buffer=""
 
+    hydrate_visible_metadata "$scroll_offset" "$((scroll_offset + max_rows - 1))"
+
     buffer+=$'\e[H\e[?25l'
     if (( !rows_only )); then
         buffer+=$'\e[1;1H\e[K'
@@ -1070,11 +1128,11 @@ draw_ui() {
             local header_path_only="${header_display%"$GIT_HEADER_SUFFIX"}"
             local header_git_suffix="$GIT_HEADER_SUFFIX"
             # Keep dirty marker visible even with darker git suffix color.
-            [[ "$header_git_suffix" == *"*)" ]] && header_git_suffix="${header_git_suffix/%\*)/${YELLOW}*${STATUS_LABEL})}"
+            [[ "$header_git_suffix" == *"*)" ]] && header_git_suffix="${header_git_suffix/%\*)/${STATUS_VALUE}*${STATUS_LABEL})}"
             buffer+=$(printf "%b%b%b%b\n" "${STATUS_LABEL}${header_prefix}${NC}" "${STATUS_VALUE}${header_path_only}" "${STATUS_LABEL}${header_git_suffix}" "${NC}")
         else
             # Fallback for truncated paths where suffix detection is ambiguous.
-            [[ "$header_display" == *"*)" ]] && header_display="${header_display/%\*)/${YELLOW}*${STATUS_VALUE})}"
+            [[ "$header_display" == *"*)" ]] && header_display="${header_display/%\*)/${STATUS_VALUE}*${STATUS_VALUE})}"
             buffer+=$(printf "%b%b%b\n" "${STATUS_LABEL}${header_prefix}${NC}" "${STATUS_VALUE}${header_display}" "${NC}")
         fi
         buffer+=$'\e[2;1H'
@@ -1315,7 +1373,6 @@ preview_audio_in_terminal() {
     wait "$sox_pid" 2>/dev/null || true
     restore_browser_ui
 }
-open_file() { local item="$1"; if command -v chafa &>/dev/null && [[ "$item" =~ \.(jpg|jpeg|png|gif|bmp|webp|tiff|ico)$ ]]; then preview_image_in_terminal "$item"; else open_external "$item"; fi; }
 open_with_less() { local item="$1"; [[ -f "$item" ]] || return; run_interactive_command less -- "$item"; }
 AGE_PREVIEW_TMP_FILE=""
 AGE_PREVIEW_TMP_DIR=""
@@ -2821,6 +2878,22 @@ download_from_url() {
 move_clipboard_item() { [[ -z "$CLIPBOARD_PATH" ]] && { redraw_cursor; return; }; local dest="$CLIPBOARD_NAME"; [[ -e "$dest" ]] && { echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -i "$dest" -p "Move as: " dest; stty -echo cbreak -ixon intr undef; echo -ne "\033[?25l"; }; [[ -z "$dest" ]] && { redraw_cursor; return; }; mv -- "$CLIPBOARD_PATH" "$dest" 2>/dev/null && { CLIPBOARD_PATH=""; CLIPBOARD_NAME=""; update_files; draw_ui; } || redraw_cursor; }
 toggle_selection() { local idx=$(( cursor - 1 )); local item; item=$(get_item); [[ -z "$item" || "$item" == "(Empty Directory)" ]] && return; if [[ -n "${selected[$idx]+x}" ]]; then unset 'selected[$idx]'; else selected[$idx]=1; fi; }
 clear_selection() { selected=(); }
+COLLECTED_ITEMS=()
+collect_selected_items() {
+    local include_abs="${1:-0}"
+    local idx clean_item
+
+    COLLECTED_ITEMS=()
+    for idx in "${!selected[@]}"; do
+        clean_item=$(strip_ls_suffix "${files[$idx]}")
+        [[ -n "$clean_item" && "$clean_item" != "(Empty Directory)" ]] || continue
+        if (( include_abs )); then
+            COLLECTED_ITEMS+=("$PWD/$clean_item")
+        else
+            COLLECTED_ITEMS+=("$clean_item")
+        fi
+    done
+}
 toggle_select_all() {
     local total=${#files[@]}
     local all_selected=1
@@ -2839,9 +2912,9 @@ toggle_select_all() {
 }
 toggle_executable() { local item="$1"; [[ -z "$item" || "$item" == "(Empty Directory)" ]] && return; if [[ -x "$item" ]]; then chmod a-x -- "$item" 2>/dev/null; else chmod u+x -- "$item" 2>/dev/null; fi; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui; }
 delete_item() { local item="$1"; [[ -z "$item" || "$item" == "(Empty Directory)" ]] && return; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -r -p "Delete '$item'? [y/N]: " confirm; stty -echo cbreak -ixon intr undef; echo -ne "\033[?25l"; get_terminal_size; printf "\033[2J\033[H"; if [[ "$confirm" =~ ^[Yy]$ ]]; then rm -rf -- "$item" 2>/dev/null; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; fi; draw_ui; }
-delete_selected() { local -a items=(); for idx in "${!selected[@]}"; do local f="${files[$idx]}"; local last="${f: -1}"; case "$last" in '/'|'@'|'*'|'|'|'='|'>') f="${f:0:${#f}-1}" ;; esac; [[ -n "$f" && "$f" != "(Empty Directory)" ]] && items+=("$f"); done; [[ ${#items[@]} -eq 0 ]] && return; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -r -p "Delete ${#items[@]} selected item(s)? [y/N]: " confirm; stty -echo cbreak -ixon intr undef; echo -ne "\033[?25l"; get_terminal_size; printf "\033[2J\033[H"; if [[ "$confirm" =~ ^[Yy]$ ]]; then for f in "${items[@]}"; do rm -rf -- "$f" 2>/dev/null; done; clear_selection; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; fi; draw_ui; }
-copy_selected() { local -a items=(); for idx in "${!selected[@]}"; do local f="${files[$idx]}"; local last="${f: -1}"; case "$last" in '/'|'@'|'*'|'|'|'='|'>') f="${f:0:${#f}-1}" ;; esac; [[ -n "$f" && "$f" != "(Empty Directory)" ]] && items+=("$(pwd)/$f"); done; [[ ${#items[@]} -eq 0 ]] && return; CLIPBOARD_MULTI=("${items[@]}"); CLIPBOARD_PATH=""; CLIPBOARD_NAME="${#items[@]} items"; redraw_cursor; }
-move_selected() { local -a items=(); for idx in "${!selected[@]}"; do local f="${files[$idx]}"; local last="${f: -1}"; case "$last" in '/'|'@'|'*'|'|'|'='|'>') f="${f:0:${#f}-1}" ;; esac; [[ -n "$f" && "$f" != "(Empty Directory)" ]] && items+=("$(pwd)/$f"); done; [[ ${#items[@]} -eq 0 ]] && return; CLIPBOARD_MULTI=("${items[@]}"); CLIPBOARD_MOVE=1; CLIPBOARD_PATH=""; CLIPBOARD_NAME="${#items[@]} items"; redraw_cursor; }
+delete_selected() { local -a items=(); collect_selected_items 0; items=("${COLLECTED_ITEMS[@]}"); [[ ${#items[@]} -eq 0 ]] && return; echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -r -p "Delete ${#items[@]} selected item(s)? [y/N]: " confirm; stty -echo cbreak -ixon intr undef; echo -ne "\033[?25l"; get_terminal_size; printf "\033[2J\033[H"; if [[ "$confirm" =~ ^[Yy]$ ]]; then for f in "${items[@]}"; do rm -rf -- "$f" 2>/dev/null; done; clear_selection; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; fi; draw_ui; }
+copy_selected() { local -a items=(); collect_selected_items 1; items=("${COLLECTED_ITEMS[@]}"); [[ ${#items[@]} -eq 0 ]] && return; CLIPBOARD_MULTI=("${items[@]}"); CLIPBOARD_PATH=""; CLIPBOARD_NAME="${#items[@]} items"; redraw_cursor; }
+move_selected() { local -a items=(); collect_selected_items 1; items=("${COLLECTED_ITEMS[@]}"); [[ ${#items[@]} -eq 0 ]] && return; CLIPBOARD_MULTI=("${items[@]}"); CLIPBOARD_MOVE=1; CLIPBOARD_PATH=""; CLIPBOARD_NAME="${#items[@]} items"; redraw_cursor; }
 compare_selected_with_delta() {
     command -v delta &>/dev/null || {
         printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}git-delta is not installed.${NC}"
@@ -2881,7 +2954,7 @@ compare_selected_with_delta() {
     # Use explicit width because piped delta output may not auto-detect terminal columns.
     run_interactive_command bash -lc 'diff -u -- "$1" "$2" | delta --side-by-side --width="$3" --paging=never | less -RS' _ "${items[0]}" "${items[1]}" "$term_cols"
 }
-copy_paths_to_system_clipboard() { local -a items=(); if (( ${#selected[@]} > 0 )); then for idx in "${!selected[@]}"; do local f="${files[$idx]}"; local last="${f: -1}"; case "$last" in '/'|'@'|'*'|'|'|'='|'>') f="${f:0:${#f}-1}" ;; esac; [[ -n "$f" && "$f" != "(Empty Directory)" ]] && items+=("$(pwd)/$f"); done; else local item; item=$(get_item); if [[ -n "$item" && "$item" != "(Empty Directory)" ]]; then items+=("$(pwd)/$item"); else items+=("$(pwd)"); fi; fi; (( ${#items[@]} > 0 )) || return 1; local payload; payload=$(printf "%s\n" "${items[@]}"); if command -v wl-copy &>/dev/null; then printf "%s" "$payload" | wl-copy; elif command -v xclip &>/dev/null; then printf "%s" "$payload" | xclip -selection clipboard; elif command -v xsel &>/dev/null; then printf "%s" "$payload" | xsel --clipboard --input; elif command -v pbcopy &>/dev/null; then printf "%s" "$payload" | pbcopy; else return 2; fi; return 0; }
+copy_paths_to_system_clipboard() { local -a items=(); if (( ${#selected[@]} > 0 )); then collect_selected_items 1; items=("${COLLECTED_ITEMS[@]}"); else local item; item=$(get_item); if [[ -n "$item" && "$item" != "(Empty Directory)" ]]; then items+=("$(pwd)/$item"); else items+=("$(pwd)"); fi; fi; (( ${#items[@]} > 0 )) || return 1; local payload; payload=$(printf "%s\n" "${items[@]}"); if command -v wl-copy &>/dev/null; then printf "%s" "$payload" | wl-copy; elif command -v xclip &>/dev/null; then printf "%s" "$payload" | xclip -selection clipboard; elif command -v xsel &>/dev/null; then printf "%s" "$payload" | xsel --clipboard --input; elif command -v pbcopy &>/dev/null; then printf "%s" "$payload" | pbcopy; else return 2; fi; return 0; }
 
 string_to_clipboard() {
     local str="$1"
@@ -3028,10 +3101,10 @@ case "$key" in
 "$KEY_COPY_ABSOLUTE") if [[ -n "$LAST_UPLOAD_URL" ]]; then if string_to_clipboard "$LAST_UPLOAD_URL"; then printf "\033[$((max_rows + 3));1H\033[K%b" "${GREEN}Upload URL copied to clipboard${NC}"; else printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}No clipboard tool found.${NC}"; fi; else if copy_paths_to_system_clipboard; then printf "\033[$((max_rows + 3));1H\033[K%b" "${GREEN}Copied absolute path(s) to system clipboard.${NC}"; else rc=$?; if (( rc == 2 )); then printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}No clipboard tool found. Install wl-clipboard, xclip, or xsel.${NC}"; else printf "\033[$((max_rows + 3));1H\033[K%b" "${AMBER}Nothing to copy.${NC}"; fi; fi; fi; redraw_cursor ;;
 "$KEY_COMPARE_DELTA") compare_selected_with_delta ;;
 "$KEY_PASTE") if (( ${#CLIPBOARD_MULTI[@]} > 0 )); then echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -r -p "Paste ${#CLIPBOARD_MULTI[@]} item(s) here? [y/N]: " confirm; stty -echo cbreak -ixon intr undef; echo -ne "\033[?25l"; if [[ "$confirm" =~ ^[Yy]$ ]]; then for src in "${CLIPBOARD_MULTI[@]}"; do bname=$(basename "$src"); dest="$bname"; if [[ -e "$dest" ]]; then echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -i "$dest" -p "Paste '$bname' as: " dest; stty -echo cbreak -ixon intr undef; echo -ne "\033[?25l"; fi; if (( CLIPBOARD_MOVE )); then mv -- "$src" "$dest" 2>/dev/null; else cp -r -- "$src" "$dest" 2>/dev/null; fi; done; if (( CLIPBOARD_MOVE )); then CLIPBOARD_MULTI=(); CLIPBOARD_MOVE=0; CLIPBOARD_NAME=""; clear_selection; fi; update_files; draw_ui; fi; elif [[ -n "$CLIPBOARD_PATH" ]]; then dest="$CLIPBOARD_NAME"; [[ -e "$dest" ]] && { echo -ne "\033[?25h"; printf "\033[$((max_rows + 3));1H\033[K"; stty echo; read -e -i "$dest" -p "New name: " dest; stty -echo cbreak -ixon intr undef; echo -ne "\033[?25l"; }; cp -r "$CLIPBOARD_PATH" "$dest" 2>/dev/null && { update_files; draw_ui; }; fi ;;
-"$KEY_SORT_NAME") SORT_MODE="name"; SORT_NAME_DESC=$((1 - SORT_NAME_DESC)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
-"$KEY_SORT_DATE") SORT_MODE="date"; SORT_DATE_DESC=$((1 - SORT_DATE_DESC)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
-"$KEY_SORT_SIZE") SORT_MODE="size"; SORT_SIZE_DESC=$((1 - SORT_SIZE_DESC)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
-"$KEY_SORT_EXT") SORT_MODE="ext"; SORT_EXT_DESC=$((1 - SORT_EXT_DESC)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
+"$KEY_SORT_NAME") SORT_ACTIVE=1; SORT_MODE="name"; SORT_NAME_DESC=$((1 - SORT_NAME_DESC)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
+"$KEY_SORT_DATE") SORT_ACTIVE=1; SORT_MODE="date"; SORT_DATE_DESC=$((1 - SORT_DATE_DESC)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
+"$KEY_SORT_SIZE") SORT_ACTIVE=1; SORT_MODE="size"; SORT_SIZE_DESC=$((1 - SORT_SIZE_DESC)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
+"$KEY_SORT_EXT") SORT_ACTIVE=1; SORT_MODE="ext"; SORT_EXT_DESC=$((1 - SORT_EXT_DESC)); clear_selection; show_loading_status; update_files; (( cursor > ${#files[@]} )) && cursor=${#files[@]}; (( cursor < 1 )) && cursor=1; draw_ui ;;
 "$KEY_MOVE") if (( ${#selected[@]} > 0 )); then move_selected; else move_clipboard_item; fi ;;
 "$KEY_LESS") item=$(get_item); if [[ -f "$item" && "${item,,}" == *.age ]]; then open_protected_file_with_less "$item"; else open_with_less "$item"; fi ;;
 "$KEY_EDIT") item=$(get_item); if [[ -f "$item" && "${item,,}" == *.age ]]; then open_protected_file_with_editor "$item"; else open_in_editor "$item"; fi ;;
