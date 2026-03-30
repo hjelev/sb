@@ -19,6 +19,10 @@
     KEY_TOGGLE_HIDDEN="${LSY_KEY_TOGGLE_HIDDEN:-.}"
     KEY_TOGGLE_SOURCE="${LSY_KEY_TOGGLE_SOURCE:-R}"
     KEY_INTEGRATIONS="${LSY_KEY_INTEGRATIONS:-i}"
+    KEY_HELP="${LSY_KEY_HELP:-h}"
+    KEY_OPEN_LESS="${LSY_KEY_OPEN_LESS:-l}"
+    KEY_OPEN_GUI="${LSY_KEY_OPEN_GUI:-o}"
+    KEY_HOME_DIR="${LSY_KEY_HOME_DIR:-~}"
     LSY_DEBUG_SOURCE="${LSY_DEBUG_SOURCE:-1}"
     LSY_DEBUG_SHOW_CMD="${LSY_DEBUG_SHOW_CMD:-0}"
     LIST_SOURCE="${LSY_LIST_SOURCE:-}"   # empty = auto-select best available in detect_sources()
@@ -191,101 +195,145 @@ EOF
       fi
     }
 
+    lsd_blocks_with_required_date() {
+      local blocks="$1"
+      local out=()
+      local part
+      local has_date=0
+      local has_name=0
+
+      IFS=',' read -r -a out <<< "$blocks"
+      for part in "${out[@]}"; do
+        [[ "$part" == "date" ]] && has_date=1
+        [[ "$part" == "name" ]] && has_name=1
+      done
+
+      (( has_date )) || out+=(date)
+      (( has_name )) || out+=(name)
+
+      local joined=""
+      for part in "${out[@]}"; do
+        [[ -n "$joined" ]] && joined+=","
+        joined+="$part"
+      done
+      printf '%s' "$joined"
+    }
+
     capture_directory_rows() {
       local requested_source="${1:-$LIST_SOURCE}"
+      local source="$LIST_SOURCE"
+      local output=""
+
       LAST_SOURCE_REQUESTED="$requested_source"
       LAST_SOURCE_FALLBACK=0
       LAST_SOURCE_FALLBACK_TO="-"
 
-      case "$LIST_SOURCE" in
-        ls)
-          local -a ls_args=()
-          ls_args=(-lh --group-directories-first --time-style=long-iso --quoting-style=literal)
-          (( show_hidden )) && ls_args+=(-A)
-          LAST_SOURCE_EXECUTED="ls"
-          LAST_SOURCE_ARGS="ls ${ls_args[*]} --color=always"
-          LC_ALL=C ls "${ls_args[@]}" --color=always 2>/dev/null | sed '1{/^total /d;}'
-          LAST_SOURCE_RC=$?
-          return "$LAST_SOURCE_RC"
-          ;;
-        eza)
-          if (( !HAS_EZA )); then
+      while true; do
+        case "$source" in
+          ls)
+            local -a ls_args=()
+            ls_args=(-lh --group-directories-first --time-style=long-iso --quoting-style=literal)
+            (( show_hidden )) && ls_args+=(-A)
+            LAST_SOURCE_EXECUTED="ls"
+            LAST_SOURCE_ARGS="ls ${ls_args[*]} --color=always"
+            if output="$(LC_ALL=C ls "${ls_args[@]}" --color=always 2>/dev/null | sed '1{/^total /d;}')"; then
+              LAST_SOURCE_RC=0
+              LIST_SOURCE="ls"
+              break
+            fi
+            LAST_SOURCE_RC=$?
+            ROWS_COLOR=()
+            return "$LAST_SOURCE_RC"
+            ;;
+          eza)
+            if (( !HAS_EZA )); then
+              LAST_SOURCE_EXECUTED="eza"
+              LAST_SOURCE_RC=127
+              LAST_SOURCE_FALLBACK=1
+              (( HAS_LSD )) && LAST_SOURCE_FALLBACK_TO=lsd || LAST_SOURCE_FALLBACK_TO=ls
+              source="$LAST_SOURCE_FALLBACK_TO"
+              LIST_SOURCE="$source"
+              continue
+            fi
+
+            local -a eza_args=() eza_extra_args=()
+            eza_args=(--long --modified --group-directories-first --time-style=long-iso --icons="$LSY_EZA_ICONS" --color="$LSY_EZA_COLOR")
+            case "$LSY_EZA_HYPERLINK" in
+              1|on|true|yes|always|auto)
+                eza_args+=(--hyperlink)
+                ;;
+            esac
+            [[ -n "$LSY_EZA_COLOR_SCALE" ]] && eza_args+=(--color-scale="$LSY_EZA_COLOR_SCALE")
+            [[ -n "$LSY_EZA_COLOR_SCALE_MODE" ]] && eza_args+=(--color-scale-mode="$LSY_EZA_COLOR_SCALE_MODE")
+            [[ "$LSY_EZA_SHOW_LINKS" == "1" ]] && eza_args+=(--links)
+            [[ "$LSY_EZA_SHOW_GROUP" == "1" ]] && eza_args+=(--group)
+            [[ "$LSY_EZA_NO_QUOTES" == "1" ]] && eza_args+=(--no-quotes)
+            if [[ -n "$LSY_EZA_EXTRA_ARGS" ]]; then
+              read -r -a eza_extra_args <<< "$LSY_EZA_EXTRA_ARGS"
+              eza_args+=("${eza_extra_args[@]}")
+            fi
+            (( show_hidden )) && eza_args+=(--almost-all)
             LAST_SOURCE_EXECUTED="eza"
-            LAST_SOURCE_RC=127
+            LAST_SOURCE_ARGS="eza ${eza_args[*]}"
+            if output="$(eza "${eza_args[@]}" 2>/dev/null)"; then
+              LAST_SOURCE_RC=0
+              LIST_SOURCE="eza"
+              break
+            fi
+            LAST_SOURCE_RC=$?
             LAST_SOURCE_FALLBACK=1
             (( HAS_LSD )) && LAST_SOURCE_FALLBACK_TO=lsd || LAST_SOURCE_FALLBACK_TO=ls
-            LIST_SOURCE="$LAST_SOURCE_FALLBACK_TO"
-            capture_directory_rows "$requested_source"
-            return
-          fi
+            source="$LAST_SOURCE_FALLBACK_TO"
+            LIST_SOURCE="$source"
+            ;;
+          lsd)
+            if (( !HAS_LSD )); then
+              LAST_SOURCE_EXECUTED="lsd"
+              LAST_SOURCE_RC=127
+              LAST_SOURCE_FALLBACK=1
+              (( HAS_EZA )) && LAST_SOURCE_FALLBACK_TO=eza || LAST_SOURCE_FALLBACK_TO=ls
+              source="$LAST_SOURCE_FALLBACK_TO"
+              LIST_SOURCE="$source"
+              continue
+            fi
 
-          local -a eza_args=() eza_extra_args=()
-          eza_args=(-l --group-directories-first --time-style=long-iso --icons="$LSY_EZA_ICONS" --color="$LSY_EZA_COLOR")
-          case "$LSY_EZA_HYPERLINK" in
-            1|on|true|yes|always|auto)
-              eza_args+=(--hyperlink)
-              ;;
-          esac
-          [[ -n "$LSY_EZA_COLOR_SCALE" ]] && eza_args+=(--color-scale="$LSY_EZA_COLOR_SCALE")
-          [[ -n "$LSY_EZA_COLOR_SCALE_MODE" ]] && eza_args+=(--color-scale-mode="$LSY_EZA_COLOR_SCALE_MODE")
-          [[ "$LSY_EZA_SHOW_LINKS" == "1" ]] && eza_args+=(--links)
-          [[ "$LSY_EZA_SHOW_GROUP" == "1" ]] && eza_args+=(--group)
-          [[ "$LSY_EZA_NO_QUOTES" == "1" ]] && eza_args+=(--no-quotes)
-          if [[ -n "$LSY_EZA_EXTRA_ARGS" ]]; then
-            read -r -a eza_extra_args <<< "$LSY_EZA_EXTRA_ARGS"
-            eza_args+=("${eza_extra_args[@]}")
-          fi
-          (( show_hidden )) && eza_args+=(--almost-all)
-          LAST_SOURCE_EXECUTED="eza"
-          LAST_SOURCE_ARGS="eza ${eza_args[*]}"
-          eza "${eza_args[@]}" 2>/dev/null
-          LAST_SOURCE_RC=$?
-          if (( LAST_SOURCE_RC != 0 )); then
-            LAST_SOURCE_FALLBACK=1
-            (( HAS_LSD )) && LAST_SOURCE_FALLBACK_TO=lsd || LAST_SOURCE_FALLBACK_TO=ls
-            LIST_SOURCE="$LAST_SOURCE_FALLBACK_TO"
-            capture_directory_rows "$requested_source"
-            return
-          fi
-          return 0
-          ;;
-        lsd)
-          if (( !HAS_LSD )); then
+            local -a lsd_args=() lsd_extra_args=()
+            local lsd_blocks
+            lsd_blocks="$(lsd_blocks_with_required_date "$LSY_LSD_BLOCKS")"
+            lsd_args=(-lh --group-dirs first --date '+%F %R' --blocks "$lsd_blocks" --icon "$LSY_LSD_ICONS" --icon-theme "$LSY_LSD_ICON_THEME" --color "$LSY_LSD_COLOR" --hyperlink "$LSY_LSD_HYPERLINK")
+            if [[ -n "$LSY_LSD_EXTRA_ARGS" ]]; then
+              read -r -a lsd_extra_args <<< "$LSY_LSD_EXTRA_ARGS"
+              lsd_args+=("${lsd_extra_args[@]}")
+            fi
+            (( show_hidden )) && lsd_args+=(-A)
             LAST_SOURCE_EXECUTED="lsd"
-            LAST_SOURCE_RC=127
+            LAST_SOURCE_ARGS="lsd ${lsd_args[*]}"
+            if output="$(lsd "${lsd_args[@]}" 2>/dev/null)"; then
+              LAST_SOURCE_RC=0
+              LIST_SOURCE="lsd"
+              break
+            fi
+            LAST_SOURCE_RC=$?
             LAST_SOURCE_FALLBACK=1
             (( HAS_EZA )) && LAST_SOURCE_FALLBACK_TO=eza || LAST_SOURCE_FALLBACK_TO=ls
-            LIST_SOURCE="$LAST_SOURCE_FALLBACK_TO"
-            capture_directory_rows "$requested_source"
-            return
-          fi
+            source="$LAST_SOURCE_FALLBACK_TO"
+            LIST_SOURCE="$source"
+            ;;
+          *)
+            LAST_SOURCE_EXECUTED="$source"
+            LAST_SOURCE_RC=1
+            ROWS_COLOR=()
+            return 1
+            ;;
+        esac
+      done
 
-          local -a lsd_args=() lsd_extra_args=()
-            lsd_args=(-lh --group-dirs first --date '+%F %R' --blocks "$LSY_LSD_BLOCKS" --icon "$LSY_LSD_ICONS" --icon-theme "$LSY_LSD_ICON_THEME" --color "$LSY_LSD_COLOR" --hyperlink "$LSY_LSD_HYPERLINK")
-          if [[ -n "$LSY_LSD_EXTRA_ARGS" ]]; then
-            read -r -a lsd_extra_args <<< "$LSY_LSD_EXTRA_ARGS"
-            lsd_args+=("${lsd_extra_args[@]}")
-          fi
-          (( show_hidden )) && lsd_args+=(-A)
-          LAST_SOURCE_EXECUTED="lsd"
-          LAST_SOURCE_ARGS="lsd ${lsd_args[*]}"
-          lsd "${lsd_args[@]}" 2>/dev/null
-          LAST_SOURCE_RC=$?
-          if (( LAST_SOURCE_RC != 0 )); then
-            LAST_SOURCE_FALLBACK=1
-            (( HAS_EZA )) && LAST_SOURCE_FALLBACK_TO=eza || LAST_SOURCE_FALLBACK_TO=ls
-            LIST_SOURCE="$LAST_SOURCE_FALLBACK_TO"
-            capture_directory_rows "$requested_source"
-            return
-          fi
-          return 0
-          ;;
-        *)
-          LAST_SOURCE_EXECUTED="$LIST_SOURCE"
-          LAST_SOURCE_RC=1
-          return 1
-          ;;
-      esac
+      if [[ -n "$output" ]]; then
+        mapfile -t ROWS_COLOR <<< "$output"
+      else
+        ROWS_COLOR=()
+      fi
+      return 0
     }
 
     open_file_with_viewer() {
@@ -310,6 +358,26 @@ EOF
       esac
       return 0
     }
+
+    open_file_with_less() {
+      local item="$1"
+      command -v less >/dev/null 2>&1 || return 1
+      run_interactive_command less -- "$item"
+      return 0
+    }
+
+    open_file_with_gui() {
+      local item="$1"
+      if command -v xdg-open >/dev/null 2>&1; then
+        nohup xdg-open "$item" >/dev/null 2>&1 &
+      elif command -v gio >/dev/null 2>&1; then
+        nohup gio open "$item" >/dev/null 2>&1 &
+      else
+        return 1
+      fi
+      return 0
+    }
+
     # Reorder long-list rows to `name metadata...` using awk+column alignment.
     # Minimal modification: split on date-time anchor, reorder, let column handle alignment.
     format_name_first_aligned() {
@@ -321,7 +389,7 @@ EOF
         {
           if (match($0, dt)) {
             name = substr($0, RSTART + RLENGTH)
-            meta = substr($0, 1, RSTART - 1)
+            meta = substr($0, 1, RSTART + RLENGTH - 1)
             printf "%s\t%s\n", name, meta
           } else {
             print
@@ -337,7 +405,7 @@ EOF
       ROWS_PLAIN=()
 
       t0=$(date +%s%N)
-      mapfile -t ROWS_COLOR < <(capture_directory_rows)
+      capture_directory_rows || true
       t1=$(date +%s%N)
       LAST_LS_MS=$(( (t1 - t0) / 1000000 ))
       LAST_PARSE_MS=0
@@ -353,15 +421,16 @@ EOF
         return
       fi
 
-      # ROWS_PLAIN is needed by selected_path() so the date-anchor regex
-      # works on clean text, and by draw_row() to render the reverse-video
-      # selection highlight without embedded ANSI codes corrupting the output.
+      # Build plain rows once from raw renderer output.
       mapfile -t ROWS_PLAIN < <(printf '%s\n' "${ROWS_COLOR[@]}" | sed -E $'s/\x1B\[[0-9;]*m//g')
+
+      # Keep a stable plain array for path extraction before any display reformatting.
       ROWS_SELECT_PLAIN=("${ROWS_PLAIN[@]}")
 
       if (( NAME_FIRST_VIEW )); then
-        mapfile -t ROWS_PLAIN < <(printf '%s\n' "${ROWS_PLAIN[@]}" | format_name_first_aligned)
+        # Reformat only the display rows; selection rows stay in original capture order.
         mapfile -t ROWS_COLOR < <(printf '%s\n' "${ROWS_COLOR[@]}" | format_name_first_aligned)
+        mapfile -t ROWS_PLAIN < <(printf '%s\n' "${ROWS_COLOR[@]}" | sed -E $'s/\x1B\[[0-9;]*m//g')
       fi
       t2=$(date +%s%N)
       LAST_PARSE_MS=$(( (t2 - t1) / 1000000 ))
@@ -435,8 +504,11 @@ EOF
       fi
 
       # Keep footer anchored regardless of current cursor location.
+      # Disable autowrap for the status line so long text never scrolls the screen.
+      printf "\033[?7l"
       printf "\033[%d;1H\033[K" "$status_row"
-      printf "\033[2m[total: %d] renderer:%s layout:%s hidden:%s load:%dms (ls:%d parse:%d)%s | Up/Down PgUp/PgDn Home/End | %s source | %s hidden | %s reload | %s integrations | %s quit\033[0m\033[K" "$total" "$source_state" "$layout_state" "$hidden_state" "$LAST_LOAD_MS" "$LAST_LS_MS" "$LAST_PARSE_MS" "$debug_state" "$KEY_TOGGLE_SOURCE" "$KEY_TOGGLE_HIDDEN" "$KEY_RELOAD" "$KEY_INTEGRATIONS" "$KEY_QUIT"
+      printf "\033[2m[total: %d] renderer:%s layout:%s hidden:%s load:%dms (ls:%d parse:%d)%s | Up/Down PgUp/PgDn Home/End | Right smart-open | %s less | %s gui | %s source | %s hidden | %s reload | %s integrations | %s help | %s quit\033[0m\033[K" "$total" "$source_state" "$layout_state" "$hidden_state" "$LAST_LOAD_MS" "$LAST_LS_MS" "$LAST_PARSE_MS" "$debug_state" "$KEY_OPEN_LESS" "$KEY_OPEN_GUI" "$KEY_TOGGLE_SOURCE" "$KEY_TOGGLE_HIDDEN" "$KEY_RELOAD" "$KEY_INTEGRATIONS" "$KEY_HELP" "$KEY_QUIT"
+      printf "\033[?7h"
     }
 
     scroll_list_once() {
@@ -563,6 +635,26 @@ EOF
       return 0
     }
 
+    integration_version_label() {
+      local tool="$1"
+      local out version
+
+      case "$tool" in
+        eza)
+          out="$(eza -v 2>&1 || eza --version 2>&1 || true)"
+          version="$(printf '%s\n' "$out" | awk '/^v[0-9]/{print; exit}')"
+          if [[ -n "$version" ]]; then
+            printf 'eza %s' "$version"
+          else
+            printf '%s\n' "$out" | head -1
+          fi
+          ;;
+        *)
+          "$tool" --version 2>&1 | head -1
+          ;;
+      esac
+    }
+
     show_integrations() {
       # Each entry: role|tool|description|optional(1=toggleable, 0=required fallback)
       local -a int_entries=(
@@ -594,7 +686,7 @@ EOF
           int_version+=("built-in toggle")
         elif command -v "$_tool" >/dev/null 2>&1; then
           int_installed+=(1)
-          int_version+=("$("$_tool" --version 2>&1 | head -1)")
+          int_version+=("$(integration_version_label "$_tool")")
         else
           int_installed+=(0)
           int_version+=("not installed")
@@ -696,6 +788,25 @@ EOF
       draw_ui
     }
 
+    navigate_to_dir() {
+      local target="$1"
+      target="${target/#\~/$HOME}"
+      [[ -d "$target" ]] || return 1
+      cd -- "$target" 2>/dev/null || return 1
+      cursor=0
+      top=0
+      load_data
+      draw_ui
+    }
+
+    jump_to_bookmark() {
+      local key="$1"
+      local var_name="LSY_BOOKMARK_${key}"
+      local target="${!var_name-}"
+      [[ -z "$target" ]] && return
+      navigate_to_dir "$target"
+    }
+
     go_parent_dir() {
       [[ "$(pwd -P 2>/dev/null || pwd)" == "/" ]] && return 0
       cd .. 2>/dev/null || return 1
@@ -721,6 +832,24 @@ EOF
 
       [[ -f "$item" ]] || return 1
       open_file_with_viewer "$item" || return 1
+      draw_ui
+      return 0
+    }
+
+    open_selected_with_less() {
+      local item
+      item="$(selected_path)" || return 1
+      [[ -f "$item" ]] || return 1
+      open_file_with_less "$item" || return 1
+      draw_ui
+      return 0
+    }
+
+    open_selected_with_gui() {
+      local item
+      item="$(selected_path)" || return 1
+      [[ -e "$item" ]] || return 1
+      open_file_with_gui "$item" || return 1
       draw_ui
       return 0
     }
@@ -764,6 +893,122 @@ EOF
 
       current_index=$(( (current_index + 1) % ${#sources[@]} ))
       LIST_SOURCE="${sources[$current_index]}"
+    }
+
+    show_help() {
+      local _rows _cols divider left_width right_width total_width junction i
+      _rows=$(tput lines)
+      _cols=$(tput cols)
+      divider=" │ "
+      left_width=38
+      right_width=38
+      total_width=$(( left_width + ${#divider} + right_width ))
+      (( total_width > _cols )) && left_width=$(( (_cols - ${#divider}) / 2 )) && right_width=$(( _cols - left_width - ${#divider} )) && total_width=$_cols
+
+      printf "\033[H\033[2J"
+      printf "\033[1;36mlsy\033[0m  keyboard shortcuts\n"
+      junction=$(( left_width + 1 ))
+      for (( i=0; i<total_width; i++ )); do
+        if (( i == junction )); then printf "┬"; else printf "─"; fi
+      done
+      printf "\n"
+
+      # Compact fallback for very small terminals.
+      if (( _rows < 15 || _cols < 70 )); then
+        printf "\033[1;36mNavigation\033[0m  \033[1;33mUp/Down\033[0m move  \033[1;33mPgUp/PgDn\033[0m page  \033[1;33mHome/End\033[0m top/bottom\n"
+        printf "\033[1;36mDirectory\033[0m   \033[1;33mRight\033[0m enter/open  \033[1;33mLeft\033[0m parent dir\n"
+        printf "\033[1;36mFile\033[0m        \033[1;33m%s\033[0m less viewer  \033[1;33m%s\033[0m GUI opener\n" "$KEY_OPEN_LESS" "$KEY_OPEN_GUI"
+        printf "\033[1;36mView\033[0m        \033[1;33m%s\033[0m hidden  \033[1;33m%s\033[0m renderer  \033[1;33m%s\033[0m integrations\n" "$KEY_TOGGLE_HIDDEN" "$KEY_TOGGLE_SOURCE" "$KEY_INTEGRATIONS"
+        printf "\033[1;36mOther\033[0m       \033[1;33m%s\033[0m reload  \033[1;33m%s\033[0m help  \033[1;33m%s\033[0m quit\n\n" "$KEY_RELOAD" "$KEY_HELP" "$KEY_QUIT"
+        printf "\033[2mPress any key to return...\033[0m"
+        read_key >/dev/null || true
+        draw_ui
+        return
+      fi
+
+      local -a left_col=(
+        "Navigation"
+        "Up / Down    Move selection up / down"
+        "PgUp / PgDn  Jump by page"
+        "Home         Jump to top of list"
+        "End          Jump to bottom of list"
+        ""
+        "Directory"
+        "Right        Enter selected directory"
+        "Left         Go to parent directory"
+        ""
+        "File"
+        "Right        Open file with viewer"
+        "${KEY_OPEN_LESS}            Open selected file with less"
+        "${KEY_OPEN_GUI}            Open selected path in GUI app"
+        ""
+        "View"
+        "${KEY_TOGGLE_HIDDEN}            Toggle hidden files on/off"
+        "${KEY_TOGGLE_SOURCE}            Cycle list renderer (eza/lsd/ls)"
+        "${KEY_INTEGRATIONS}            Show integrations screen"
+      )
+
+      local -a right_col=(
+        "Shortcuts"
+        "${KEY_RELOAD}            Reload current directory"
+        "${KEY_HELP}            Show this help screen"
+        "${KEY_QUIT}            Quit lsy"
+        ""
+        "Renderers"
+        "eza          Rich metadata, icons, colors"
+        "lsd          Modern ls with icons"
+        "ls           Built-in POSIX fallback"
+        ""
+        "Layout"
+        "name-first   Toggle via integrations (${KEY_INTEGRATIONS})"
+        ""
+        "Env overrides"
+        "LSY_KEY_*    Override any key binding"
+        "LSY_EZA_*    Configure eza renderer"
+        "LSY_LSD_*    Configure lsd renderer"
+        ""
+        "Bookmarks"
+        "${KEY_HOME_DIR}            Go to home directory"
+        "1-9          Jump to bookmark (LSY_BOOKMARK_1..9)"
+        "LSY_BOOKMARK_*  Set bookmark paths in your shell profile"
+      )
+
+      _lsy_fmt_help_cell() {
+        local cell="$1"
+        local width="$2"
+        local key_col=12
+        (( width < 1 )) && return
+        if [[ -z "$cell" ]]; then
+          printf "%-*s" "$width" ""
+          return
+        fi
+        if [[ "$cell" != *"  "* ]]; then
+          printf "\033[1;36m%-*s\033[0m" "$width" "${cell:0:$width}"
+          return
+        fi
+        local key="${cell%%  *}"
+        local desc="${cell#"$key"}"
+        while [[ "$desc" == ' '* ]]; do desc="${desc# }"; done
+        local desc_col=$(( width - key_col - 2 ))
+        (( desc_col < 0 )) && desc_col=0
+        printf "\033[1;33m%-*s\033[0m  %-*s" "$key_col" "${key:0:$key_col}" "$desc_col" "${desc:0:$desc_col}"
+      }
+
+      local max_lines left_line right_line
+      max_lines=${#left_col[@]}
+      (( ${#right_col[@]} > max_lines )) && max_lines=${#right_col[@]}
+      for (( i=0; i<max_lines; i++ )); do
+        left_line="${left_col[$i]-}"
+        right_line="${right_col[$i]-}"
+        printf "%s%s%s\n" \
+          "$(_lsy_fmt_help_cell "${left_line:0:$left_width}" "$left_width")" \
+          "$divider" \
+          "$(_lsy_fmt_help_cell "${right_line:0:$right_width}" "$right_width")"
+      done
+
+      printf "\n\033[2mPress any key to return...\033[0m"
+      read_key >/dev/null || true
+      draw_ui
     }
 
     main() {
@@ -859,6 +1104,12 @@ EOF
           "$KEY_RIGHT")
             enter_or_open_selected || true
             ;;
+          "$KEY_OPEN_LESS")
+            open_selected_with_less || true
+            ;;
+          "$KEY_OPEN_GUI")
+            open_selected_with_gui || true
+            ;;
           "$KEY_HOME"|$'\e[1~')
             cursor=0
             top=0
@@ -867,6 +1118,9 @@ EOF
           "$KEY_INTEGRATIONS")
             show_integrations
             ;;
+          "$KEY_HELP")
+            show_help
+            ;;
           "$KEY_END"|$'\e[4~')
             if (( ${#ROWS_COLOR[@]} > 0 )); then
               cursor=$(( ${#ROWS_COLOR[@]} - 1 ))
@@ -874,6 +1128,12 @@ EOF
               (( top < 0 )) && top=0
             fi
             draw_ui
+            ;;
+          "$KEY_HOME_DIR")
+            navigate_to_dir "$HOME"
+            ;;
+          '1'|'2'|'3'|'4'|'5'|'6'|'7'|'8'|'9')
+            jump_to_bookmark "$key"
             ;;
         esac
       done
