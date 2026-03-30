@@ -19,13 +19,30 @@
     KEY_TOGGLE_HIDDEN="${LSY_KEY_TOGGLE_HIDDEN:-.}"
     KEY_TOGGLE_SOURCE="${LSY_KEY_TOGGLE_SOURCE:-R}"
     KEY_INTEGRATIONS="${LSY_KEY_INTEGRATIONS:-i}"
+    LSY_DEBUG_SOURCE="${LSY_DEBUG_SOURCE:-1}"
+    LSY_DEBUG_SHOW_CMD="${LSY_DEBUG_SHOW_CMD:-0}"
     LIST_SOURCE="${LSY_LIST_SOURCE:-}"   # empty = auto-select best available in detect_sources()
     FILE_VIEWER="${LSY_FILE_VIEWER:-}"   # empty = auto-select best available in detect_sources()
+    NAME_FIRST_VIEW="${LSY_NAME_FIRST_VIEW:-1}"
+    LSY_EZA_ICONS="${LSY_EZA_ICONS:-always}"
+    LSY_EZA_COLOR="${LSY_EZA_COLOR:-always}"
+    LSY_EZA_COLOR_SCALE="${LSY_EZA_COLOR_SCALE:-}"
+    LSY_EZA_COLOR_SCALE_MODE="${LSY_EZA_COLOR_SCALE_MODE:-}"
+    LSY_EZA_HYPERLINK="${LSY_EZA_HYPERLINK:-0}"
+    LSY_EZA_EXTRA_ARGS="${LSY_EZA_EXTRA_ARGS:-}"
+    LSY_EZA_SHOW_LINKS="${LSY_EZA_SHOW_LINKS:-0}"
+    LSY_EZA_SHOW_GROUP="${LSY_EZA_SHOW_GROUP:-0}"
+    LSY_EZA_NO_QUOTES="${LSY_EZA_NO_QUOTES:-1}"
     LSY_LSD_ICONS="${LSY_LSD_ICONS:-always}"
+    LSY_LSD_COLOR="${LSY_LSD_COLOR:-always}"
     LSY_LSD_ICON_THEME="${LSY_LSD_ICON_THEME:-}"  # empty = auto-select in detect_sources()
+    LSY_LSD_HYPERLINK="${LSY_LSD_HYPERLINK:-never}"
+    LSY_LSD_BLOCKS="${LSY_LSD_BLOCKS:-permission,user,group,size,date,name}"
+    LSY_LSD_EXTRA_ARGS="${LSY_LSD_EXTRA_ARGS:-}"
 
     declare -a ROWS_COLOR=()
     declare -a ROWS_PLAIN=()
+    declare -a ROWS_SELECT_PLAIN=()
     declare -A DISABLED_INTEGRATIONS=()
     EXPORT_FILE=""
 
@@ -35,6 +52,7 @@
     cols=0
     visible_rows=0
     show_hidden=0
+    HAS_EZA=0
     HAS_LSD=0
     HAS_BAT=0
     HAS_BATCAT=0
@@ -43,6 +61,12 @@
     LAST_LS_MS=0
     LAST_PARSE_MS=0
     ENTRY_COUNT=0
+    LAST_SOURCE_REQUESTED="-"
+    LAST_SOURCE_EXECUTED="-"
+    LAST_SOURCE_RC=0
+    LAST_SOURCE_FALLBACK=0
+    LAST_SOURCE_FALLBACK_TO="-"
+    LAST_SOURCE_ARGS="-"
 
     usage() {
       cat <<'EOF'
@@ -107,7 +131,13 @@ EOF
     }
 
     detect_sources() {
-      # Detect list source tools (prefer lsd > ls); respect user-disabled integrations.
+      # Detect list source tools (prefer eza > lsd > ls); respect user-disabled integrations.
+      if command -v eza >/dev/null 2>&1 && [[ -z "${DISABLED_INTEGRATIONS[eza]+x}" ]]; then
+        HAS_EZA=1
+      else
+        HAS_EZA=0
+      fi
+
       if command -v lsd >/dev/null 2>&1 && [[ -z "${DISABLED_INTEGRATIONS[lsd]+x}" ]]; then
         HAS_LSD=1
       else
@@ -115,12 +145,21 @@ EOF
       fi
 
       if [[ -z "$LIST_SOURCE" ]]; then
-        (( HAS_LSD )) && LIST_SOURCE=lsd || LIST_SOURCE=ls
+        if (( HAS_EZA )); then
+          LIST_SOURCE=eza
+        elif (( HAS_LSD )); then
+          LIST_SOURCE=lsd
+        else
+          LIST_SOURCE=ls
+        fi
       else
         case "$LIST_SOURCE" in
-          ls|lsd) ;;
+          ls|lsd|eza) ;;
           *) LIST_SOURCE=ls ;;
         esac
+        if [[ "$LIST_SOURCE" == "eza" ]] && (( !HAS_EZA )); then
+          (( HAS_LSD )) && LIST_SOURCE=lsd || LIST_SOURCE=ls
+        fi
         [[ "$LIST_SOURCE" == "lsd" ]] && (( !HAS_LSD )) && LIST_SOURCE=ls
       fi
 
@@ -153,30 +192,97 @@ EOF
     }
 
     capture_directory_rows() {
+      local requested_source="${1:-$LIST_SOURCE}"
+      LAST_SOURCE_REQUESTED="$requested_source"
+      LAST_SOURCE_FALLBACK=0
+      LAST_SOURCE_FALLBACK_TO="-"
+
       case "$LIST_SOURCE" in
         ls)
           local -a ls_args=()
           ls_args=(-lh --group-directories-first --time-style=long-iso --quoting-style=literal)
           (( show_hidden )) && ls_args+=(-A)
+          LAST_SOURCE_EXECUTED="ls"
+          LAST_SOURCE_ARGS="ls ${ls_args[*]} --color=always"
           LC_ALL=C ls "${ls_args[@]}" --color=always 2>/dev/null | sed '1{/^total /d;}'
+          LAST_SOURCE_RC=$?
+          return "$LAST_SOURCE_RC"
           ;;
-        lsd)
-          if (( !HAS_LSD )); then
-            LIST_SOURCE=ls
-            capture_directory_rows
+        eza)
+          if (( !HAS_EZA )); then
+            LAST_SOURCE_EXECUTED="eza"
+            LAST_SOURCE_RC=127
+            LAST_SOURCE_FALLBACK=1
+            (( HAS_LSD )) && LAST_SOURCE_FALLBACK_TO=lsd || LAST_SOURCE_FALLBACK_TO=ls
+            LIST_SOURCE="$LAST_SOURCE_FALLBACK_TO"
+            capture_directory_rows "$requested_source"
             return
           fi
 
-          local -a lsd_args=()
-          lsd_args=(-lh --group-dirs first --date '+%F %R' --icon "$LSY_LSD_ICONS" --icon-theme "$LSY_LSD_ICON_THEME" --color always)
-          (( show_hidden )) && lsd_args+=(-A)
-          if ! LC_ALL=C lsd "${lsd_args[@]}" 2>/dev/null; then
-            LIST_SOURCE=ls
-            capture_directory_rows
+          local -a eza_args=() eza_extra_args=()
+          eza_args=(-l --group-directories-first --time-style=long-iso --icons="$LSY_EZA_ICONS" --color="$LSY_EZA_COLOR")
+          case "$LSY_EZA_HYPERLINK" in
+            1|on|true|yes|always|auto)
+              eza_args+=(--hyperlink)
+              ;;
+          esac
+          [[ -n "$LSY_EZA_COLOR_SCALE" ]] && eza_args+=(--color-scale="$LSY_EZA_COLOR_SCALE")
+          [[ -n "$LSY_EZA_COLOR_SCALE_MODE" ]] && eza_args+=(--color-scale-mode="$LSY_EZA_COLOR_SCALE_MODE")
+          [[ "$LSY_EZA_SHOW_LINKS" == "1" ]] && eza_args+=(--links)
+          [[ "$LSY_EZA_SHOW_GROUP" == "1" ]] && eza_args+=(--group)
+          [[ "$LSY_EZA_NO_QUOTES" == "1" ]] && eza_args+=(--no-quotes)
+          if [[ -n "$LSY_EZA_EXTRA_ARGS" ]]; then
+            read -r -a eza_extra_args <<< "$LSY_EZA_EXTRA_ARGS"
+            eza_args+=("${eza_extra_args[@]}")
+          fi
+          (( show_hidden )) && eza_args+=(--almost-all)
+          LAST_SOURCE_EXECUTED="eza"
+          LAST_SOURCE_ARGS="eza ${eza_args[*]}"
+          eza "${eza_args[@]}" 2>/dev/null
+          LAST_SOURCE_RC=$?
+          if (( LAST_SOURCE_RC != 0 )); then
+            LAST_SOURCE_FALLBACK=1
+            (( HAS_LSD )) && LAST_SOURCE_FALLBACK_TO=lsd || LAST_SOURCE_FALLBACK_TO=ls
+            LIST_SOURCE="$LAST_SOURCE_FALLBACK_TO"
+            capture_directory_rows "$requested_source"
             return
           fi
+          return 0
+          ;;
+        lsd)
+          if (( !HAS_LSD )); then
+            LAST_SOURCE_EXECUTED="lsd"
+            LAST_SOURCE_RC=127
+            LAST_SOURCE_FALLBACK=1
+            (( HAS_EZA )) && LAST_SOURCE_FALLBACK_TO=eza || LAST_SOURCE_FALLBACK_TO=ls
+            LIST_SOURCE="$LAST_SOURCE_FALLBACK_TO"
+            capture_directory_rows "$requested_source"
+            return
+          fi
+
+          local -a lsd_args=() lsd_extra_args=()
+            lsd_args=(-lh --group-dirs first --date '+%F %R' --blocks "$LSY_LSD_BLOCKS" --icon "$LSY_LSD_ICONS" --icon-theme "$LSY_LSD_ICON_THEME" --color "$LSY_LSD_COLOR" --hyperlink "$LSY_LSD_HYPERLINK")
+          if [[ -n "$LSY_LSD_EXTRA_ARGS" ]]; then
+            read -r -a lsd_extra_args <<< "$LSY_LSD_EXTRA_ARGS"
+            lsd_args+=("${lsd_extra_args[@]}")
+          fi
+          (( show_hidden )) && lsd_args+=(-A)
+          LAST_SOURCE_EXECUTED="lsd"
+          LAST_SOURCE_ARGS="lsd ${lsd_args[*]}"
+          lsd "${lsd_args[@]}" 2>/dev/null
+          LAST_SOURCE_RC=$?
+          if (( LAST_SOURCE_RC != 0 )); then
+            LAST_SOURCE_FALLBACK=1
+            (( HAS_EZA )) && LAST_SOURCE_FALLBACK_TO=eza || LAST_SOURCE_FALLBACK_TO=ls
+            LIST_SOURCE="$LAST_SOURCE_FALLBACK_TO"
+            capture_directory_rows "$requested_source"
+            return
+          fi
+          return 0
           ;;
         *)
+          LAST_SOURCE_EXECUTED="$LIST_SOURCE"
+          LAST_SOURCE_RC=1
           return 1
           ;;
       esac
@@ -204,6 +310,25 @@ EOF
       esac
       return 0
     }
+    # Reorder long-list rows to `name metadata...` using awk+column alignment.
+    # Minimal modification: split on date-time anchor, reorder, let column handle alignment.
+    format_name_first_aligned() {
+      awk '
+        BEGIN {
+          esc = sprintf("%c", 27) "\\[[0-9;]*m"
+          dt = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9](" esc ")*[[:space:]]+(" esc ")*[0-9][0-9]:[0-9][0-9](" esc ")*[[:space:]]+"
+        }
+        {
+          if (match($0, dt)) {
+            name = substr($0, RSTART + RLENGTH)
+            meta = substr($0, 1, RSTART - 1)
+            printf "%s\t%s\n", name, meta
+          } else {
+            print
+          }
+        }
+      ' | column -t -s $'\t'
+    }
 
     load_data() {
       local t0 t1 t2
@@ -222,6 +347,7 @@ EOF
       if (( ${#ROWS_COLOR[@]} == 0 )); then
         ROWS_COLOR=("\033[2m(empty directory)\033[0m")
         ROWS_PLAIN=("(empty directory)")
+        ROWS_SELECT_PLAIN=("(empty directory)")
         cursor=0
         top=0
         return
@@ -231,6 +357,12 @@ EOF
       # works on clean text, and by draw_row() to render the reverse-video
       # selection highlight without embedded ANSI codes corrupting the output.
       mapfile -t ROWS_PLAIN < <(printf '%s\n' "${ROWS_COLOR[@]}" | sed -E $'s/\x1B\[[0-9;]*m//g')
+      ROWS_SELECT_PLAIN=("${ROWS_PLAIN[@]}")
+
+      if (( NAME_FIRST_VIEW )); then
+        mapfile -t ROWS_PLAIN < <(printf '%s\n' "${ROWS_PLAIN[@]}" | format_name_first_aligned)
+        mapfile -t ROWS_COLOR < <(printf '%s\n' "${ROWS_COLOR[@]}" | format_name_first_aligned)
+      fi
       t2=$(date +%s%N)
       LAST_PARSE_MS=$(( (t2 - t1) / 1000000 ))
       LAST_LOAD_MS=$(( (t2 - t0) / 1000000 ))
@@ -287,11 +419,24 @@ EOF
       local status_row=$rows
       local hidden_state="off"
       local source_state="$LIST_SOURCE"
+      local layout_state="meta-first"
+      local debug_state=""
       (( show_hidden )) && hidden_state="on"
+      (( NAME_FIRST_VIEW )) && layout_state="name-first"
+
+      if [[ "$LSY_DEBUG_SOURCE" == "1" ]]; then
+        debug_state=" dbg:req:${LAST_SOURCE_REQUESTED} run:${LAST_SOURCE_EXECUTED} rc:${LAST_SOURCE_RC}"
+        if (( LAST_SOURCE_FALLBACK )); then
+          debug_state+=" fb:${LAST_SOURCE_FALLBACK_TO}"
+        fi
+        if [[ "$LSY_DEBUG_SHOW_CMD" == "1" ]]; then
+          debug_state+=" cmd:${LAST_SOURCE_ARGS}"
+        fi
+      fi
 
       # Keep footer anchored regardless of current cursor location.
       printf "\033[%d;1H\033[K" "$status_row"
-      printf "\033[2m[total: %d] src:%s hidden:%s load:%dms (ls:%d parse:%d) | Up/Down PgUp/PgDn Home/End | %s src | %s hidden | %s reload | %s integrations | %s quit\033[0m\033[K" "$total" "$source_state" "$hidden_state" "$LAST_LOAD_MS" "$LAST_LS_MS" "$LAST_PARSE_MS" "$KEY_TOGGLE_SOURCE" "$KEY_TOGGLE_HIDDEN" "$KEY_RELOAD" "$KEY_INTEGRATIONS" "$KEY_QUIT"
+      printf "\033[2m[total: %d] renderer:%s layout:%s hidden:%s load:%dms (ls:%d parse:%d)%s | Up/Down PgUp/PgDn Home/End | %s source | %s hidden | %s reload | %s integrations | %s quit\033[0m\033[K" "$total" "$source_state" "$layout_state" "$hidden_state" "$LAST_LOAD_MS" "$LAST_LS_MS" "$LAST_PARSE_MS" "$debug_state" "$KEY_TOGGLE_SOURCE" "$KEY_TOGGLE_HIDDEN" "$KEY_RELOAD" "$KEY_INTEGRATIONS" "$KEY_QUIT"
     }
 
     scroll_list_once() {
@@ -383,7 +528,7 @@ EOF
         return 1
       fi
 
-      plain="${ROWS_PLAIN[$cursor]}"
+      plain="${ROWS_SELECT_PLAIN[$cursor]}"
       case "$LIST_SOURCE" in
         ls)
           if [[ "$plain" =~ [0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]+[0-9]{2}:[0-9]{2}[[:space:]](.*)$ ]]; then
@@ -395,7 +540,7 @@ EOF
           # Symlink rows are rendered as "name -> target"; keep only the link name.
           name="$(strip_symlink_target "$plain" "$name")"
           ;;
-        lsd)
+        lsd|eza)
           if [[ "$plain" =~ [0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]+[0-9]{2}:[0-9]{2}[[:space:]](.*)$ ]]; then
             name="${BASH_REMATCH[1]}"
           else
@@ -422,7 +567,9 @@ EOF
       # Each entry: role|tool|description|optional(1=toggleable, 0=required fallback)
       local -a int_entries=(
         "list source|ls|Built-in GNU/BSD ls: directory listing|0"
+        "list source|eza|A modern ls replacement with rich metadata and icons|1"
         "list source|lsd|LSDeluxe: modern ls replacement with icons and colors|1"
+        "view|name-first|Show file/folder name before metadata|1"
         "file viewer|less|Terminal pager for plain file viewing|0"
       )
 
@@ -442,7 +589,10 @@ EOF
       local _entry _role _tool _desc _optional
       for _entry in "${int_entries[@]}"; do
         IFS='|' read -r _role _tool _desc _optional <<< "$_entry"
-        if command -v "$_tool" >/dev/null 2>&1; then
+        if [[ "$_tool" == "name-first" ]]; then
+          int_installed+=(1)
+          int_version+=("built-in toggle")
+        elif command -v "$_tool" >/dev/null 2>&1; then
           int_installed+=(1)
           int_version+=("$("$_tool" --version 2>&1 | head -1)")
         else
@@ -467,7 +617,13 @@ EOF
           IFS='|' read -r role tool desc optional <<< "${int_entries[$i]}"
           (( int_installed[i] )) && present="\033[1;32m✔\033[0m" || present="\033[2m✘\033[0m"
 
-          if (( !optional )); then
+          if [[ "$tool" == "name-first" ]]; then
+            if (( NAME_FIRST_VIEW )); then
+              state_tag="\033[1;32m[on]\033[0m"
+            else
+              state_tag="\033[31m[off]\033[0m"
+            fi
+          elif (( !optional )); then
             state_tag="\033[2m[required]\033[0m"
           elif (( !int_installed[i] )); then
             state_tag="\033[2m[not installed]\033[0m"
@@ -510,7 +666,15 @@ EOF
             ;;
           ' '|$'\r')
             IFS='|' read -r _role _tool _desc _optional <<< "${int_entries[$int_cursor]}"
-            if (( _optional && int_installed[int_cursor] )); then
+            if [[ "$_tool" == "name-first" ]]; then
+              if (( NAME_FIRST_VIEW )); then
+                NAME_FIRST_VIEW=0
+              else
+                NAME_FIRST_VIEW=1
+              fi
+              load_data
+              _int_draw_rows
+            elif (( _optional && int_installed[int_cursor] )); then
               if [[ -n "${DISABLED_INTEGRATIONS[$_tool]+x}" ]]; then
                 unset 'DISABLED_INTEGRATIONS[$_tool]'
               else
@@ -579,6 +743,29 @@ EOF
       fi
     }
 
+    cycle_list_source() {
+      local -a sources=(ls)
+      local i current_index=-1
+
+      (( HAS_LSD )) && sources+=(lsd)
+      (( HAS_EZA )) && sources+=(eza)
+
+      for i in "${!sources[@]}"; do
+        if [[ "${sources[$i]}" == "$LIST_SOURCE" ]]; then
+          current_index=$i
+          break
+        fi
+      done
+
+      if (( current_index < 0 )); then
+        LIST_SOURCE="${sources[0]}"
+        return
+      fi
+
+      current_index=$(( (current_index + 1) % ${#sources[@]} ))
+      LIST_SOURCE="${sources[$current_index]}"
+    }
+
     main() {
       parse_args "$@"
       detect_sources
@@ -618,13 +805,7 @@ EOF
             draw_ui
             ;;
           "$KEY_TOGGLE_SOURCE")
-            if [[ "$LIST_SOURCE" == "ls" ]]; then
-              if (( HAS_LSD )); then
-                LIST_SOURCE="lsd"
-              fi
-            else
-              LIST_SOURCE="ls"
-            fi
+            cycle_list_source
             load_data
             draw_ui
             ;;
