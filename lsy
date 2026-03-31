@@ -35,9 +35,12 @@
     KEY_OPEN_LESS="${LSY_KEY_OPEN_LESS:-l}"
     KEY_OPEN_GUI="${LSY_KEY_OPEN_GUI:-o}"
     KEY_OPEN_EDITOR="${LSY_KEY_OPEN_EDITOR:-e}"
+    KEY_FIND_FILE="${LSY_KEY_FIND_FILE:-f}"
+    KEY_SEARCH="${LSY_KEY_SEARCH:-g}"
     KEY_COMPARE="${LSY_KEY_COMPARE:-C}"
     KEY_EXTRACT_ZIP="${LSY_KEY_EXTRACT_ZIP:-z}"
     KEY_HOME_DIR="${LSY_KEY_HOME_DIR:-~}"
+    KEY_BOOKMARKS="${LSY_KEY_BOOKMARKS:-b}"
     LSY_DEBUG_SOURCE="${LSY_DEBUG_SOURCE:-1}"
     LSY_DEBUG_SHOW_CMD="${LSY_DEBUG_SHOW_CMD:-0}"
     LSY_DEBUG_PASTE="${LSY_DEBUG_PASTE:-1}"
@@ -48,7 +51,11 @@
     LSY_GLOW_ARGS="${LSY_GLOW_ARGS:-}"
     LSY_CSVLENS_ARGS="${LSY_CSVLENS_ARGS:-}"
     LSY_JNV_ARGS="${LSY_JNV_ARGS:-}"
+    LSY_RG_ARGS="${LSY_RG_ARGS:-}"
+    LSY_FZF_ARGS="${LSY_FZF_ARGS:---ansi --reverse}"
     LSY_DELTA_ARGS="${LSY_DELTA_ARGS:---side-by-side --line-numbers}"
+    LSY_SOX_ARGS="${LSY_SOX_ARGS:---stat -brief}"
+      LSY_PLAY_ARGS="${LSY_PLAY_ARGS:-}"
     LSY_FUSE_ZIP_ARGS="${LSY_FUSE_ZIP_ARGS:-}"
     LSY_FUSE_ZIP_MOUNT_ROOT="${LSY_FUSE_ZIP_MOUNT_ROOT:-}"
     LSY_UNZIP_ARGS="${LSY_UNZIP_ARGS:-}"
@@ -99,6 +106,8 @@
     HAS_GLOW=0
     HAS_CSVLENS=0
     HAS_JNV=0
+    HAS_RG=0
+    HAS_FZF=0
     HAS_DELTA=0
     HAS_FUSE_ZIP=0
     HAS_UNZIP=0
@@ -218,6 +227,52 @@ EOF
         printf "\n\033[2mPress any key to return...\033[0m"
         IFS= read -rsn1 || true
       fi
+      stty -echo cbreak -ixon intr undef
+      printf "\033[?25l"
+      on_resize
+      return $rc
+    }
+
+    run_audio_preview_command() {
+      local rc=0
+      local key=""
+      local pid=0
+      local paused=0
+
+      printf "\033[?25h"
+      stty "$orig_stty" 2>/dev/null || true
+      clear
+
+      "$@" &
+      pid=$!
+
+      # Poll keys while playback runs; q/Esc/Ctrl+C stop, Space toggles pause/resume.
+      stty -echo -icanon -ixon intr undef min 0 time 1
+      while kill -0 "$pid" 2>/dev/null; do
+        IFS= read -rsn1 key || true
+        case "$key" in
+          q|$'\e'|$'\003')
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+            rc=130
+            break
+            ;;
+          ' ')
+            if (( paused )); then
+              kill -CONT "$pid" 2>/dev/null || true
+              paused=0
+            else
+              kill -STOP "$pid" 2>/dev/null || true
+              paused=1
+            fi
+            ;;
+        esac
+      done
+
+      if (( rc == 0 )); then
+        wait "$pid" 2>/dev/null || rc=$?
+      fi
+
       stty -echo cbreak -ixon intr undef
       printf "\033[?25l"
       on_resize
@@ -350,6 +405,18 @@ EOF
         HAS_JNV=0
       fi
 
+      if command -v rg >/dev/null 2>&1 && [[ -z "${DISABLED_INTEGRATIONS[rg]+x}" ]]; then
+        HAS_RG=1
+      else
+        HAS_RG=0
+      fi
+
+      if command -v fzf >/dev/null 2>&1 && [[ -z "${DISABLED_INTEGRATIONS[fzf]+x}" ]]; then
+        HAS_FZF=1
+      else
+        HAS_FZF=0
+      fi
+
       if command -v delta >/dev/null 2>&1 && [[ -z "${DISABLED_INTEGRATIONS[delta]+x}" ]]; then
         HAS_DELTA=1
       else
@@ -360,6 +427,12 @@ EOF
         HAS_FUSE_ZIP=1
       else
         HAS_FUSE_ZIP=0
+      fi
+
+      if command -v sox >/dev/null 2>&1 && [[ -z "${DISABLED_INTEGRATIONS[sox]+x}" ]]; then
+        HAS_SOX=1
+      else
+        HAS_SOX=0
       fi
 
       if [[ -z "${DISABLED_INTEGRATIONS[zip]+x}" ]] && command -v unzip >/dev/null 2>&1; then
@@ -565,6 +638,8 @@ EOF
       local -a glow_args=()
       local -a csvlens_args=()
       local -a jnv_args=()
+      local -a play_args=()
+      local -a sox_args=()
 
       if (( HAS_JNV )) && is_jnv_file "$item"; then
         if [[ -n "$LSY_JNV_ARGS" ]]; then
@@ -587,6 +662,23 @@ EOF
           read -r -a glow_args <<< "$LSY_GLOW_ARGS"
         fi
         run_interactive_command glow -p "${glow_args[@]}" -- "$item"
+        return $?
+      fi
+
+      if (( HAS_SOX )) && is_audio_file "$item"; then
+          if command -v play >/dev/null 2>&1; then
+            if [[ -n "$LSY_PLAY_ARGS" ]]; then
+              read -r -a play_args <<< "$LSY_PLAY_ARGS"
+            fi
+            run_audio_preview_command play "${play_args[@]}" -- "$item"
+          elif command -v sox >/dev/null 2>&1; then
+            if [[ -n "$LSY_SOX_ARGS" ]]; then
+              read -r -a sox_args <<< "$LSY_SOX_ARGS"
+            fi
+            run_audio_preview_command sox -- "$item" -d "${sox_args[@]}"
+          else
+            return 1
+          fi
         return $?
       fi
 
@@ -622,6 +714,24 @@ EOF
           ;;
       esac
       return 0
+    }
+
+    is_audio_file() {
+      local item="$1"
+      local lower="${item,,}"
+
+      case "$lower" in
+        *.wav|*.mp3|*.flac|*.aiff|*.aif|*.opus|*.ogg|*.oga|*.wma|*.m4a|*.aac|*.alac|*.ape|*.dsf|*.dsd)
+          return 0
+          ;;
+      esac
+
+      if command -v file >/dev/null 2>&1; then
+        local mime
+        mime="$(file --brief --mime-type -- "$item" 2>/dev/null || true)"
+        [[ "$mime" == audio/* ]] && return 0
+      fi
+      return 1
     }
 
     is_markdown_file() {
@@ -2208,9 +2318,12 @@ delete_current_or_selected() {
         "archive|rar|RAR: extract .rar archives (unrar or rar)|1"
         "compare|delta|Side-by-side file diff for exactly 2 selected files|1"
         "preview|jnv|Terminal JSON preview for .json .jsonl .ndjson .geojson|1"
+        "search|rg|Bulk recursive exact-text search in current folder|1"
+        "search|fzf|Interactive fuzzy finder for file names and search results|1"
         "preview|csvlens|Terminal CSV/TSV preview for .csv .tsv .tab .psv .dsv .ssv|1"
         "preview|glow|Terminal markdown preview for .md, .markdown, .mdown, .mkdn (and markdown MIME)|1"
         "preview|chafa|Terminal image preview for image/* files|1"
+        "preview|sox|Audio file statistics and preview for .wav .mp3 .flac .opus .ogg .aac .m4a etc.|1"
         "file viewer|less|Terminal pager for plain file viewing|0"
       )
 
@@ -2265,6 +2378,14 @@ delete_current_or_selected() {
             int_installed+=(0)
             int_version+=("not installed")
           fi
+        elif [[ "$_tool" == "sox" ]]; then
+          if command -v sox >/dev/null 2>&1; then
+            int_installed+=(1)
+            int_version+=("$(sox --version 2>&1 | head -1 || true)")
+          else
+            int_installed+=(0)
+            int_version+=("not installed")
+          fi
         elif [[ "$_tool" == "rar" ]]; then
           if command -v unrar >/dev/null 2>&1; then
             int_installed+=(1)
@@ -2296,7 +2417,7 @@ delete_current_or_selected() {
 
       _int_draw_header() {
         printf "\033[H\033[2J"
-        printf "\033[1;36mIntegrations\033[0m  \033[2m↑↓ navigate | Space toggle | q return\033[0m\n"
+        printf "\033[1;36mIntegrations\033[0m  \033[2m↑↓ navigate | Space toggle | ←/q return\033[0m\n"
         printf -v _sep '%*s' "$cols" ''
         printf '%s\n' "${_sep// /─}"
       }
@@ -2319,8 +2440,17 @@ delete_current_or_selected() {
         if (( HAS_JNV )); then
           active_tools[jnv]=1
         fi
+        if (( HAS_RG )); then
+          active_tools[rg]=1
+        fi
+        if (( HAS_FZF )); then
+          active_tools[fzf]=1
+        fi
         if (( HAS_DELTA )); then
           active_tools[delta]=1
+        fi
+        if (( HAS_SOX )); then
+          active_tools[sox]=1
         fi
         if (( HAS_FUSE_ZIP )); then
           active_tools[fuse-zip]=1
@@ -2405,7 +2535,7 @@ delete_current_or_selected() {
               _int_draw_rows
             fi
             ;;
-          q|$'\e'|"$KEY_QUIT")
+          "$KEY_LEFT"|q|$'\e'|"$KEY_QUIT")
             break
             ;;
         esac
@@ -2423,6 +2553,86 @@ delete_current_or_selected() {
       cursor=0
       top=0
       load_data
+      draw_ui
+    }
+
+    show_bookmarks() {
+      # Build list of available bookmarks (0-9)
+      local -a bookmark_keys=()
+      local -a bookmark_paths=()
+      local i
+      for i in 0 1 2 3 4 5 6 7 8 9; do
+        local var_name="LSY_BOOKMARK_$i"
+        local path="${!var_name-}"
+        if [[ -n "$path" ]]; then
+          bookmark_keys+=("$i")
+          bookmark_paths+=("$path")
+        fi
+      done
+
+      if (( ${#bookmark_keys[@]} == 0 )); then
+        printf "\033[H\033[2J"
+        printf "\033[1;36mBookmarks\033[0m\n"
+        printf "\033[2m─────────────────────────────────────\033[0m\n"
+        printf "\033[2mNo bookmarks configured.\033[0m\n"
+        printf "\033[2mSet LSY_BOOKMARK_0 through LSY_BOOKMARK_9 in your shell profile.\033[0m\n"
+        printf "\n\033[2mPress any key to return...\033[0m"
+        read_key >/dev/null || true
+        draw_ui
+        return
+      fi
+
+      _bm_draw() {
+        printf "\033[H\033[2J"
+        printf "\033[1;36mBookmarks\033[0m  \033[2m0-9 jump | any other key to exit\033[0m\n"
+        printf -v _sep '%*s' "$cols" ''
+        printf '%s\n' "${_sep// /─}"
+
+        local i line key path
+        for (( i=0; i<${#bookmark_keys[@]}; i++ )); do
+          key="${bookmark_keys[$i]}"
+          path="${bookmark_paths[$i]}"
+          line=$((3 + i))
+          printf "\033[%d;1H\033[K" "$line"
+          printf "  \033[1;33m%s\033[0m  %s" "$key" "$path"
+        done
+
+        # Add hint about env variables
+        local hint_line=$((3 + ${#bookmark_keys[@]} + 1))
+        printf "\033[%d;1H\033[K" "$hint_line"
+        printf "\033[2mTip: Set LSY_BOOKMARK_0 through LSY_BOOKMARK_9 to add bookmarks\033[0m"
+      }
+
+      _bm_draw
+      while true; do
+        local key
+        key="$(read_key || true)"
+        [[ -z "$key" ]] && continue
+
+        # Check if it's a bookmark number
+        case "$key" in
+          0|1|2|3|4|5|6|7|8|9)
+            # Look for this key in bookmark_keys
+            local found=0
+            for (( i=0; i<${#bookmark_keys[@]}; i++ )); do
+              if [[ "${bookmark_keys[$i]}" == "$key" ]]; then
+                jump_to_bookmark "$key"
+                found=1
+                break
+              fi
+            done
+            if (( !found )); then
+              continue
+            fi
+            return
+            ;;
+          *)
+            # Any other key exits
+            break
+            ;;
+        esac
+      done
+
       draw_ui
     }
 
@@ -2512,6 +2722,220 @@ delete_current_or_selected() {
       item="$(selected_path)" || return 1
       [[ -f "$item" ]] || return 1
       open_file_with_editor "$item" || return 1
+      draw_ui
+      return 0
+    }
+
+    jump_cursor_to_path() {
+      local target_path="$1"
+      local target_abs current_dir target_dir target_name
+      local i path path_abs
+
+      [[ -n "$target_path" ]] || return 1
+
+      current_dir="$(pwd -P 2>/dev/null || pwd)"
+      if [[ "$target_path" == /* ]]; then
+        target_abs="$target_path"
+      else
+        target_abs="$current_dir/${target_path#./}"
+      fi
+
+      target_dir="$(dirname -- "$target_abs")"
+      target_name="$(basename -- "$target_abs")"
+
+      if [[ "$current_dir" != "$target_dir" ]]; then
+        cd -- "$target_dir" || return 1
+        clear_selection
+        load_data
+      fi
+
+      for i in "${!ROWS_SELECT_PLAIN[@]}"; do
+        path="$(ensure_row_path "$i" 2>/dev/null || true)"
+        [[ -n "$path" ]] || continue
+
+        if [[ "$path" == /* ]]; then
+          path_abs="$path"
+        else
+          path_abs="$target_dir/${path#./}"
+        fi
+
+        if [[ "$path_abs" == "$target_abs" || "$(basename -- "$path_abs")" == "$target_name" ]]; then
+          cursor=$i
+          top=$(( cursor - visible_rows / 2 ))
+          (( top < 0 )) && top=0
+          return 0
+        fi
+      done
+
+      # Fallback: directory changed but exact row not found (e.g., renderer omitted it).
+      cursor=0
+      top=0
+      return 0
+    }
+
+    rg_selection_to_abs_path() {
+      local line="$1"
+      local cleaned path
+
+      cleaned="$(printf '%s' "$line" | sed -E 's/\x1B\[[0-9;]*[[:alpha:]]//g')"
+      cleaned="${cleaned//$'\r'/}"
+      path="${cleaned%%:*}"
+
+      if [[ -z "$path" || "$path" == "$cleaned" ]]; then
+        return 1
+      fi
+
+      path="${path#./}"
+      if [[ "$path" != /* ]]; then
+        path="$(pwd -P)/$path"
+      fi
+
+      printf '%s\n' "$path"
+      return 0
+    }
+
+    fuzzy_find_filename_in_current_dir() {
+      local tmp_candidates tmp_selection selection
+      local -a fzf_args=()
+      local i path
+
+      if (( !HAS_FZF )); then
+        draw_status
+        printf "\033[%d;1H\033[K\033[2mFile search unavailable: fzf is not installed or disabled.\033[0m" "$rows"
+        return 1
+      fi
+
+      if [[ -n "$LSY_FZF_ARGS" ]]; then
+        read -r -a fzf_args <<< "$LSY_FZF_ARGS"
+      fi
+
+      ensure_all_row_paths
+      tmp_candidates="$(mktemp -t lsy-fzf-candidates.XXXXXX)" || return 1
+      tmp_selection="$(mktemp -t lsy-fzf-selection.XXXXXX)" || {
+        rm -f -- "$tmp_candidates"
+        return 1
+      }
+
+      for i in "${!ROWS_SELECT_PLAIN[@]}"; do
+        path="${ROWS_PATH[$i]-}"
+        [[ -n "$path" ]] || continue
+        printf '%s\n' "$path" >> "$tmp_candidates"
+      done
+
+      if [[ ! -s "$tmp_candidates" ]]; then
+        rm -f -- "$tmp_candidates" "$tmp_selection"
+        draw_status
+        printf "\033[%d;1H\033[K\033[2mNo files available to search in the current list.\033[0m" "$rows"
+        return 1
+      fi
+
+      run_interactive_command bash -c '
+        src="$1"
+        dst="$2"
+        shift 2
+        cat -- "$src" | fzf "$@" > "$dst" || true
+      ' _ "$tmp_candidates" "$tmp_selection" "${fzf_args[@]}"
+
+      selection="$(<"$tmp_selection")"
+      rm -f -- "$tmp_candidates" "$tmp_selection"
+
+      if [[ -z "$selection" ]]; then
+        draw_status
+        printf "\033[%d;1H\033[K\033[2mFile search cancelled.\033[0m" "$rows"
+        return 1
+      fi
+
+      if jump_cursor_to_path "$selection"; then
+        draw_ui
+        return 0
+      fi
+
+      draw_ui
+      return 0
+    }
+
+    run_bulk_search_with_rg() {
+      local query="$1"
+      local -a rg_args=()
+      local -a fzf_args=("--ansi" "--exact" "--reverse")
+      local -a fzf_args_user=()
+      local tmp_results tmp_selection=""
+      local selected_line="" selected_path=""
+      local rc
+
+      if [[ -n "$LSY_RG_ARGS" ]]; then
+        read -r -a rg_args <<< "$LSY_RG_ARGS"
+      fi
+
+      if [[ -n "$LSY_FZF_ARGS" ]]; then
+        read -r -a fzf_args_user <<< "$LSY_FZF_ARGS"
+        fzf_args+=("${fzf_args_user[@]}")
+      fi
+
+      tmp_results="$(mktemp -t lsy-rg-results.XXXXXX)" || return 1
+      rg --fixed-strings --line-number --color=always "${rg_args[@]}" -- "$query" . >"$tmp_results" 2>&1
+      rc=$?
+
+      if (( rc == 0 )); then
+        if (( HAS_FZF )); then
+          tmp_selection="$(mktemp -t lsy-rg-selection.XXXXXX)" || {
+            rm -f -- "$tmp_results"
+            return 1
+          }
+          run_interactive_command bash -c '
+            src="$1"
+            dst="$2"
+            shift 2
+            cat -- "$src" | fzf "$@" > "$dst" || true
+          ' _ "$tmp_results" "$tmp_selection" "${fzf_args[@]}"
+
+          selected_line="$(<"$tmp_selection")"
+          rm -f -- "$tmp_selection"
+          if [[ -n "$selected_line" ]]; then
+            selected_path="$(rg_selection_to_abs_path "$selected_line" 2>/dev/null || true)"
+            if [[ -n "$selected_path" ]]; then
+              jump_cursor_to_path "$selected_path" || true
+            fi
+          fi
+        else
+          run_interactive_command bash -c '
+            cat -- "$1" | less -R
+          ' _ "$tmp_results"
+        fi
+        rm -f -- "$tmp_results"
+        return 0
+      fi
+
+      if (( rc == 1 )); then
+        rm -f -- "$tmp_results"
+        run_interactive_command bash -c 'printf "No matches found for: %s\n" "$1" | less -R' _ "$query"
+        return 0
+      fi
+
+      run_interactive_command bash -c '
+        cat -- "$1" | less -R
+      ' _ "$tmp_results"
+      rm -f -- "$tmp_results"
+      return $rc
+    }
+
+    bulk_search_in_current_dir() {
+      local query
+
+      if (( !HAS_RG )); then
+        draw_status
+        printf "\033[%d;1H\033[K\033[2mSearch unavailable: rg is not installed or disabled.\033[0m" "$rows"
+        return 1
+      fi
+
+      query="$(read_line_prompt "Search exact text: " "")"
+      if [[ -z "$query" ]]; then
+        draw_status
+        printf "\033[%d;1H\033[K\033[2mSearch cancelled.\033[0m" "$rows"
+        return 1
+      fi
+
+      run_bulk_search_with_rg "$query" || true
       draw_ui
       return 0
     }
@@ -2620,9 +3044,9 @@ delete_current_or_selected() {
         printf "\033[1;36mNavigation\033[0m  \033[1;33mUp/Down\033[0m move  \033[1;33mPgUp/PgDn\033[0m page  \033[1;33mHome/End\033[0m top/bottom\n"
         printf "\033[1;36mDirectory\033[0m   \033[1;33mRight\033[0m enter/open zip  \033[1;33mLeft\033[0m parent dir\n"
         printf "\033[1;36mSelect\033[0m      \033[1;33m%s\033[0m toggle  \033[1;33m%s\033[0m all  \033[1;33m%s\033[0m copy  \033[1;33m%s\033[0m move  \033[1;33m%s\033[0m paste  \033[1;33m%s\033[0m delete\n" "$KEY_SELECT_TOGGLE_LABEL" "$KEY_SELECT_ALL" "$KEY_COPY" "$KEY_MOVE" "$KEY_PASTE" "$KEY_DELETE"
-        printf "\033[1;36mFile\033[0m        \033[1;33m%s\033[0m less viewer  \033[1;33m%s\033[0m GUI opener  \033[1;33m%s\033[0m edit  \033[1;33m%s\033[0m compare  \033[1;33m%s\033[0m zip\n" "$KEY_OPEN_LESS" "$KEY_OPEN_GUI" "$KEY_OPEN_EDITOR" "$KEY_COMPARE" "$KEY_EXTRACT_ZIP"
+        printf "\033[1;36mFile\033[0m        \033[1;33m%s\033[0m less viewer  \033[1;33m%s\033[0m GUI opener  \033[1;33m%s\033[0m edit  \033[1;33m%s\033[0m compare  \033[1;33m%s\033[0m search  \033[1;33m%s\033[0m find  \033[1;33m%s\033[0m zip\n" "$KEY_OPEN_LESS" "$KEY_OPEN_GUI" "$KEY_OPEN_EDITOR" "$KEY_COMPARE" "$KEY_SEARCH" "$KEY_FIND_FILE" "$KEY_EXTRACT_ZIP"
         printf "\033[1;36mView\033[0m        \033[1;33m%s\033[0m hidden  \033[1;33m%s\033[0m debug  \033[1;33m%s\033[0m renderer  \033[1;33m%s\033[0m name-first\n" "$KEY_TOGGLE_HIDDEN" "$KEY_TOGGLE_DEBUG_LABEL" "$KEY_TOGGLE_SOURCE_LABEL" "$KEY_TOGGLE_NAME_FIRST_LABEL"
-        printf "\033[1;36mPanels\033[0m      \033[1;33m%s\033[0m integrations  \033[1;33m%s\033[0m help\n" "$KEY_INTEGRATIONS" "$KEY_HELP"
+        printf "\033[1;36mPanels\033[0m      \033[1;33m%s\033[0m bookmarks  \033[1;33m%s\033[0m integrations  \033[1;33m%s\033[0m help\n" "$KEY_BOOKMARKS" "$KEY_INTEGRATIONS" "$KEY_HELP"
         printf "\033[1;36mOther\033[0m       \033[1;33m%s\033[0m reload  \033[1;33m%s\033[0m help  \033[1;33m%s\033[0m quit\n\n" "$KEY_RELOAD" "$KEY_HELP" "$KEY_QUIT"
         printf "\033[2mPress any key to return...\033[0m"
         read_key >/dev/null || true
@@ -2647,6 +3071,8 @@ delete_current_or_selected() {
         "${KEY_OPEN_GUI}            Open selected path in GUI app"
         "${KEY_OPEN_EDITOR}            Edit selected file in terminal editor"
         "${KEY_COMPARE}            Compare 2 selected files with delta"
+        "${KEY_SEARCH}            Search exact text in current directory with ripgrep"
+        "${KEY_FIND_FILE}            Fuzzy-find file names in the current list (fzf)"
         "${KEY_EXTRACT_ZIP}            Extract archive or create archive"
         ""
         "Selection"
@@ -2687,6 +3113,8 @@ delete_current_or_selected() {
         "LSY_FUSE_ZIP_MOUNT_ROOT  Optional root directory for fuse-zip mounts"
         "LSY_UNZIP_ARGS  Extra args passed to unzip extraction"
         "LSY_ZIP_ARGS  Extra args passed to zip archive creation"
+        "LSY_RG_ARGS  Extra args passed to ripgrep search"
+        "LSY_FZF_ARGS  Extra args passed to fzf"
         "LSY_DELTA_ARGS  Extra args passed to delta compare"
         "LSY_JNV_ARGS  Extra args passed to jnv JSON preview"
         "LSY_CSVLENS_ARGS  Extra args passed to csvlens preview"
@@ -2695,8 +3123,8 @@ delete_current_or_selected() {
         "LSY_LSD_*    Configure lsd renderer"
         ""
         "Bookmarks"
-        "${KEY_HOME_DIR}            Go to home directory"
-        "1-9          Jump to bookmark (LSY_BOOKMARK_1..9)"
+        "${KEY_BOOKMARKS}            Show bookmarks screen"
+        "0-9          Jump to bookmark (from bookmarks screen or main view)"
         "LSY_BOOKMARK_*  Set bookmark paths in your shell profile"
       )
 
@@ -2912,6 +3340,12 @@ delete_current_or_selected() {
           "$KEY_COMPARE")
             compare_two_selected_files || true
             ;;
+          "$KEY_SEARCH")
+            bulk_search_in_current_dir || true
+            ;;
+          "$KEY_FIND_FILE")
+            fuzzy_find_filename_in_current_dir || true
+            ;;
           "$KEY_EXTRACT_ZIP")
             handle_zip_action || true
             ;;
@@ -2922,6 +3356,9 @@ delete_current_or_selected() {
             ;;
           "$KEY_INTEGRATIONS")
             show_integrations
+            ;;
+          "$KEY_BOOKMARKS")
+            show_bookmarks
             ;;
           "$KEY_HELP")
             show_help
