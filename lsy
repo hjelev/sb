@@ -41,6 +41,7 @@
     LSY_CHAFA_ARGS="${LSY_CHAFA_ARGS:---animate=off --symbols vhalf --size 100%x60%}"
     LSY_GLOW_ARGS="${LSY_GLOW_ARGS:-}"
     LSY_CSVLENS_ARGS="${LSY_CSVLENS_ARGS:-}"
+    LSY_JNV_ARGS="${LSY_JNV_ARGS:-}"
     LSY_EDITOR="${LSY_EDITOR:-}"
     LIST_SOURCE="${LSY_LIST_SOURCE:-}"   # empty = auto-select best available in detect_sources()
     FILE_VIEWER="${LSY_FILE_VIEWER:-}"   # empty = auto-select best available in detect_sources()
@@ -85,6 +86,7 @@
     HAS_CHAFA=0
     HAS_GLOW=0
     HAS_CSVLENS=0
+    HAS_JNV=0
     orig_stty=""
     LAST_LOAD_MS=0
     LAST_LS_MS=0
@@ -297,6 +299,12 @@ EOF
         HAS_CSVLENS=0
       fi
 
+      if command -v jnv >/dev/null 2>&1 && [[ -z "${DISABLED_INTEGRATIONS[jnv]+x}" ]]; then
+        HAS_JNV=1
+      else
+        HAS_JNV=0
+      fi
+
       if [[ -z "$FILE_VIEWER" ]]; then
         if (( HAS_BAT )); then
           FILE_VIEWER=bat
@@ -459,6 +467,15 @@ EOF
       local -a chafa_args=()
       local -a glow_args=()
       local -a csvlens_args=()
+      local -a jnv_args=()
+
+      if (( HAS_JNV )) && is_jnv_file "$item"; then
+        if [[ -n "$LSY_JNV_ARGS" ]]; then
+          read -r -a jnv_args <<< "$LSY_JNV_ARGS"
+        fi
+        run_interactive_command jnv "${jnv_args[@]}" "$item"
+        return $?
+      fi
 
       if (( HAS_CSVLENS )) && is_csvlens_file "$item"; then
         if [[ -n "$LSY_CSVLENS_ARGS" ]]; then
@@ -544,6 +561,29 @@ EOF
         mime="$(file --brief --mime-type -- "$item" 2>/dev/null || true)"
         case "$mime" in
           text/csv|text/tab-separated-values|application/csv|application/tab-separated-values)
+            return 0
+            ;;
+        esac
+      fi
+
+      return 1
+    }
+
+    is_jnv_file() {
+      local item="$1"
+      local lower="${item,,}"
+
+      case "$lower" in
+        *.json|*.jsonl|*.ndjson|*.geojson)
+          return 0
+          ;;
+      esac
+
+      if command -v file >/dev/null 2>&1; then
+        local mime
+        mime="$(file --brief --mime-type -- "$item" 2>/dev/null || true)"
+        case "$mime" in
+          application/json|application/geo+json|application/ld+json|application/x-ndjson|application/ndjson)
             return 0
             ;;
         esac
@@ -1351,6 +1391,7 @@ EOF
         "list source|eza|A modern ls replacement with rich metadata and icons|1"
         "list source|lsd|LSDeluxe: modern ls replacement with icons and colors|1"
         "vcs|git|Version control integration for repo-aware workflows|1"
+        "preview|jnv|Terminal JSON preview for .json .jsonl .ndjson .geojson|1"
         "preview|csvlens|Terminal CSV/TSV preview for .csv .tsv .tab .psv .dsv .ssv|1"
         "preview|glow|Terminal markdown preview for .md, .markdown, .mdown, .mkdn (and markdown MIME)|1"
         "preview|chafa|Terminal image preview for image/* files|1"
@@ -1407,6 +1448,9 @@ EOF
         fi
         if (( HAS_CSVLENS )); then
           active_tools[csvlens]=1
+        fi
+        if (( HAS_JNV )); then
+          active_tools[jnv]=1
         fi
 
         for (( i=0; i<int_count; i++ )); do
@@ -1691,6 +1735,7 @@ EOF
         "Env overrides"
         "LSY_KEY_*    Override any key binding"
         "LSY_EDITOR   Optional override (else VISUAL, EDITOR, /etc/alternatives/editor, nano)"
+        "LSY_JNV_ARGS  Extra args passed to jnv JSON preview"
         "LSY_CSVLENS_ARGS  Extra args passed to csvlens preview"
         "LSY_GLOW_ARGS  Extra args passed to glow markdown preview"
         "LSY_EZA_*    Configure eza renderer"
