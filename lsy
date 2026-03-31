@@ -35,6 +35,7 @@
     KEY_OPEN_LESS="${LSY_KEY_OPEN_LESS:-l}"
     KEY_OPEN_GUI="${LSY_KEY_OPEN_GUI:-o}"
     KEY_OPEN_EDITOR="${LSY_KEY_OPEN_EDITOR:-e}"
+    KEY_COMPARE="${LSY_KEY_COMPARE:-C}"
     KEY_EXTRACT_ZIP="${LSY_KEY_EXTRACT_ZIP:-z}"
     KEY_HOME_DIR="${LSY_KEY_HOME_DIR:-~}"
     LSY_DEBUG_SOURCE="${LSY_DEBUG_SOURCE:-1}"
@@ -47,6 +48,7 @@
     LSY_GLOW_ARGS="${LSY_GLOW_ARGS:-}"
     LSY_CSVLENS_ARGS="${LSY_CSVLENS_ARGS:-}"
     LSY_JNV_ARGS="${LSY_JNV_ARGS:-}"
+    LSY_DELTA_ARGS="${LSY_DELTA_ARGS:---side-by-side --line-numbers}"
     LSY_FUSE_ZIP_ARGS="${LSY_FUSE_ZIP_ARGS:-}"
     LSY_FUSE_ZIP_MOUNT_ROOT="${LSY_FUSE_ZIP_MOUNT_ROOT:-}"
     LSY_UNZIP_ARGS="${LSY_UNZIP_ARGS:-}"
@@ -97,9 +99,13 @@
     HAS_GLOW=0
     HAS_CSVLENS=0
     HAS_JNV=0
+    HAS_DELTA=0
     HAS_FUSE_ZIP=0
     HAS_UNZIP=0
     HAS_ZIPCMD=0
+    HAS_TAR=0
+    HAS_7Z=0
+    HAS_RAR=0
     HAS_ZIP=0
     orig_stty=""
     LAST_LOAD_MS=0
@@ -344,6 +350,12 @@ EOF
         HAS_JNV=0
       fi
 
+      if command -v delta >/dev/null 2>&1 && [[ -z "${DISABLED_INTEGRATIONS[delta]+x}" ]]; then
+        HAS_DELTA=1
+      else
+        HAS_DELTA=0
+      fi
+
       if command -v fuse-zip >/dev/null 2>&1 && [[ -z "${DISABLED_INTEGRATIONS[fuse-zip]+x}" ]]; then
         HAS_FUSE_ZIP=1
       else
@@ -362,7 +374,29 @@ EOF
         HAS_ZIPCMD=0
       fi
 
-      if (( HAS_UNZIP || HAS_ZIPCMD )); then
+      if [[ -z "${DISABLED_INTEGRATIONS[tar]+x}" ]] && command -v tar >/dev/null 2>&1; then
+        HAS_TAR=1
+      else
+        HAS_TAR=0
+      fi
+
+      if [[ -z "${DISABLED_INTEGRATIONS[7z]+x}" ]] && command -v 7z >/dev/null 2>&1; then
+        HAS_7Z=1
+      else
+        HAS_7Z=0
+      fi
+
+      if [[ -z "${DISABLED_INTEGRATIONS[rar]+x}" ]]; then
+        if command -v unrar >/dev/null 2>&1 || command -v rar >/dev/null 2>&1; then
+          HAS_RAR=1
+        else
+          HAS_RAR=0
+        fi
+      else
+        HAS_RAR=0
+      fi
+
+      if (( HAS_UNZIP || HAS_ZIPCMD || HAS_TAR || HAS_7Z || HAS_RAR )); then
         HAS_ZIP=1
       else
         HAS_ZIP=0
@@ -977,24 +1011,65 @@ EOF
 
     zip_archive_basename() {
       local path="$1"
-      local base
+      local base lower
       base="$(basename -- "$path")"
-      base="${base%.[Zz][Ii][Pp]}"
+      lower="${base,,}"
+      case "$lower" in
+        *.tar.gz|*.tar.bz2|*.tar.xz|*.tar.lz4|*.tar.zst|*.tar.lz)
+          base="${base%.*}"; base="${base%.*}" ;;
+        *.zip|*.jar|*.apk|*.war|*.ear|*.aar|*.cbz|*.epub|*.xpi|\
+        *.docx|*.xlsx|*.pptx|*.odt|*.ods|*.odp|\
+        *.tgz|*.tbz2|*.txz|*.tzst|*.tar|*.7z|*.rar)
+          base="${base%.*}" ;;
+      esac
       printf '%s' "$base"
+    }
+
+    # Extract a single archive to out_dir. Returns 0=ok 1=error 2=no tool.
+    _extract_one_archive() {
+      local item="$1" out_dir="$2"
+      local lower="${item,,}" err="" unzip_item
+      local -a unzip_args=()
+      [[ -n "$LSY_UNZIP_ARGS" ]] && read -r -a unzip_args <<< "$LSY_UNZIP_ARGS"
+
+      case "$lower" in
+        *.zip|*.jar|*.apk|*.war|*.ear|*.aar|*.cbz|*.epub|*.xpi|\
+        *.docx|*.xlsx|*.pptx|*.odt|*.ods|*.odp)
+          (( HAS_UNZIP )) || return 2
+          unzip_item="$item"
+          [[ "$unzip_item" == -* ]] && unzip_item="./$unzip_item"
+          err="$(unzip -o "${unzip_args[@]}" "$unzip_item" -d "$out_dir" 2>&1)" && return 0
+          LAST_PASTE_ERR="$err"; return 1 ;;
+        *.tar.gz|*.tgz|*.tar.bz2|*.tbz2|*.tar.xz|*.txz|\
+        *.tar.lz4|*.tar.zst|*.tzst|*.tar.lz|*.tar)
+          (( HAS_TAR )) || return 2
+          err="$(tar xf "$item" -C "$out_dir" 2>&1)" && return 0
+          LAST_PASTE_ERR="$err"; return 1 ;;
+        *.7z)
+          (( HAS_7Z )) || return 2
+          err="$(7z x "$item" -o"$out_dir" -y 2>&1)" && return 0
+          LAST_PASTE_ERR="$err"; return 1 ;;
+        *.rar)
+          (( HAS_RAR )) || return 2
+          local rar_cmd
+          command -v unrar >/dev/null 2>&1 && rar_cmd=unrar || rar_cmd=rar
+          err="$($rar_cmd x "$item" "$out_dir/" 2>&1)" && return 0
+          LAST_PASTE_ERR="$err"; return 1 ;;
+        *)
+          return 2 ;;
+      esac
     }
 
     extract_selected_zip_archives() {
       local -a items=()
-      local -a unzip_args=()
-      local -a zip_items=()
+      local -a archive_items=()
       local item extract_root per_archive=0
       local ok_count=0 fail_count=0 skip_count=0
-      local folder_name out_dir err unzip_item
-      local archive_name resolved_root
+      local folder_name out_dir archive_name resolved_root rc
 
-      (( HAS_UNZIP )) || {
+      (( HAS_ZIP )) || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mZip extraction unavailable: unzip is disabled or not installed.\033[0m" "$rows"
+        printf "\033[%d;1H\033[K\033[2mExtraction unavailable: no archive tool is enabled or installed.\033[0m" "$rows"
         return 1
       }
 
@@ -1007,24 +1082,24 @@ EOF
 
       for item in "${items[@]}"; do
         [[ -f "$item" ]] || continue
-        if is_zip_file "$item"; then
-          zip_items+=("$item")
+        if is_archive_file "$item"; then
+          archive_items+=("$item")
         fi
       done
 
-      if (( ${#zip_items[@]} == 0 )); then
+      if (( ${#archive_items[@]} == 0 )); then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mExtract failed: current row/selection has no .zip archives.\033[0m" "$rows"
+        printf "\033[%d;1H\033[K\033[2mExtract failed: current row/selection has no supported archives.\033[0m" "$rows"
         return 1
       fi
 
-      if (( ${#zip_items[@]} != ${#items[@]} )); then
+      if (( ${#archive_items[@]} != ${#items[@]} )); then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mExtract requires zip-only selection when multiple items are selected.\033[0m" "$rows"
+        printf "\033[%d;1H\033[K\033[2mExtract requires archive-only selection when multiple items are selected.\033[0m" "$rows"
         return 1
       fi
 
-      if ! read_yes_no_prompt "Extract ${#zip_items[@]} archive(s)? [y/N]: "; then
+      if ! read_yes_no_prompt "Extract ${#archive_items[@]} archive(s)? [y/N]: "; then
         draw_status
         printf "\033[%d;1H\033[K\033[2mExtract cancelled.\033[0m" "$rows"
         return 1
@@ -1048,17 +1123,13 @@ EOF
         return 1
       }
 
-      if [[ -n "$LSY_UNZIP_ARGS" ]]; then
-        read -r -a unzip_args <<< "$LSY_UNZIP_ARGS"
-      fi
-
-      if (( ${#zip_items[@]} > 1 )); then
-        if read_yes_no_prompt "Extract each zip into its own folder under destination? [y/N]: "; then
+      if (( ${#archive_items[@]} > 1 )); then
+        if read_yes_no_prompt "Extract each archive into its own folder under destination? [y/N]: "; then
           per_archive=1
         fi
       fi
 
-      for item in "${zip_items[@]}"; do
+      for item in "${archive_items[@]}"; do
         archive_name="$(basename -- "$item")"
         if (( per_archive )); then
           folder_name="$(zip_archive_basename "$item")"
@@ -1071,11 +1142,7 @@ EOF
               ((skip_count++))
               continue
             fi
-            if [[ "$resolved_root" != /* ]]; then
-              out_dir="$(pwd -P)/$resolved_root"
-            else
-              out_dir="$resolved_root"
-            fi
+            [[ "$resolved_root" != /* ]] && out_dir="$(pwd -P)/$resolved_root" || out_dir="$resolved_root"
           fi
         else
           out_dir="$extract_root"
@@ -1086,24 +1153,25 @@ EOF
           continue
         fi
 
-        unzip_item="$item"
-        [[ "$unzip_item" == -* ]] && unzip_item="./$unzip_item"
-        if err="$(unzip -o "${unzip_args[@]}" "$unzip_item" -d "$out_dir" 2>&1)"; then
+        _extract_one_archive "$item" "$out_dir"
+        rc=$?
+        if (( rc == 0 )); then
           ((ok_count++))
+        elif (( rc == 2 )); then
+          draw_status
+          printf "\033[%d;1H\033[K\033[2mExtract skipped '%s': no tool available for this format.\033[0m" "$rows" "$archive_name"
+          ((skip_count++))
         else
           ((fail_count++))
-          LAST_PASTE_ERR="$err"
         fi
       done
 
-      LAST_PASTE_OP="unzip"
+      LAST_PASTE_OP="extract"
       LAST_PASTE_OK=$ok_count
       LAST_PASTE_FAIL=$fail_count
       LAST_PASTE_SKIP=$skip_count
       LAST_PASTE_RC=0
-      if (( fail_count > 0 )); then
-        LAST_PASTE_RC=1
-      fi
+      (( fail_count > 0 )) && LAST_PASTE_RC=1
 
       load_data
       draw_ui
@@ -1236,7 +1304,7 @@ EOF
 
       for item in "${items[@]}"; do
         [[ -e "$item" || -L "$item" ]] || continue
-        if [[ -f "$item" ]] && is_zip_file "$item"; then
+        if [[ -f "$item" ]] && is_archive_file "$item"; then
           ((zip_count++))
         else
           ((other_count++))
@@ -2097,6 +2165,35 @@ delete_current_or_selected() {
       esac
     }
 
+    sanitize_integration_label() {
+      local name="$1"
+      local version_raw="$2"
+      local clean_name clean_version version_token
+
+      clean_name="$(printf '%s' "$name" | sed -E $'s/\x1B\[[0-9;]*m//g; s/[[:cntrl:]]//g; s/[[:space:]]+/ /g; s/^ //; s/ $//')"
+      clean_version="$(printf '%s' "$version_raw" | sed -E $'s/\x1B\[[0-9;]*m//g; s/[[:cntrl:]]//g; s/[[:space:]]+/ /g; s/^ //; s/ $//')"
+
+      case "$clean_version" in
+        ""|"not installed")
+          printf '%s' "$clean_name"
+          return 0
+          ;;
+        "built-in toggle")
+          printf '%s (built-in)' "$clean_name"
+          return 0
+          ;;
+      esac
+
+      version_token="$(printf '%s\n' "$clean_version" | grep -oE 'v?[0-9]+([.][0-9A-Za-z_-]+)+' | head -1 || true)"
+      if [[ -n "$version_token" ]]; then
+        version_token="${version_token#v}"
+        printf '%s (%s)' "$clean_name" "$version_token"
+        return 0
+      fi
+
+      printf '%s' "$clean_name"
+    }
+
     show_integrations() {
       # Each entry: role|tool|description|optional(1=toggleable, 0=required fallback)
       local -a int_entries=(
@@ -2105,12 +2202,15 @@ delete_current_or_selected() {
         "list source|lsd|LSDeluxe: modern ls replacement with icons and colors|1"
         "vcs|git|Version control integration for repo-aware workflows|1"
         "archive|fuse-zip|Open .zip archives like folders and keep mounts until lsy exits|1"
-        "archive|zip|Zip extract/create for selected items and .zip archives|1"
+        "archive|zip|Zip/unzip: extract and create .zip archives|1"
+        "archive|tar|Tar: extract and create .tar .tar.gz .tgz .tar.bz2 .tar.xz .tar.zst archives|1"
+        "archive|7z|7-Zip: extract and create .7z archives|1"
+        "archive|rar|RAR: extract .rar archives (unrar or rar)|1"
+        "compare|delta|Side-by-side file diff for exactly 2 selected files|1"
         "preview|jnv|Terminal JSON preview for .json .jsonl .ndjson .geojson|1"
         "preview|csvlens|Terminal CSV/TSV preview for .csv .tsv .tab .psv .dsv .ssv|1"
         "preview|glow|Terminal markdown preview for .md, .markdown, .mdown, .mkdn (and markdown MIME)|1"
         "preview|chafa|Terminal image preview for image/* files|1"
-        "view|name-first|Show file/folder name before metadata|1"
         "file viewer|less|Terminal pager for plain file viewing|0"
       )
 
@@ -2126,14 +2226,11 @@ delete_current_or_selected() {
       local int_cursor=0
 
       # Pre-collect install state and versions once; the draw loop stays constant-time.
-      local -a int_installed=() int_version=()
+      local -a int_installed=() int_version=() int_label=()
       local _entry _role _tool _desc _optional
       for _entry in "${int_entries[@]}"; do
         IFS='|' read -r _role _tool _desc _optional <<< "$_entry"
-        if [[ "$_tool" == "name-first" ]]; then
-          int_installed+=(1)
-          int_version+=("built-in toggle")
-        elif [[ "$_tool" == "zip" ]]; then
+        if [[ "$_tool" == "zip" ]]; then
           local zip_ver unzip_ver
           zip_ver=""
           unzip_ver=""
@@ -2142,12 +2239,39 @@ delete_current_or_selected() {
           if [[ -n "$zip_ver" || -n "$unzip_ver" ]]; then
             int_installed+=(1)
             if [[ -n "$zip_ver" && -n "$unzip_ver" ]]; then
-              int_version+=("zip+unzip")
+              int_version+=("$zip_ver ; $unzip_ver")
             elif [[ -n "$zip_ver" ]]; then
               int_version+=("$zip_ver")
             else
               int_version+=("$unzip_ver")
             fi
+          else
+            int_installed+=(0)
+            int_version+=("not installed")
+          fi
+        elif [[ "$_tool" == "tar" ]]; then
+          if command -v tar >/dev/null 2>&1; then
+            int_installed+=(1)
+            int_version+=("$(tar --version 2>&1 | head -1 || true)")
+          else
+            int_installed+=(0)
+            int_version+=("not installed")
+          fi
+        elif [[ "$_tool" == "7z" ]]; then
+          if command -v 7z >/dev/null 2>&1; then
+            int_installed+=(1)
+            int_version+=("$(7z i 2>&1 | awk '/^7-Zip/{print; exit}' || true)")
+          else
+            int_installed+=(0)
+            int_version+=("not installed")
+          fi
+        elif [[ "$_tool" == "rar" ]]; then
+          if command -v unrar >/dev/null 2>&1; then
+            int_installed+=(1)
+            int_version+=("unrar $(unrar 2>&1 | awk '/^UNRAR/{print $2; exit}' || true)")
+          elif command -v rar >/dev/null 2>&1; then
+            int_installed+=(1)
+            int_version+=("rar $(rar 2>&1 | awk '/^RAR/{print $2; exit}' || true)")
           else
             int_installed+=(0)
             int_version+=("not installed")
@@ -2161,6 +2285,15 @@ delete_current_or_selected() {
         fi
       done
 
+      local int_label_width=0
+      for (( i=0; i<int_count; i++ )); do
+        IFS='|' read -r _role _tool _desc _optional <<< "${int_entries[$i]}"
+        int_label+=("$(sanitize_integration_label "$_tool" "${int_version[$i]}")")
+        (( ${#int_label[i]} > int_label_width )) && int_label_width=${#int_label[i]}
+      done
+      (( int_label_width < 8 )) && int_label_width=8
+      (( int_label_width += 1 ))
+
       _int_draw_header() {
         printf "\033[H\033[2J"
         printf "\033[1;36mIntegrations\033[0m  \033[2m↑↓ navigate | Space toggle | q return\033[0m\n"
@@ -2169,7 +2302,7 @@ delete_current_or_selected() {
       }
 
       _int_draw_rows() {
-        local i line role tool desc optional present state_tag
+        local i line role tool desc optional present state_text state_color state_reset
         local -A active_tools=(["$LIST_SOURCE"]=1 ["$FILE_VIEWER"]=1)
         if [[ -z "${DISABLED_INTEGRATIONS[git]+x}" && -n "$GIT_HEADER_SUFFIX" ]]; then
           active_tools[git]=1
@@ -2186,11 +2319,23 @@ delete_current_or_selected() {
         if (( HAS_JNV )); then
           active_tools[jnv]=1
         fi
+        if (( HAS_DELTA )); then
+          active_tools[delta]=1
+        fi
         if (( HAS_FUSE_ZIP )); then
           active_tools[fuse-zip]=1
         fi
         if (( HAS_ZIP )); then
           active_tools[zip]=1
+        fi
+        if (( HAS_TAR )); then
+          active_tools[tar]=1
+        fi
+        if (( HAS_7Z )); then
+          active_tools[7z]=1
+        fi
+        if (( HAS_RAR )); then
+          active_tools[rar]=1
         fi
 
         for (( i=0; i<int_count; i++ )); do
@@ -2198,31 +2343,31 @@ delete_current_or_selected() {
           IFS='|' read -r role tool desc optional <<< "${int_entries[$i]}"
           (( int_installed[i] )) && present="\033[1;32m✔\033[0m" || present="\033[2m✘\033[0m"
 
-          if [[ "$tool" == "name-first" ]]; then
-            if (( NAME_FIRST_VIEW )); then
-              state_tag="\033[1;32m[on]\033[0m"
-            else
-              state_tag="\033[31m[off]\033[0m"
-            fi
-          elif (( !optional )); then
-            state_tag="\033[2m[required]\033[0m"
+          if (( !optional )); then
+            state_text="[required]"
+            state_color="\033[2m"
           elif (( !int_installed[i] )); then
-            state_tag="\033[2m[not installed]\033[0m"
+            state_text="[not installed]"
+            state_color="\033[2m"
           elif [[ -n "${DISABLED_INTEGRATIONS[$tool]+x}" ]]; then
-            state_tag="\033[31m[off]\033[0m"
+            state_text="[off]"
+            state_color="\033[31m"
           elif [[ -n "${active_tools[$tool]+x}" ]]; then
-            state_tag="\033[1;33m[active]\033[0m"
+            state_text="[active]"
+            state_color="\033[1;33m"
           else
-            state_tag="\033[1;32m[on]\033[0m"
+            state_text="[on]"
+            state_color="\033[1;32m"
           fi
+          state_reset="\033[0m"
 
           printf "\033[%d;1H\033[K" "$line"
           if (( i == int_cursor )); then
-            printf "\033[1m> %-44s  %b  %-16s  %-38s  %b\033[0m" \
-              "${int_version[$i]}" "$present" "$role" "$desc" "$state_tag"
+            printf "\033[1m> %b %-*s %b%-15s%b %-12s %-50s\033[0m" \
+              "$present" "$int_label_width" "${int_label[$i]}" "$state_color" "$state_text" "$state_reset" "$role" "$desc"
           else
-            printf "  \033[2m%-44s\033[0m  %b  \033[2m%-16s\033[0m  %-38s  %b" \
-              "${int_version[$i]}" "$present" "$role" "$desc" "$state_tag"
+            printf "  %b \033[2m%-*s\033[0m %b%-15s%b \033[2m%-12s\033[0m %-50s" \
+              "$present" "$int_label_width" "${int_label[$i]}" "$state_color" "$state_text" "$state_reset" "$role" "$desc"
           fi
         done
 
@@ -2247,15 +2392,7 @@ delete_current_or_selected() {
             ;;
           ' '|$'\r')
             IFS='|' read -r _role _tool _desc _optional <<< "${int_entries[$int_cursor]}"
-            if [[ "$_tool" == "name-first" ]]; then
-              if (( NAME_FIRST_VIEW )); then
-                NAME_FIRST_VIEW=0
-              else
-                NAME_FIRST_VIEW=1
-              fi
-              load_data
-              _int_draw_rows
-            elif (( _optional && int_installed[int_cursor] )); then
+            if (( _optional && int_installed[int_cursor] )); then
               if [[ -n "${DISABLED_INTEGRATIONS[$_tool]+x}" ]]; then
                 unset 'DISABLED_INTEGRATIONS[$_tool]'
               else
@@ -2379,6 +2516,46 @@ delete_current_or_selected() {
       return 0
     }
 
+    compare_files_with_delta() {
+      local left_file="$1"
+      local right_file="$2"
+      local -a delta_args=()
+
+      if [[ -n "$LSY_DELTA_ARGS" ]]; then
+        read -r -a delta_args <<< "$LSY_DELTA_ARGS"
+      fi
+
+      delta "${delta_args[@]}" -- "$left_file" "$right_file"
+      return $?
+    }
+
+    compare_two_selected_files() {
+      local -a paths=()
+
+      if ! command -v delta >/dev/null 2>&1 || [[ -n "${DISABLED_INTEGRATIONS[delta]+x}" ]]; then
+        draw_status
+        printf "\033[%d;1H\033[K\033[2mCompare unavailable: delta is not installed or disabled.\033[0m" "$rows"
+        return 1
+      fi
+
+      mapfile -t paths < <(collect_selected_paths_in_row_order)
+      if (( ${#paths[@]} != 2 )); then
+        draw_status
+        printf "\033[%d;1H\033[K\033[2mCompare requires exactly 2 selected files.\033[0m" "$rows"
+        return 1
+      fi
+
+      if [[ ! -f "${paths[0]}" || ! -f "${paths[1]}" ]]; then
+        draw_status
+        printf "\033[%d;1H\033[K\033[2mCompare requires 2 regular files.\033[0m" "$rows"
+        return 1
+      fi
+
+      run_interactive_command compare_files_with_delta "${paths[0]}" "${paths[1]}" || return 1
+      draw_ui
+      return 0
+    }
+
     page_up() {
       (( cursor == 0 )) && return
       cursor=$(( cursor - visible_rows ))
@@ -2443,7 +2620,7 @@ delete_current_or_selected() {
         printf "\033[1;36mNavigation\033[0m  \033[1;33mUp/Down\033[0m move  \033[1;33mPgUp/PgDn\033[0m page  \033[1;33mHome/End\033[0m top/bottom\n"
         printf "\033[1;36mDirectory\033[0m   \033[1;33mRight\033[0m enter/open zip  \033[1;33mLeft\033[0m parent dir\n"
         printf "\033[1;36mSelect\033[0m      \033[1;33m%s\033[0m toggle  \033[1;33m%s\033[0m all  \033[1;33m%s\033[0m copy  \033[1;33m%s\033[0m move  \033[1;33m%s\033[0m paste  \033[1;33m%s\033[0m delete\n" "$KEY_SELECT_TOGGLE_LABEL" "$KEY_SELECT_ALL" "$KEY_COPY" "$KEY_MOVE" "$KEY_PASTE" "$KEY_DELETE"
-        printf "\033[1;36mFile\033[0m        \033[1;33m%s\033[0m less viewer  \033[1;33m%s\033[0m GUI opener  \033[1;33m%s\033[0m edit  \033[1;33m%s\033[0m zip\n" "$KEY_OPEN_LESS" "$KEY_OPEN_GUI" "$KEY_OPEN_EDITOR" "$KEY_EXTRACT_ZIP"
+        printf "\033[1;36mFile\033[0m        \033[1;33m%s\033[0m less viewer  \033[1;33m%s\033[0m GUI opener  \033[1;33m%s\033[0m edit  \033[1;33m%s\033[0m compare  \033[1;33m%s\033[0m zip\n" "$KEY_OPEN_LESS" "$KEY_OPEN_GUI" "$KEY_OPEN_EDITOR" "$KEY_COMPARE" "$KEY_EXTRACT_ZIP"
         printf "\033[1;36mView\033[0m        \033[1;33m%s\033[0m hidden  \033[1;33m%s\033[0m debug  \033[1;33m%s\033[0m renderer  \033[1;33m%s\033[0m name-first\n" "$KEY_TOGGLE_HIDDEN" "$KEY_TOGGLE_DEBUG_LABEL" "$KEY_TOGGLE_SOURCE_LABEL" "$KEY_TOGGLE_NAME_FIRST_LABEL"
         printf "\033[1;36mPanels\033[0m      \033[1;33m%s\033[0m integrations  \033[1;33m%s\033[0m help\n" "$KEY_INTEGRATIONS" "$KEY_HELP"
         printf "\033[1;36mOther\033[0m       \033[1;33m%s\033[0m reload  \033[1;33m%s\033[0m help  \033[1;33m%s\033[0m quit\n\n" "$KEY_RELOAD" "$KEY_HELP" "$KEY_QUIT"
@@ -2469,7 +2646,8 @@ delete_current_or_selected() {
         "${KEY_OPEN_LESS}            Open selected file with less"
         "${KEY_OPEN_GUI}            Open selected path in GUI app"
         "${KEY_OPEN_EDITOR}            Edit selected file in terminal editor"
-        "${KEY_EXTRACT_ZIP}            Extract .zip or create archive"
+        "${KEY_COMPARE}            Compare 2 selected files with delta"
+        "${KEY_EXTRACT_ZIP}            Extract archive or create archive"
         ""
         "Selection"
         "${KEY_SELECT_TOGGLE_LABEL}            Toggle current row selection"
@@ -2509,6 +2687,7 @@ delete_current_or_selected() {
         "LSY_FUSE_ZIP_MOUNT_ROOT  Optional root directory for fuse-zip mounts"
         "LSY_UNZIP_ARGS  Extra args passed to unzip extraction"
         "LSY_ZIP_ARGS  Extra args passed to zip archive creation"
+        "LSY_DELTA_ARGS  Extra args passed to delta compare"
         "LSY_JNV_ARGS  Extra args passed to jnv JSON preview"
         "LSY_CSVLENS_ARGS  Extra args passed to csvlens preview"
         "LSY_GLOW_ARGS  Extra args passed to glow markdown preview"
@@ -2729,6 +2908,9 @@ delete_current_or_selected() {
             ;;
           "$KEY_OPEN_EDITOR")
             open_selected_with_editor || true
+            ;;
+          "$KEY_COMPARE")
+            compare_two_selected_files || true
             ;;
           "$KEY_EXTRACT_ZIP")
             handle_zip_action || true
