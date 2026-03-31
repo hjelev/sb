@@ -2645,7 +2645,7 @@ delete_current_or_selected() {
     }
 
     go_parent_dir() {
-      local archive_path archive_name archive_parent
+      local archive_path archive_name archive_parent child_name
 
       archive_path="$(mounted_zip_archive_for_pwd || true)"
       if [[ -n "$archive_path" ]]; then
@@ -2662,11 +2662,13 @@ delete_current_or_selected() {
       fi
 
       [[ "$(pwd -P 2>/dev/null || pwd)" == "/" ]] && return 0
+      child_name="$(basename -- "$(pwd -P 2>/dev/null || pwd)")"
       cd .. 2>/dev/null || return 1
       clear_selection
       cursor=0
       top=0
       load_data
+      position_cursor_for_name "$child_name" >/dev/null 2>&1 || true
       draw_ui
       return 0
     }
