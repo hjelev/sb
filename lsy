@@ -40,6 +40,7 @@
     LSY_CHAFA_HOLD="${LSY_CHAFA_HOLD:-1}"
     LSY_CHAFA_ARGS="${LSY_CHAFA_ARGS:---animate=off --symbols vhalf --size 100%x60%}"
     LSY_GLOW_ARGS="${LSY_GLOW_ARGS:-}"
+    LSY_CSVLENS_ARGS="${LSY_CSVLENS_ARGS:-}"
     LSY_EDITOR="${LSY_EDITOR:-}"
     LIST_SOURCE="${LSY_LIST_SOURCE:-}"   # empty = auto-select best available in detect_sources()
     FILE_VIEWER="${LSY_FILE_VIEWER:-}"   # empty = auto-select best available in detect_sources()
@@ -83,6 +84,7 @@
     HAS_BATCAT=0
     HAS_CHAFA=0
     HAS_GLOW=0
+    HAS_CSVLENS=0
     orig_stty=""
     LAST_LOAD_MS=0
     LAST_LS_MS=0
@@ -289,6 +291,12 @@ EOF
         HAS_GLOW=0
       fi
 
+      if command -v csvlens >/dev/null 2>&1 && [[ -z "${DISABLED_INTEGRATIONS[csvlens]+x}" ]]; then
+        HAS_CSVLENS=1
+      else
+        HAS_CSVLENS=0
+      fi
+
       if [[ -z "$FILE_VIEWER" ]]; then
         if (( HAS_BAT )); then
           FILE_VIEWER=bat
@@ -450,6 +458,15 @@ EOF
       local mime=""
       local -a chafa_args=()
       local -a glow_args=()
+      local -a csvlens_args=()
+
+      if (( HAS_CSVLENS )) && is_csvlens_file "$item"; then
+        if [[ -n "$LSY_CSVLENS_ARGS" ]]; then
+          read -r -a csvlens_args <<< "$LSY_CSVLENS_ARGS"
+        fi
+        run_interactive_command csvlens "${csvlens_args[@]}" -- "$item"
+        return $?
+      fi
 
       if (( HAS_GLOW )) && is_markdown_file "$item"; then
         if [[ -n "$LSY_GLOW_ARGS" ]]; then
@@ -507,6 +524,29 @@ EOF
         local mime
         mime="$(file --brief --mime-type -- "$item" 2>/dev/null || true)"
         [[ "$mime" == text/markdown ]] && return 0
+      fi
+
+      return 1
+    }
+
+    is_csvlens_file() {
+      local item="$1"
+      local lower="${item,,}"
+
+      case "$lower" in
+        *.csv|*.tsv|*.tab|*.psv|*.dsv|*.ssv)
+          return 0
+          ;;
+      esac
+
+      if command -v file >/dev/null 2>&1; then
+        local mime
+        mime="$(file --brief --mime-type -- "$item" 2>/dev/null || true)"
+        case "$mime" in
+          text/csv|text/tab-separated-values|application/csv|application/tab-separated-values)
+            return 0
+            ;;
+        esac
       fi
 
       return 1
@@ -1311,7 +1351,8 @@ EOF
         "list source|eza|A modern ls replacement with rich metadata and icons|1"
         "list source|lsd|LSDeluxe: modern ls replacement with icons and colors|1"
         "vcs|git|Version control integration for repo-aware workflows|1"
-        "preview|glow|Terminal markdown preview for markdown files|1"
+        "preview|csvlens|Terminal CSV/TSV preview for .csv .tsv .tab .psv .dsv .ssv|1"
+        "preview|glow|Terminal markdown preview for .md, .markdown, .mdown, .mkdn (and markdown MIME)|1"
         "preview|chafa|Terminal image preview for image/* files|1"
         "view|name-first|Show file/folder name before metadata|1"
         "file viewer|less|Terminal pager for plain file viewing|0"
@@ -1363,6 +1404,9 @@ EOF
         fi
         if (( HAS_GLOW )); then
           active_tools[glow]=1
+        fi
+        if (( HAS_CSVLENS )); then
+          active_tools[csvlens]=1
         fi
 
         for (( i=0; i<int_count; i++ )); do
@@ -1647,6 +1691,7 @@ EOF
         "Env overrides"
         "LSY_KEY_*    Override any key binding"
         "LSY_EDITOR   Optional override (else VISUAL, EDITOR, /etc/alternatives/editor, nano)"
+        "LSY_CSVLENS_ARGS  Extra args passed to csvlens preview"
         "LSY_GLOW_ARGS  Extra args passed to glow markdown preview"
         "LSY_EZA_*    Configure eza renderer"
         "LSY_LSD_*    Configure lsd renderer"
