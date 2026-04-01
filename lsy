@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
     set -uo pipefail
 
-    if (( BASH_VERSINFO[0] < 4 )); then
-      echo "lsy requires bash 4+" >&2
-      exit 1
-    fi
-
     KEY_QUIT="${LSY_KEY_QUIT:-q}"
     KEY_RELOAD="${LSY_KEY_RELOAD:-r}"
     KEY_UP="${LSY_KEY_UP:-$'\e[A'}"
@@ -80,16 +75,37 @@
     LSY_LSD_BLOCKS="${LSY_LSD_BLOCKS:-permission,user,group,size,date,name}"
     LSY_LSD_EXTRA_ARGS="${LSY_LSD_EXTRA_ARGS:-}"
 
+    IS_DARWIN=0
+    HAS_ASSOC_ARRAYS=0
+    HAS_DATE_NANOSECONDS=0
+    HAS_GNU_LS=0
+    HAS_READLINE_DEFAULTS=0
+
     declare -a ROWS_COLOR=()
     declare -a ROWS_PLAIN=()
     declare -a ROWS_SELECT_PLAIN=()
     declare -a ROWS_PATH=()
     declare -a ROWS_SELECTED=()
-    declare -A DISABLED_INTEGRATIONS=()
-    declare -A SELECTED_PATHS=()
     declare -a CLIPBOARD_ITEMS=()
     declare -a CLIPBOARD_MULTI=()
+    declare -a DIRECTORY_CAPTURE_ENTRIES=()
     EXPORT_FILE=""
+
+    if (( BASH_VERSINFO[0] >= 4 )); then
+      HAS_ASSOC_ARRAYS=1
+      HAS_READLINE_DEFAULTS=1
+      declare -A DISABLED_INTEGRATIONS=()
+      declare -A SELECTED_PATHS=()
+      declare -A ZIP_MOUNT_BY_ARCHIVE=()
+      declare -A ZIP_ARCHIVE_BY_MOUNT=()
+    else
+      declare -a DISABLED_INTEGRATIONS=()
+      declare -a SELECTED_PATHS=()
+      declare -a ZIP_MOUNT_ARCHIVES=()
+      declare -a ZIP_MOUNT_POINTS=()
+      declare -a ZIP_ARCHIVE_MOUNTS=()
+      declare -a ZIP_ARCHIVE_ARCHIVES=()
+    fi
 
     cursor=0
     top=0
@@ -149,8 +165,6 @@
     GIT_HEADER_CACHE_ENABLED="-1"
     FUSE_ZIP_SESSION_DIR=""
     FUSE_ZIP_MOUNT_COUNTER=0
-    declare -A ZIP_MOUNT_BY_ARCHIVE=()
-    declare -A ZIP_ARCHIVE_BY_MOUNT=()
     declare -a ZIP_MOUNT_ORDER=()
 
     usage() {
@@ -193,6 +207,348 @@ EOF
       else
         SHOW_DEBUG_FOOTER=0
       fi
+    }
+
+    detect_runtime_capabilities() {
+      local uname_s now_value
+
+      uname_s="$(uname -s 2>/dev/null || printf '')"
+      [[ "$uname_s" == "Darwin" ]] && IS_DARWIN=1 || IS_DARWIN=0
+
+      if ls --version >/dev/null 2>&1; then
+        HAS_GNU_LS=1
+      else
+        HAS_GNU_LS=0
+      fi
+
+      now_value="$(date +%s%N 2>/dev/null || printf '')"
+      if [[ "$now_value" =~ ^[0-9]+$ && "$now_value" != *N* ]]; then
+        HAS_DATE_NANOSECONDS=1
+      else
+        HAS_DATE_NANOSECONDS=0
+      fi
+    }
+
+    append_array_value() {
+      local array_name="$1"
+      local value="$2"
+      eval "$array_name+=(\"\$value\")"
+    }
+
+    read_stdin_into_array() {
+      local array_name="$1"
+      local line
+
+      eval "$array_name=()"
+      while IFS= read -r line || [[ -n "$line" ]]; do
+        append_array_value "$array_name" "$line"
+      done
+    }
+
+    lowercase_string() {
+      printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+    }
+
+    now_epoch_ns() {
+      if (( HAS_DATE_NANOSECONDS )); then
+        date +%s%N
+      else
+        printf '%s000000000' "$(date +%s)"
+      fi
+    }
+
+    safe_command_path() {
+      local path="$1"
+      if [[ "$path" == -* ]]; then
+        printf './%s' "$path"
+      else
+        printf '%s' "$path"
+      fi
+    }
+
+    path_basename() {
+      basename "$(safe_command_path "$1")"
+    }
+
+    path_dirname() {
+      dirname "$(safe_command_path "$1")"
+    }
+
+    run_mkdir_p() {
+      mkdir -p "$(safe_command_path "$1")"
+    }
+
+    run_rmdir() {
+      rmdir "$(safe_command_path "$1")"
+    }
+
+    run_rm_rf() {
+      rm -rf "$(safe_command_path "$1")"
+    }
+
+    run_mv_path() {
+      mv "$(safe_command_path "$1")" "$(safe_command_path "$2")"
+    }
+
+    run_cp_recursive() {
+      cp -R "$(safe_command_path "$1")" "$(safe_command_path "$2")"
+    }
+
+    integration_is_disabled() {
+      local tool="$1"
+      local entry
+
+      if (( HAS_ASSOC_ARRAYS )); then
+        [[ -n "${DISABLED_INTEGRATIONS[$tool]+x}" ]]
+        return
+      fi
+
+      for entry in "${DISABLED_INTEGRATIONS[@]}"; do
+        [[ "$entry" == "$tool" ]] && return 0
+      done
+      return 1
+    }
+
+    disable_integration() {
+      local tool="$1"
+
+      integration_is_disabled "$tool" && return 0
+      if (( HAS_ASSOC_ARRAYS )); then
+        DISABLED_INTEGRATIONS[$tool]=1
+      else
+        DISABLED_INTEGRATIONS+=("$tool")
+      fi
+    }
+
+    enable_integration() {
+      local tool="$1"
+      local i
+      local -a remaining=()
+
+      if (( HAS_ASSOC_ARRAYS )); then
+        unset 'DISABLED_INTEGRATIONS[$tool]'
+        return 0
+      fi
+
+      for i in "${!DISABLED_INTEGRATIONS[@]}"; do
+        [[ "${DISABLED_INTEGRATIONS[$i]}" == "$tool" ]] && continue
+        remaining+=("${DISABLED_INTEGRATIONS[$i]}")
+      done
+      DISABLED_INTEGRATIONS=("${remaining[@]}")
+    }
+
+    selected_path_is_marked() {
+      local path="$1"
+      local entry
+
+      if (( HAS_ASSOC_ARRAYS )); then
+        [[ -n "${SELECTED_PATHS[$path]+x}" ]]
+        return
+      fi
+
+      for entry in "${SELECTED_PATHS[@]}"; do
+        [[ "$entry" == "$path" ]] && return 0
+      done
+      return 1
+    }
+
+    mark_selected_path() {
+      local path="$1"
+
+      selected_path_is_marked "$path" && return 0
+      if (( HAS_ASSOC_ARRAYS )); then
+        SELECTED_PATHS[$path]=1
+      else
+        SELECTED_PATHS+=("$path")
+      fi
+    }
+
+    unmark_selected_path() {
+      local path="$1"
+      local i
+      local -a remaining=()
+
+      if (( HAS_ASSOC_ARRAYS )); then
+        unset 'SELECTED_PATHS[$path]'
+        return 0
+      fi
+
+      for i in "${!SELECTED_PATHS[@]}"; do
+        [[ "${SELECTED_PATHS[$i]}" == "$path" ]] && continue
+        remaining+=("${SELECTED_PATHS[$i]}")
+      done
+      SELECTED_PATHS=("${remaining[@]}")
+    }
+
+    update_selected_count() {
+      SELECTED_COUNT=${#SELECTED_PATHS[@]}
+    }
+
+    print_selected_paths() {
+      local path
+
+      if (( HAS_ASSOC_ARRAYS )); then
+        for path in "${!SELECTED_PATHS[@]}"; do
+          printf '%s\n' "$path"
+        done
+        return 0
+      fi
+
+      if (( ${#SELECTED_PATHS[@]} > 0 )); then
+        printf '%s\n' "${SELECTED_PATHS[@]}"
+      fi
+    }
+
+    zip_mount_for_archive() {
+      local archive="$1"
+      local i
+
+      if (( HAS_ASSOC_ARRAYS )); then
+        printf '%s' "${ZIP_MOUNT_BY_ARCHIVE[$archive]-}"
+        return 0
+      fi
+
+      for i in "${!ZIP_MOUNT_ARCHIVES[@]}"; do
+        if [[ "${ZIP_MOUNT_ARCHIVES[$i]}" == "$archive" ]]; then
+          printf '%s' "${ZIP_MOUNT_POINTS[$i]}"
+          return 0
+        fi
+      done
+      return 0
+    }
+
+    zip_archive_for_mount() {
+      local mountpoint="$1"
+      local i
+
+      if (( HAS_ASSOC_ARRAYS )); then
+        printf '%s' "${ZIP_ARCHIVE_BY_MOUNT[$mountpoint]-}"
+        return 0
+      fi
+
+      for i in "${!ZIP_ARCHIVE_MOUNTS[@]}"; do
+        if [[ "${ZIP_ARCHIVE_MOUNTS[$i]}" == "$mountpoint" ]]; then
+          printf '%s' "${ZIP_ARCHIVE_ARCHIVES[$i]}"
+          return 0
+        fi
+      done
+      return 0
+    }
+
+    store_zip_mount() {
+      local archive="$1"
+      local mountpoint="$2"
+      local i
+
+      if (( HAS_ASSOC_ARRAYS )); then
+        ZIP_MOUNT_BY_ARCHIVE[$archive]="$mountpoint"
+        ZIP_ARCHIVE_BY_MOUNT[$mountpoint]="$archive"
+        return 0
+      fi
+
+      for i in "${!ZIP_MOUNT_ARCHIVES[@]}"; do
+        if [[ "${ZIP_MOUNT_ARCHIVES[$i]}" == "$archive" ]]; then
+          ZIP_MOUNT_POINTS[$i]="$mountpoint"
+          return 0
+        fi
+      done
+
+      ZIP_MOUNT_ARCHIVES+=("$archive")
+      ZIP_MOUNT_POINTS+=("$mountpoint")
+      ZIP_ARCHIVE_MOUNTS+=("$mountpoint")
+      ZIP_ARCHIVE_ARCHIVES+=("$archive")
+    }
+
+    remove_zip_mount_by_archive() {
+      local archive="$1"
+      local i
+      local -a archives=() mounts=()
+
+      if (( HAS_ASSOC_ARRAYS )); then
+        unset 'ZIP_MOUNT_BY_ARCHIVE[$archive]'
+        return 0
+      fi
+
+      for i in "${!ZIP_MOUNT_ARCHIVES[@]}"; do
+        [[ "${ZIP_MOUNT_ARCHIVES[$i]}" == "$archive" ]] && continue
+        archives+=("${ZIP_MOUNT_ARCHIVES[$i]}")
+        mounts+=("${ZIP_MOUNT_POINTS[$i]}")
+      done
+      ZIP_MOUNT_ARCHIVES=("${archives[@]}")
+      ZIP_MOUNT_POINTS=("${mounts[@]}")
+    }
+
+    remove_zip_archive_by_mount() {
+      local mountpoint="$1"
+      local i
+      local -a mounts=() archives=()
+
+      if (( HAS_ASSOC_ARRAYS )); then
+        unset 'ZIP_ARCHIVE_BY_MOUNT[$mountpoint]'
+        return 0
+      fi
+
+      for i in "${!ZIP_ARCHIVE_MOUNTS[@]}"; do
+        [[ "${ZIP_ARCHIVE_MOUNTS[$i]}" == "$mountpoint" ]] && continue
+        mounts+=("${ZIP_ARCHIVE_MOUNTS[$i]}")
+        archives+=("${ZIP_ARCHIVE_ARCHIVES[$i]}")
+      done
+      ZIP_ARCHIVE_MOUNTS=("${mounts[@]}")
+      ZIP_ARCHIVE_ARCHIVES=("${archives[@]}")
+    }
+
+    collect_directory_entries() {
+      local had_nullglob=0
+      local had_dotglob=0
+      local entry
+      local -a dirs=() files=()
+
+      shopt -q nullglob && had_nullglob=1
+      shopt -q dotglob && had_dotglob=1
+
+      shopt -s nullglob
+      if (( show_hidden )); then
+        shopt -s dotglob
+      else
+        shopt -u dotglob
+      fi
+
+      for entry in */; do
+        [[ -e "$entry" ]] || continue
+        entry="${entry%/}"
+        dirs+=("$entry")
+      done
+
+      for entry in *; do
+        [[ -e "$entry" ]] || continue
+        [[ -d "$entry" ]] && continue
+        files+=("$entry")
+      done
+
+      (( had_nullglob )) || shopt -u nullglob
+      (( had_dotglob )) && shopt -s dotglob || shopt -u dotglob
+
+      DIRECTORY_CAPTURE_ENTRIES=("${dirs[@]}" "${files[@]}")
+    }
+
+    capture_directory_rows_bsd_ls() {
+      local output=""
+      local entry
+      local -a stat_args=()
+
+      collect_directory_entries
+      if (( ${#DIRECTORY_CAPTURE_ENTRIES[@]} == 0 )); then
+        ROWS_COLOR=()
+        return 0
+      fi
+
+      for entry in "${DIRECTORY_CAPTURE_ENTRIES[@]}"; do
+        stat_args+=("$(safe_command_path "$entry")")
+      done
+
+      output="$(LC_ALL=C stat -f '%Sp %Su %z %Sm %N' -t '%Y-%m-%d %H:%M' "${stat_args[@]}" 2>/dev/null)" || return 1
+      read_stdin_into_array ROWS_COLOR <<< "$output"
+      return 0
     }
 
     cleanup() {
@@ -312,7 +668,16 @@ EOF
       printf "\033[?25h" >"$tty"
       printf "\033[%d;1H\033[K" "$rows" >"$tty"
       stty echo <"$tty"
-      IFS= read -r -e -i "$initial_value" -p "$prompt" value <"$tty" >"$tty" 2>&1
+      if (( HAS_READLINE_DEFAULTS )); then
+        IFS= read -r -e -i "$initial_value" -p "$prompt" value <"$tty" >"$tty" 2>&1
+      else
+        printf "%s" "$prompt" >"$tty"
+        if [[ -n "$initial_value" ]]; then
+          printf "%s" "$initial_value" >"$tty"
+        fi
+        IFS= read -r value <"$tty"
+        [[ -z "$value" ]] && value="$initial_value"
+      fi
       stty -echo cbreak -ixon intr undef <"$tty"
       printf "\033[?25l" >"$tty"
 
@@ -337,13 +702,13 @@ EOF
 
     detect_sources() {
       # Detect list source tools (prefer eza > lsd > ls); respect user-disabled integrations.
-      if command -v eza >/dev/null 2>&1 && [[ -z "${DISABLED_INTEGRATIONS[eza]+x}" ]]; then
+      if command -v eza >/dev/null 2>&1 && ! integration_is_disabled eza; then
         HAS_EZA=1
       else
         HAS_EZA=0
       fi
 
-      if command -v lsd >/dev/null 2>&1 && [[ -z "${DISABLED_INTEGRATIONS[lsd]+x}" ]]; then
+      if command -v lsd >/dev/null 2>&1 && ! integration_is_disabled lsd; then
         HAS_LSD=1
       else
         HAS_LSD=0
@@ -369,97 +734,97 @@ EOF
       fi
 
       # Detect file viewer tools (prefer bat > batcat > less); respect user-disabled integrations.
-      if command -v bat >/dev/null 2>&1 && [[ -z "${DISABLED_INTEGRATIONS[bat]+x}" ]]; then
+      if command -v bat >/dev/null 2>&1 && ! integration_is_disabled bat; then
         HAS_BAT=1
       else
         HAS_BAT=0
       fi
 
-      if command -v batcat >/dev/null 2>&1 && [[ -z "${DISABLED_INTEGRATIONS[bat]+x}" ]] && [[ -z "${DISABLED_INTEGRATIONS[batcat]+x}" ]]; then
+      if command -v batcat >/dev/null 2>&1 && ! integration_is_disabled bat && ! integration_is_disabled batcat; then
         HAS_BATCAT=1
       else
         HAS_BATCAT=0
       fi
 
-      if command -v chafa >/dev/null 2>&1 && [[ -z "${DISABLED_INTEGRATIONS[chafa]+x}" ]]; then
+      if command -v chafa >/dev/null 2>&1 && ! integration_is_disabled chafa; then
         HAS_CHAFA=1
       else
         HAS_CHAFA=0
       fi
 
-      if command -v glow >/dev/null 2>&1 && [[ -z "${DISABLED_INTEGRATIONS[glow]+x}" ]]; then
+      if command -v glow >/dev/null 2>&1 && ! integration_is_disabled glow; then
         HAS_GLOW=1
       else
         HAS_GLOW=0
       fi
 
-      if command -v csvlens >/dev/null 2>&1 && [[ -z "${DISABLED_INTEGRATIONS[csvlens]+x}" ]]; then
+      if command -v csvlens >/dev/null 2>&1 && ! integration_is_disabled csvlens; then
         HAS_CSVLENS=1
       else
         HAS_CSVLENS=0
       fi
 
-      if command -v jnv >/dev/null 2>&1 && [[ -z "${DISABLED_INTEGRATIONS[jnv]+x}" ]]; then
+      if command -v jnv >/dev/null 2>&1 && ! integration_is_disabled jnv; then
         HAS_JNV=1
       else
         HAS_JNV=0
       fi
 
-      if command -v rg >/dev/null 2>&1 && [[ -z "${DISABLED_INTEGRATIONS[rg]+x}" ]]; then
+      if command -v rg >/dev/null 2>&1 && ! integration_is_disabled rg; then
         HAS_RG=1
       else
         HAS_RG=0
       fi
 
-      if command -v fzf >/dev/null 2>&1 && [[ -z "${DISABLED_INTEGRATIONS[fzf]+x}" ]]; then
+      if command -v fzf >/dev/null 2>&1 && ! integration_is_disabled fzf; then
         HAS_FZF=1
       else
         HAS_FZF=0
       fi
 
-      if command -v delta >/dev/null 2>&1 && [[ -z "${DISABLED_INTEGRATIONS[delta]+x}" ]]; then
+      if command -v delta >/dev/null 2>&1 && ! integration_is_disabled delta; then
         HAS_DELTA=1
       else
         HAS_DELTA=0
       fi
 
-      if command -v fuse-zip >/dev/null 2>&1 && [[ -z "${DISABLED_INTEGRATIONS[fuse-zip]+x}" ]]; then
+      if command -v fuse-zip >/dev/null 2>&1 && ! integration_is_disabled fuse-zip; then
         HAS_FUSE_ZIP=1
       else
         HAS_FUSE_ZIP=0
       fi
 
-      if command -v sox >/dev/null 2>&1 && [[ -z "${DISABLED_INTEGRATIONS[sox]+x}" ]]; then
+      if command -v sox >/dev/null 2>&1 && ! integration_is_disabled sox; then
         HAS_SOX=1
       else
         HAS_SOX=0
       fi
 
-      if [[ -z "${DISABLED_INTEGRATIONS[zip]+x}" ]] && command -v unzip >/dev/null 2>&1; then
+      if ! integration_is_disabled zip && command -v unzip >/dev/null 2>&1; then
         HAS_UNZIP=1
       else
         HAS_UNZIP=0
       fi
 
-      if [[ -z "${DISABLED_INTEGRATIONS[zip]+x}" ]] && command -v zip >/dev/null 2>&1; then
+      if ! integration_is_disabled zip && command -v zip >/dev/null 2>&1; then
         HAS_ZIPCMD=1
       else
         HAS_ZIPCMD=0
       fi
 
-      if [[ -z "${DISABLED_INTEGRATIONS[tar]+x}" ]] && command -v tar >/dev/null 2>&1; then
+      if ! integration_is_disabled tar && command -v tar >/dev/null 2>&1; then
         HAS_TAR=1
       else
         HAS_TAR=0
       fi
 
-      if [[ -z "${DISABLED_INTEGRATIONS[7z]+x}" ]] && command -v 7z >/dev/null 2>&1; then
+      if ! integration_is_disabled 7z && command -v 7z >/dev/null 2>&1; then
         HAS_7Z=1
       else
         HAS_7Z=0
       fi
 
-      if [[ -z "${DISABLED_INTEGRATIONS[rar]+x}" ]]; then
+      if ! integration_is_disabled rar; then
         if command -v unrar >/dev/null 2>&1 || command -v rar >/dev/null 2>&1; then
           HAS_RAR=1
         else
@@ -526,12 +891,36 @@ EOF
       while true; do
         case "$source" in
           ls)
-            local -a ls_args=()
-            ls_args=(-lh --group-directories-first --time-style=long-iso --quoting-style=literal)
-            (( show_hidden )) && ls_args+=(-A)
             LAST_SOURCE_EXECUTED="ls"
-            LAST_SOURCE_ARGS="ls ${ls_args[*]} --color=always"
-            if output="$(LC_ALL=C ls "${ls_args[@]}" --color=always 2>/dev/null | sed '1{/^total /d;}')"; then
+            if (( HAS_GNU_LS )); then
+              local -a ls_args=()
+              ls_args=(-lh --group-directories-first --time-style=long-iso --quoting-style=literal)
+              (( show_hidden )) && ls_args+=(-A)
+              LAST_SOURCE_ARGS="ls ${ls_args[*]} --color=always"
+              if output="$(LC_ALL=C ls "${ls_args[@]}" --color=always 2>/dev/null | sed '1{/^total /d;}')"; then
+                LAST_SOURCE_RC=0
+                LIST_SOURCE="ls"
+                break
+              fi
+            elif (( IS_DARWIN )); then
+              LAST_SOURCE_ARGS="stat -f '%Sp %Su %z %Sm %N' -t '%Y-%m-%d %H:%M'"
+              if capture_directory_rows_bsd_ls; then
+                LAST_SOURCE_RC=0
+                LIST_SOURCE="ls"
+                return 0
+              fi
+            else
+              local -a ls_args=()
+              ls_args=(-lh)
+              (( show_hidden )) && ls_args+=(-A)
+              LAST_SOURCE_ARGS="ls ${ls_args[*]}"
+              if output="$(LC_ALL=C ls "${ls_args[@]}" 2>/dev/null | sed '1{/^total /d;}')"; then
+                LAST_SOURCE_RC=0
+                LIST_SOURCE="ls"
+                break
+              fi
+            fi
+            if [[ -n "$output" ]]; then
               LAST_SOURCE_RC=0
               LIST_SOURCE="ls"
               break
@@ -624,7 +1013,7 @@ EOF
       done
 
       if [[ -n "$output" ]]; then
-        mapfile -t ROWS_COLOR <<< "$output"
+        read_stdin_into_array ROWS_COLOR <<< "$output"
       else
         ROWS_COLOR=()
       fi
@@ -718,7 +1107,8 @@ EOF
 
     is_audio_file() {
       local item="$1"
-      local lower="${item,,}"
+      local lower
+      lower="$(lowercase_string "$item")"
 
       case "$lower" in
         *.wav|*.mp3|*.flac|*.aiff|*.aif|*.opus|*.ogg|*.oga|*.wma|*.m4a|*.aac|*.alac|*.ape|*.dsf|*.dsd)
@@ -736,7 +1126,8 @@ EOF
 
     is_markdown_file() {
       local item="$1"
-      local lower="${item,,}"
+      local lower
+      lower="$(lowercase_string "$item")"
 
       case "$lower" in
         *.md|*.markdown|*.mdown|*.mkd|*.mkdn|*.mdx|*.rmd|*.qmd)
@@ -755,7 +1146,8 @@ EOF
 
     is_csvlens_file() {
       local item="$1"
-      local lower="${item,,}"
+      local lower
+      lower="$(lowercase_string "$item")"
 
       case "$lower" in
         *.csv|*.tsv|*.tab|*.psv|*.dsv|*.ssv)
@@ -778,7 +1170,8 @@ EOF
 
     is_jnv_file() {
       local item="$1"
-      local lower="${item,,}"
+      local lower
+      lower="$(lowercase_string "$item")"
 
       case "$lower" in
         *.json|*.jsonl|*.ndjson|*.geojson)
@@ -802,13 +1195,15 @@ EOF
     open_file_with_less() {
       local item="$1"
       command -v less >/dev/null 2>&1 || return 1
-      run_interactive_command less -- "$item"
+      run_interactive_command less "$(safe_command_path "$item")"
       return 0
     }
 
     open_file_with_gui() {
       local item="$1"
-      if command -v xdg-open >/dev/null 2>&1; then
+      if (( IS_DARWIN )) && command -v open >/dev/null 2>&1; then
+        nohup open "$item" >/dev/null 2>&1 &
+      elif command -v xdg-open >/dev/null 2>&1; then
         nohup xdg-open "$item" >/dev/null 2>&1 &
       elif command -v gio >/dev/null 2>&1; then
         nohup gio open "$item" >/dev/null 2>&1 &
@@ -845,13 +1240,14 @@ EOF
       (( ${#editor_cmd[@]} > 0 )) || return 1
       command -v "${editor_cmd[0]}" >/dev/null 2>&1 || return 1
 
-      run_interactive_command "${editor_cmd[@]}" -- "$item"
+      run_interactive_command "${editor_cmd[@]}" "$(safe_command_path "$item")"
       return $?
     }
 
     is_zip_file() {
       local item="$1"
-      local lower="${item,,}"
+      local lower
+      lower="$(lowercase_string "$item")"
 
       case "$lower" in
         *.zip)
@@ -870,7 +1266,8 @@ EOF
 
     is_archive_file() {
       local item="$1"
-      local lower="${item,,}"
+      local lower
+      lower="$(lowercase_string "$item")"
 
       case "$lower" in
         *.zip|*.jar|*.apk|*.war|*.ear|*.aar|*.cbz|*.epub|*.xpi|\
@@ -886,7 +1283,8 @@ EOF
 
     preview_archive_listing() {
       local item="$1"
-      local lower="${item,,}"
+      local lower
+      lower="$(lowercase_string "$item")"
 
       command -v less >/dev/null 2>&1 || return 1
 
@@ -932,7 +1330,7 @@ EOF
       if [[ -z "$FUSE_ZIP_SESSION_DIR" ]]; then
         FUSE_ZIP_SESSION_DIR="$(mktemp -d "${TMPDIR:-/tmp}/lsy-fuse-zip.XXXXXX")" || return 1
       else
-        mkdir -p -- "$FUSE_ZIP_SESSION_DIR" 2>/dev/null || return 1
+        run_mkdir_p "$FUSE_ZIP_SESSION_DIR" 2>/dev/null || return 1
       fi
 
       printf '%s' "$FUSE_ZIP_SESSION_DIR"
@@ -958,7 +1356,7 @@ EOF
       elif command -v umount >/dev/null 2>&1; then
         umount "$mountpoint" >/dev/null 2>&1 || true
       fi
-      rmdir -- "$mountpoint" >/dev/null 2>&1 || true
+      run_rmdir "$mountpoint" >/dev/null 2>&1 || true
     }
 
     cleanup_fuse_zip_mounts() {
@@ -976,15 +1374,15 @@ EOF
       for (( idx=${#ZIP_MOUNT_ORDER[@]}-1; idx>=0; idx-- )); do
         mountpoint="${ZIP_MOUNT_ORDER[$idx]}"
         [[ -n "$mountpoint" ]] || continue
-        archive="${ZIP_ARCHIVE_BY_MOUNT[$mountpoint]-}"
+        archive="$(zip_archive_for_mount "$mountpoint")"
         unmount_fuse_zip_mountpoint "$mountpoint"
-        [[ -n "$archive" ]] && unset 'ZIP_MOUNT_BY_ARCHIVE[$archive]'
-        unset 'ZIP_ARCHIVE_BY_MOUNT[$mountpoint]'
+        [[ -n "$archive" ]] && remove_zip_mount_by_archive "$archive"
+        remove_zip_archive_by_mount "$mountpoint"
       done
 
       ZIP_MOUNT_ORDER=()
       if [[ -n "$FUSE_ZIP_SESSION_DIR" && -z "$LSY_FUSE_ZIP_MOUNT_ROOT" ]]; then
-        rmdir -- "$FUSE_ZIP_SESSION_DIR" >/dev/null 2>&1 || true
+        run_rmdir "$FUSE_ZIP_SESSION_DIR" >/dev/null 2>&1 || true
       fi
     }
 
@@ -994,7 +1392,7 @@ EOF
       for mountpoint in "${ZIP_MOUNT_ORDER[@]}"; do
         [[ -n "$mountpoint" ]] || continue
         if [[ "$pwd_real" == "$mountpoint" ]]; then
-          archive="${ZIP_ARCHIVE_BY_MOUNT[$mountpoint]-}"
+          archive="$(zip_archive_for_mount "$mountpoint")"
           [[ -n "$archive" ]] && printf '%s' "$archive"
           return 0
         fi
@@ -1035,7 +1433,7 @@ EOF
         archive_abs="$(pwd -P)/$archive_abs"
       fi
 
-      mountpoint="${ZIP_MOUNT_BY_ARCHIVE[$archive_abs]-}"
+      mountpoint="$(zip_mount_for_archive "$archive_abs")"
       if [[ -n "$mountpoint" && -d "$mountpoint" ]]; then
         cd -- "$mountpoint" 2>/dev/null || return 1
         clear_selection
@@ -1055,7 +1453,7 @@ EOF
       mount_name="$(zip_mount_name "$archive_abs")"
       FUSE_ZIP_MOUNT_COUNTER=$(( FUSE_ZIP_MOUNT_COUNTER + 1 ))
       mountpoint="$mount_root/${mount_name}.${FUSE_ZIP_MOUNT_COUNTER}"
-      mkdir -p -- "$mountpoint" 2>/dev/null || {
+      run_mkdir_p "$mountpoint" 2>/dev/null || {
         draw_status
         printf "\033[%d;1H\033[K\033[2mFuse-zip failed: cannot create mountpoint '%s'.\033[0m" "$rows" "$mountpoint"
         return 1
@@ -1068,11 +1466,10 @@ EOF
       mount_archive="$archive_abs"
       [[ "$mount_archive" == -* ]] && mount_archive="./$mount_archive"
       if err="$(fuse-zip "${fuse_zip_args[@]}" "$mount_archive" "$mountpoint" 2>&1)"; then
-        ZIP_MOUNT_BY_ARCHIVE[$archive_abs]="$mountpoint"
-        ZIP_ARCHIVE_BY_MOUNT[$mountpoint]="$archive_abs"
+        store_zip_mount "$archive_abs" "$mountpoint"
         ZIP_MOUNT_ORDER+=("$mountpoint")
       else
-        rmdir -- "$mountpoint" >/dev/null 2>&1 || true
+        run_rmdir "$mountpoint" >/dev/null 2>&1 || true
         draw_status
         printf "\033[%d;1H\033[K\033[2mFuse-zip mount failed: %s\033[0m" "$rows" "$(printf '%s' "$err" | head -1)"
         return 1
@@ -1092,7 +1489,7 @@ EOF
       local -a paths=()
 
       if (( SELECTED_COUNT > 0 )); then
-        mapfile -t paths < <(collect_selected_paths_in_row_order)
+        read_stdin_into_array paths < <(collect_selected_paths_in_row_order)
       else
         path="$(current_row_path)" || return 1
         paths=("$path")
@@ -1108,7 +1505,7 @@ EOF
       local -a paths=()
 
       if (( SELECTED_COUNT > 0 )); then
-        mapfile -t paths < <(collect_selected_paths_in_row_order)
+        read_stdin_into_array paths < <(collect_selected_paths_in_row_order)
       else
         path="$(current_row_path)" || return 1
         paths=("$path")
@@ -1122,8 +1519,8 @@ EOF
     zip_archive_basename() {
       local path="$1"
       local base lower
-      base="$(basename -- "$path")"
-      lower="${base,,}"
+      base="$(path_basename "$path")"
+      lower="$(lowercase_string "$base")"
       case "$lower" in
         *.tar.gz|*.tar.bz2|*.tar.xz|*.tar.lz4|*.tar.zst|*.tar.lz)
           base="${base%.*}"; base="${base%.*}" ;;
@@ -1138,8 +1535,9 @@ EOF
     # Extract a single archive to out_dir. Returns 0=ok 1=error 2=no tool.
     _extract_one_archive() {
       local item="$1" out_dir="$2"
-      local lower="${item,,}" err="" unzip_item
+      local lower err="" unzip_item
       local -a unzip_args=()
+      lower="$(lowercase_string "$item")"
       [[ -n "$LSY_UNZIP_ARGS" ]] && read -r -a unzip_args <<< "$LSY_UNZIP_ARGS"
 
       case "$lower" in
@@ -1183,7 +1581,7 @@ EOF
         return 1
       }
 
-      mapfile -t items < <(collect_zip_paths_from_current_or_selection)
+      read_stdin_into_array items < <(collect_zip_paths_from_current_or_selection)
       (( ${#items[@]} > 0 )) || {
         draw_status
         printf "\033[%d;1H\033[K\033[2mExtract failed: no valid source paths in current selection.\033[0m" "$rows"
@@ -1227,7 +1625,7 @@ EOF
         extract_root="$(pwd -P)/$extract_root"
       fi
 
-      mkdir -p -- "$extract_root" 2>/dev/null || {
+      run_mkdir_p "$extract_root" 2>/dev/null || {
         draw_status
         printf "\033[%d;1H\033[K\033[2mExtract failed: cannot create destination '%s'.\033[0m" "$rows" "$extract_root"
         return 1
@@ -1240,7 +1638,7 @@ EOF
       fi
 
       for item in "${archive_items[@]}"; do
-        archive_name="$(basename -- "$item")"
+        archive_name="$(path_basename "$item")"
         if (( per_archive )); then
           folder_name="$(zip_archive_basename "$item")"
           [[ -n "$folder_name" ]] || folder_name="archive"
@@ -1258,7 +1656,7 @@ EOF
           out_dir="$extract_root"
         fi
 
-        if ! mkdir -p -- "$out_dir" 2>/dev/null; then
+        if ! run_mkdir_p "$out_dir" 2>/dev/null; then
           ((fail_count++))
           continue
         fi
@@ -1302,7 +1700,7 @@ EOF
         return 1
       }
 
-      mapfile -t items < <(collect_paths_from_current_or_selection)
+      read_stdin_into_array items < <(collect_paths_from_current_or_selection)
       (( ${#items[@]} > 0 )) || {
         draw_status
         printf "\033[%d;1H\033[K\033[2mArchive failed: no valid source paths in current selection.\033[0m" "$rows"
@@ -1321,10 +1719,10 @@ EOF
       }
 
       if (( ${#zip_items[@]} == 1 )); then
-        base="$(basename -- "${zip_items[0]}")"
+        base="$(path_basename "${zip_items[0]}")"
         default_name="${base}.zip"
       else
-        base="$(basename -- "$(pwd -P)")"
+        base="$(path_basename "$(pwd -P)")"
         [[ -n "$base" ]] || base="archive"
         default_name="${base}.zip"
       fi
@@ -1342,8 +1740,8 @@ EOF
         out_path="$(pwd -P)/$out_path"
       fi
 
-      out_dir="$(dirname -- "$out_path")"
-      mkdir -p -- "$out_dir" 2>/dev/null || {
+      out_dir="$(path_dirname "$out_path")"
+      run_mkdir_p "$out_dir" 2>/dev/null || {
         draw_status
         printf "\033[%d;1H\033[K\033[2mArchive failed: cannot create destination directory '%s'.\033[0m" "$rows" "$out_dir"
         return 1
@@ -1355,7 +1753,7 @@ EOF
           printf "\033[%d;1H\033[K\033[2mArchive cancelled.\033[0m" "$rows"
           return 1
         fi
-        rm -f -- "$out_path" 2>/dev/null || {
+        rm -f "$(safe_command_path "$out_path")" 2>/dev/null || {
           draw_status
           printf "\033[%d;1H\033[K\033[2mArchive failed: cannot overwrite '%s'.\033[0m" "$rows" "$out_path"
           return 1
@@ -1393,7 +1791,7 @@ EOF
       load_data
       draw_ui
       if (( ok_count )); then
-        printf "\033[%d;1H\033[K\033[2mArchive created: %s\033[0m" "$rows" "$(basename -- "$out_path")"
+        printf "\033[%d;1H\033[K\033[2mArchive created: %s\033[0m" "$rows" "$(path_basename "$out_path")"
         return 0
       fi
 
@@ -1405,7 +1803,7 @@ EOF
       local -a items=()
       local item zip_count=0 other_count=0
 
-      mapfile -t items < <(collect_paths_from_current_or_selection)
+      read_stdin_into_array items < <(collect_paths_from_current_or_selection)
       (( ${#items[@]} > 0 )) || {
         draw_status
         printf "\033[%d;1H\033[K\033[2mZip action failed: no valid source paths in current selection.\033[0m" "$rows"
@@ -1439,7 +1837,7 @@ EOF
           return 1
         fi
       else
-        item="$(basename -- "${items[0]}")"
+        item="$(path_basename "${items[0]}")"
         if ! read_yes_no_prompt "Create archive for '$item'? [y/N]: "; then
           draw_status
           printf "\033[%d;1H\033[K\033[2mArchive cancelled.\033[0m" "$rows"
@@ -1456,7 +1854,7 @@ delete_current_or_selected() {
   local item label err
   local ok_count=0 fail_count=0 skip_count=0
 
-  mapfile -t items < <(collect_paths_from_current_or_selection)
+  read_stdin_into_array items < <(collect_paths_from_current_or_selection)
   (( ${#items[@]} > 0 )) || {
     draw_status
     printf "\033[%d;1H\033[K\033[2mDelete failed: no valid source paths in current selection.\033[0m" "$rows"
@@ -1478,7 +1876,7 @@ delete_current_or_selected() {
   if (( ${#existing_items[@]} > 1 )); then
     label="Delete ${#existing_items[@]} selected item(s)? [y/N]: "
   else
-    label="Delete '$(basename -- "${existing_items[0]}")'? [y/N]: "
+    label="Delete '$(path_basename "${existing_items[0]}")'? [y/N]: "
   fi
 
   if ! read_yes_no_prompt "$label"; then
@@ -1488,9 +1886,9 @@ delete_current_or_selected() {
   fi
 
   for item in "${existing_items[@]}"; do
-    if err="$(rm -rf -- "$item" 2>&1)"; then
+    if err="$(run_rm_rf "$item" 2>&1)"; then
       ((ok_count++))
-      unset 'SELECTED_PATHS[$item]'
+      unmark_selected_path "$item"
     else
       ((fail_count++))
       LAST_PASTE_ERR="$err"
@@ -1498,7 +1896,7 @@ delete_current_or_selected() {
   done
 
   skip_count=$(( ${#items[@]} - ${#existing_items[@]} ))
-  SELECTED_COUNT=${#SELECTED_PATHS[@]}
+  update_selected_count
   LAST_PASTE_OP="rm"
   LAST_PASTE_RC=0
   LAST_PASTE_OK=$ok_count
@@ -1529,21 +1927,43 @@ delete_current_or_selected() {
     # Reorder long-list rows to `name metadata...` using awk+column alignment.
     # Minimal modification: split on date-time anchor, reorder, let column handle alignment.
     format_name_first_aligned() {
-      awk '
+      local name_max_chars meta_reserve
+      meta_reserve=50
+      name_max_chars=$(( cols - meta_reserve ))
+      (( name_max_chars < 12 )) && name_max_chars=12
+      (( name_max_chars > 64 )) && name_max_chars=64
+
+      awk -v max_name_chars="$name_max_chars" '
         BEGIN {
           esc = sprintf("%c", 27) "\\[[0-9;]*m"
           dt = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9](" esc ")*[[:space:]]+(" esc ")*[0-9][0-9]:[0-9][0-9](" esc ")*[[:space:]]+"
+          ellipsis = "..."
+        }
+        function strip_ansi(s, tmp) {
+          tmp = s
+          gsub(esc, "", tmp)
+          return tmp
+        }
+        function truncate_for_width(s, plain, keep) {
+          plain = strip_ansi(s)
+          if (max_name_chars <= 0 || length(plain) <= max_name_chars) {
+            return plain
+          }
+          keep = max_name_chars - length(ellipsis)
+          if (keep < 1) keep = 1
+          return substr(plain, 1, keep) ellipsis
         }
         {
           if (match($0, dt)) {
             name = substr($0, RSTART + RLENGTH)
             meta = substr($0, 1, RSTART + RLENGTH - 1)
+            name = truncate_for_width(name)
             printf "%s\t%s\n", name, meta
           } else {
             print
           }
         }
-      ' | column -t -s $'\t'
+    ' | column -t -s $'\t'
     }
 
     load_data() {
@@ -1554,9 +1974,9 @@ delete_current_or_selected() {
       ROWS_PATH=()
       ROWS_SELECTED=()
 
-      t0=$(date +%s%N)
+      t0=$(now_epoch_ns)
       capture_directory_rows || true
-      t1=$(date +%s%N)
+      t1=$(now_epoch_ns)
       LAST_LS_MS=$(( (t1 - t0) / 1000000 ))
       LAST_PARSE_MS=0
       LAST_LOAD_MS=$LAST_LS_MS
@@ -1573,17 +1993,17 @@ delete_current_or_selected() {
       fi
 
       # Build plain rows once from raw renderer output.
-      mapfile -t ROWS_PLAIN < <(printf '%s\n' "${ROWS_COLOR[@]}" | sed -E $'s/\x1B\[[0-9;]*m//g')
+      read_stdin_into_array ROWS_PLAIN < <(printf '%s\n' "${ROWS_COLOR[@]}" | sed -E $'s/\x1B\[[0-9;]*m//g')
 
       # Keep a stable plain array for path extraction before any display reformatting.
       ROWS_SELECT_PLAIN=("${ROWS_PLAIN[@]}")
 
       if (( NAME_FIRST_VIEW )); then
         # Reformat only the display rows; selection rows stay in original capture order.
-        mapfile -t ROWS_COLOR < <(printf '%s\n' "${ROWS_COLOR[@]}" | format_name_first_aligned)
-        mapfile -t ROWS_PLAIN < <(printf '%s\n' "${ROWS_COLOR[@]}" | sed -E $'s/\x1B\[[0-9;]*m//g')
+        read_stdin_into_array ROWS_COLOR < <(printf '%s\n' "${ROWS_COLOR[@]}" | format_name_first_aligned)
+        read_stdin_into_array ROWS_PLAIN < <(printf '%s\n' "${ROWS_COLOR[@]}" | sed -E $'s/\x1B\[[0-9;]*m//g')
       fi
-      t2=$(date +%s%N)
+      t2=$(now_epoch_ns)
       LAST_PARSE_MS=$(( (t2 - t1) / 1000000 ))
       LAST_LOAD_MS=$(( (t2 - t0) / 1000000 ))
 
@@ -1601,7 +2021,7 @@ delete_current_or_selected() {
     update_git_header_suffix() {
       local current_dir branch dirty="" status_output git_enabled=1
       current_dir="$(pwd -P 2>/dev/null || pwd)"
-      [[ -n "${DISABLED_INTEGRATIONS[git]+x}" ]] && git_enabled=0
+      integration_is_disabled git && git_enabled=0
 
       if [[ "$GIT_HEADER_CACHE_PWD" == "$current_dir" && "$GIT_HEADER_CACHE_ENABLED" == "$git_enabled" ]]; then
         GIT_HEADER_SUFFIX="$GIT_HEADER_CACHE_SUFFIX"
@@ -1941,30 +2361,34 @@ delete_current_or_selected() {
 
     clear_selection() {
       SELECTED_PATHS=()
-      SELECTED_COUNT=0
+      update_selected_count
       ROWS_SELECTED=()
     }
 
     rebuild_row_selection_flags() {
-      local -A visible=()
-      local i path
+      local i path selected_path still_visible
+      local -a current_selected=()
 
       ensure_all_row_paths
+      read_stdin_into_array current_selected < <(print_selected_paths)
 
       ROWS_SELECTED=()
-      for i in "${!ROWS_SELECT_PLAIN[@]}"; do
-        path="${ROWS_PATH[$i]-}"
-        [[ -n "$path" ]] && visible["$path"]=1
+      for selected_path in "${current_selected[@]}"; do
+        still_visible=0
+        for i in "${!ROWS_SELECT_PLAIN[@]}"; do
+          path="${ROWS_PATH[$i]-}"
+          if [[ "$path" == "$selected_path" ]]; then
+            still_visible=1
+            break
+          fi
+        done
+        (( still_visible )) || unmark_selected_path "$selected_path"
       done
 
-      for path in "${!SELECTED_PATHS[@]}"; do
-        [[ -n "${visible[$path]+x}" ]] || unset 'SELECTED_PATHS[$path]'
-      done
-
-      SELECTED_COUNT=${#SELECTED_PATHS[@]}
+      update_selected_count
       for i in "${!ROWS_SELECT_PLAIN[@]}"; do
         path="${ROWS_PATH[$i]-}"
-        if [[ -n "$path" && -n "${SELECTED_PATHS[$path]+x}" ]]; then
+        if [[ -n "$path" ]] && selected_path_is_marked "$path"; then
           ROWS_SELECTED+=(1)
         else
           ROWS_SELECTED+=(0)
@@ -1984,15 +2408,15 @@ delete_current_or_selected() {
       idx=$cursor
       path="$(current_row_path)" || return 1
 
-      if [[ -n "${SELECTED_PATHS[$path]+x}" ]]; then
-        unset 'SELECTED_PATHS[$path]'
+      if selected_path_is_marked "$path"; then
+        unmark_selected_path "$path"
         ROWS_SELECTED[$idx]=0
       else
-        SELECTED_PATHS[$path]=1
+        mark_selected_path "$path"
         ROWS_SELECTED[$idx]=1
       fi
 
-      SELECTED_COUNT=${#SELECTED_PATHS[@]}
+      update_selected_count
       return 0
     }
 
@@ -2002,7 +2426,7 @@ delete_current_or_selected() {
       for i in "${!ROWS_SELECT_PLAIN[@]}"; do
         path="${ROWS_PATH[$i]-}"
         [[ -n "$path" ]] || continue
-        if [[ -z "${SELECTED_PATHS[$path]+x}" ]]; then
+        if ! selected_path_is_marked "$path"; then
           all_selected=0
           break
         fi
@@ -2013,7 +2437,7 @@ delete_current_or_selected() {
       else
         for i in "${!ROWS_SELECT_PLAIN[@]}"; do
           [[ -n "${ROWS_PATH[$i]-}" ]] || continue
-          SELECTED_PATHS["${ROWS_PATH[$i]}"]=1
+          mark_selected_path "${ROWS_PATH[$i]}"
         done
         rebuild_row_selection_flags
       fi
@@ -2026,7 +2450,7 @@ delete_current_or_selected() {
       for i in "${!ROWS_SELECT_PLAIN[@]}"; do
         path="${ROWS_PATH[$i]-}"
         [[ -n "$path" ]] || continue
-        [[ -n "${SELECTED_PATHS[$path]+x}" ]] || continue
+        selected_path_is_marked "$path" || continue
         collected+=("$path")
       done
       if (( ${#collected[@]} > 0 )); then
@@ -2058,7 +2482,7 @@ delete_current_or_selected() {
       LAST_CLIP_DROPPED=0
 
       if (( SELECTED_COUNT > 0 )); then
-        mapfile -t items < <(collect_selected_paths_in_row_order)
+        read_stdin_into_array items < <(collect_selected_paths_in_row_order)
       else
         path="$(current_row_path)" || return 1
         items=("$path")
@@ -2088,7 +2512,7 @@ delete_current_or_selected() {
         CLIPBOARD_MULTI=()
         CLIPBOARD_MOVE=0
         CLIPBOARD_PATH="${abs_items[0]}"
-        CLIPBOARD_NAME="$(basename -- "${abs_items[0]}")"
+        CLIPBOARD_NAME="$(path_basename "${abs_items[0]}")"
       fi
 
       CLIPBOARD_ITEMS=("${abs_items[@]}")
@@ -2111,16 +2535,11 @@ delete_current_or_selected() {
       if (( ${#CLIPBOARD_MULTI[@]} > 0 )); then
         if read_yes_no_prompt "Paste ${#CLIPBOARD_MULTI[@]} item(s) here? [y/N]: "; then
           for src in "${CLIPBOARD_MULTI[@]}"; do
-            bname="$(basename -- "$src")"
+            bname="$(path_basename "$src")"
             dest="$bname"
             if [[ -e "$dest" ]]; then
               bname="$(sanitize_filename_input "$bname")"
-              echo -ne "\033[?25h"
-              printf "\033[%d;1H\033[K" "$rows"
-              stty echo
-              read -e -i "$dest" -p "Paste '$bname' as: " dest
-              stty -echo cbreak -ixon intr undef
-              echo -ne "\033[?25l"
+              dest="$(read_line_prompt "Paste '$bname' as: " "$dest")"
             fi
             dest="$(sanitize_filename_input "$dest")"
             if [[ -z "$dest" ]]; then
@@ -2131,7 +2550,7 @@ delete_current_or_selected() {
             if (( CLIPBOARD_MOVE )); then
               LAST_PASTE_OP="mv"
               if [[ "$LSY_DEBUG_PASTE" == "1" ]]; then
-                if err="$(mv -- "$src" "$dest" 2>&1)"; then
+                if err="$(run_mv_path "$src" "$dest" 2>&1)"; then
                   LAST_PASTE_RC=0
                   LAST_PASTE_ERR="-"
                   ((ok_count++))
@@ -2140,7 +2559,7 @@ delete_current_or_selected() {
                   LAST_PASTE_ERR="$err"
                   ((fail_count++))
                 fi
-              elif mv -- "$src" "$dest" 2>/dev/null; then
+              elif run_mv_path "$src" "$dest" 2>/dev/null; then
                 LAST_PASTE_RC=0
                 ((ok_count++))
               else
@@ -2150,7 +2569,7 @@ delete_current_or_selected() {
             else
               LAST_PASTE_OP="cp"
               if [[ "$LSY_DEBUG_PASTE" == "1" ]]; then
-                if err="$(cp -r -- "$src" "$dest" 2>&1)"; then
+                if err="$(run_cp_recursive "$src" "$dest" 2>&1)"; then
                   LAST_PASTE_RC=0
                   LAST_PASTE_ERR="-"
                   ((ok_count++))
@@ -2159,7 +2578,7 @@ delete_current_or_selected() {
                   LAST_PASTE_ERR="$err"
                   ((fail_count++))
                 fi
-              elif cp -r -- "$src" "$dest" 2>/dev/null; then
+              elif run_cp_recursive "$src" "$dest" 2>/dev/null; then
                 LAST_PASTE_RC=0
                 ((ok_count++))
               else
@@ -2195,18 +2614,13 @@ delete_current_or_selected() {
       if [[ -n "$CLIPBOARD_PATH" ]]; then
         dest="$CLIPBOARD_NAME"
         if [[ -e "$dest" ]]; then
-          echo -ne "\033[?25h"
-          printf "\033[%d;1H\033[K" "$rows"
-          stty echo
-          read -e -i "$dest" -p "New name: " dest
-          stty -echo cbreak -ixon intr undef
-          echo -ne "\033[?25l"
+          dest="$(read_line_prompt "New name: " "$dest")"
         fi
         dest="$(sanitize_filename_input "$dest")"
 
         LAST_PASTE_OP="cp"
         if [[ "$LSY_DEBUG_PASTE" == "1" ]]; then
-          if err="$(cp -r -- "$CLIPBOARD_PATH" "$dest" 2>&1)"; then
+          if err="$(run_cp_recursive "$CLIPBOARD_PATH" "$dest" 2>&1)"; then
             LAST_PASTE_RC=0
             LAST_PASTE_ERR="-"
             LAST_PASTE_OK=1
@@ -2227,7 +2641,7 @@ delete_current_or_selected() {
           return 0
         fi
 
-        if cp -r -- "$CLIPBOARD_PATH" "$dest" 2>/dev/null; then
+        if run_cp_recursive "$CLIPBOARD_PATH" "$dest" 2>/dev/null; then
           LAST_PASTE_RC=0
           LAST_PASTE_OK=1
           LAST_PASTE_FAIL=0
@@ -2304,6 +2718,74 @@ delete_current_or_selected() {
       printf '%s' "$clean_name"
     }
 
+    integration_is_active_tool() {
+      local tool="$1"
+
+      case "$tool" in
+        "$LIST_SOURCE"|"$FILE_VIEWER")
+          return 0
+          ;;
+        git)
+          ! integration_is_disabled git && [[ -n "$GIT_HEADER_SUFFIX" ]]
+          return
+          ;;
+        chafa)
+          (( HAS_CHAFA ))
+          return
+          ;;
+        glow)
+          (( HAS_GLOW ))
+          return
+          ;;
+        csvlens)
+          (( HAS_CSVLENS ))
+          return
+          ;;
+        jnv)
+          (( HAS_JNV ))
+          return
+          ;;
+        rg)
+          (( HAS_RG ))
+          return
+          ;;
+        fzf)
+          (( HAS_FZF ))
+          return
+          ;;
+        delta)
+          (( HAS_DELTA ))
+          return
+          ;;
+        sox)
+          (( HAS_SOX ))
+          return
+          ;;
+        fuse-zip)
+          (( HAS_FUSE_ZIP ))
+          return
+          ;;
+        zip)
+          (( HAS_ZIP ))
+          return
+          ;;
+        tar)
+          (( HAS_TAR ))
+          return
+          ;;
+        7z)
+          (( HAS_7Z ))
+          return
+          ;;
+        rar)
+          (( HAS_RAR ))
+          return
+          ;;
+      esac
+
+      return 1
+    }
+
     show_integrations() {
       # Each entry: role|tool|description|optional(1=toggleable, 0=required fallback)
       local -a int_entries=(
@@ -2337,7 +2819,7 @@ delete_current_or_selected() {
       fi
       local int_count=${#int_entries[@]}
       local int_cursor=0
-
+ 
       # Pre-collect install state and versions once; the draw loop stays constant-time.
       local -a int_installed=() int_version=() int_label=()
       local _entry _role _tool _desc _optional
@@ -2424,49 +2906,6 @@ delete_current_or_selected() {
 
       _int_draw_rows() {
         local i line role tool desc optional present state_text state_color state_reset
-        local -A active_tools=(["$LIST_SOURCE"]=1 ["$FILE_VIEWER"]=1)
-        if [[ -z "${DISABLED_INTEGRATIONS[git]+x}" && -n "$GIT_HEADER_SUFFIX" ]]; then
-          active_tools[git]=1
-        fi
-        if (( HAS_CHAFA )); then
-          active_tools[chafa]=1
-        fi
-        if (( HAS_GLOW )); then
-          active_tools[glow]=1
-        fi
-        if (( HAS_CSVLENS )); then
-          active_tools[csvlens]=1
-        fi
-        if (( HAS_JNV )); then
-          active_tools[jnv]=1
-        fi
-        if (( HAS_RG )); then
-          active_tools[rg]=1
-        fi
-        if (( HAS_FZF )); then
-          active_tools[fzf]=1
-        fi
-        if (( HAS_DELTA )); then
-          active_tools[delta]=1
-        fi
-        if (( HAS_SOX )); then
-          active_tools[sox]=1
-        fi
-        if (( HAS_FUSE_ZIP )); then
-          active_tools[fuse-zip]=1
-        fi
-        if (( HAS_ZIP )); then
-          active_tools[zip]=1
-        fi
-        if (( HAS_TAR )); then
-          active_tools[tar]=1
-        fi
-        if (( HAS_7Z )); then
-          active_tools[7z]=1
-        fi
-        if (( HAS_RAR )); then
-          active_tools[rar]=1
-        fi
 
         for (( i=0; i<int_count; i++ )); do
           line=$((3 + i))
@@ -2479,10 +2918,10 @@ delete_current_or_selected() {
           elif (( !int_installed[i] )); then
             state_text="[not installed]"
             state_color="\033[2m"
-          elif [[ -n "${DISABLED_INTEGRATIONS[$tool]+x}" ]]; then
+          elif integration_is_disabled "$tool"; then
             state_text="[off]"
             state_color="\033[31m"
-          elif [[ -n "${active_tools[$tool]+x}" ]]; then
+          elif integration_is_active_tool "$tool"; then
             state_text="[active]"
             state_color="\033[1;33m"
           else
@@ -2523,10 +2962,10 @@ delete_current_or_selected() {
           ' '|$'\r')
             IFS='|' read -r _role _tool _desc _optional <<< "${int_entries[$int_cursor]}"
             if (( _optional && int_installed[int_cursor] )); then
-              if [[ -n "${DISABLED_INTEGRATIONS[$_tool]+x}" ]]; then
-                unset 'DISABLED_INTEGRATIONS[$_tool]'
+              if integration_is_disabled "$_tool"; then
+                enable_integration "$_tool"
               else
-                DISABLED_INTEGRATIONS[$_tool]=1
+                disable_integration "$_tool"
               fi
               LIST_SOURCE=""
               FILE_VIEWER=""
@@ -2649,8 +3088,8 @@ delete_current_or_selected() {
 
       archive_path="$(mounted_zip_archive_for_pwd || true)"
       if [[ -n "$archive_path" ]]; then
-        archive_parent="$(dirname -- "$archive_path")"
-        archive_name="$(basename -- "$archive_path")"
+        archive_parent="$(path_dirname "$archive_path")"
+        archive_name="$(path_basename "$archive_path")"
         cd -- "$archive_parent" 2>/dev/null || return 1
         clear_selection
         cursor=0
@@ -2662,7 +3101,7 @@ delete_current_or_selected() {
       fi
 
       [[ "$(pwd -P 2>/dev/null || pwd)" == "/" ]] && return 0
-      child_name="$(basename -- "$(pwd -P 2>/dev/null || pwd)")"
+      child_name="$(path_basename "$(pwd -P 2>/dev/null || pwd)")"
       cd .. 2>/dev/null || return 1
       clear_selection
       cursor=0
@@ -2742,8 +3181,8 @@ delete_current_or_selected() {
         target_abs="$current_dir/${target_path#./}"
       fi
 
-      target_dir="$(dirname -- "$target_abs")"
-      target_name="$(basename -- "$target_abs")"
+      target_dir="$(path_dirname "$target_abs")"
+      target_name="$(path_basename "$target_abs")"
 
       if [[ "$current_dir" != "$target_dir" ]]; then
         cd -- "$target_dir" || return 1
@@ -2761,7 +3200,7 @@ delete_current_or_selected() {
           path_abs="$target_dir/${path#./}"
         fi
 
-        if [[ "$path_abs" == "$target_abs" || "$(basename -- "$path_abs")" == "$target_name" ]]; then
+        if [[ "$path_abs" == "$target_abs" || "$(path_basename "$path_abs")" == "$target_name" ]]; then
           cursor=$i
           top=$(( cursor - visible_rows / 2 ))
           (( top < 0 )) && top=0
@@ -2957,13 +3396,13 @@ delete_current_or_selected() {
     compare_two_selected_files() {
       local -a paths=()
 
-      if ! command -v delta >/dev/null 2>&1 || [[ -n "${DISABLED_INTEGRATIONS[delta]+x}" ]]; then
+      if ! command -v delta >/dev/null 2>&1 || integration_is_disabled delta; then
         draw_status
         printf "\033[%d;1H\033[K\033[2mCompare unavailable: delta is not installed or disabled.\033[0m" "$rows"
         return 1
       fi
 
-      mapfile -t paths < <(collect_selected_paths_in_row_order)
+      read_stdin_into_array paths < <(collect_selected_paths_in_row_order)
       if (( ${#paths[@]} != 2 )); then
         draw_status
         printf "\033[%d;1H\033[K\033[2mCompare requires exactly 2 selected files.\033[0m" "$rows"
@@ -3171,6 +3610,7 @@ delete_current_or_selected() {
     main() {
       parse_args "$@"
       init_runtime_config
+      detect_runtime_capabilities
       detect_sources
 
       orig_stty=$(stty -g)
