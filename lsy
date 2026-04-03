@@ -26,6 +26,7 @@
     KEY_DELETE="${LSY_KEY_DELETE:-d}"
     KEY_PASTE="${LSY_KEY_PASTE:-v}"
     KEY_INTEGRATIONS="${LSY_KEY_INTEGRATIONS:-i}"
+    KEY_SSH_PICKER="${LSY_KEY_SSH_PICKER:-S}"
     KEY_HELP="${LSY_KEY_HELP:-h}"
     KEY_OPEN_LESS="${LSY_KEY_OPEN_LESS:-l}"
     KEY_OPEN_GUI="${LSY_KEY_OPEN_GUI:-o}"
@@ -53,9 +54,17 @@
       LSY_PLAY_ARGS="${LSY_PLAY_ARGS:-}"
     LSY_FUSE_ZIP_ARGS="${LSY_FUSE_ZIP_ARGS:-}"
     LSY_FUSE_ZIP_MOUNT_ROOT="${LSY_FUSE_ZIP_MOUNT_ROOT:-}"
+    LSY_SSHFS_DIR="${LSY_SSHFS_DIR:-}"
     LSY_UNZIP_ARGS="${LSY_UNZIP_ARGS:-}"
     LSY_ZIP_ARGS="${LSY_ZIP_ARGS:-}"
     LSY_EDITOR="${LSY_EDITOR:-}"
+    LSY_NAMEFIRST_WIDTH_PCT="${LSY_NAMEFIRST_WIDTH_PCT:-35}"
+    LSY_NAMEFIRST_META_RESERVE="${LSY_NAMEFIRST_META_RESERVE:-50}"
+    LSY_NAMEFIRST_META_RESERVE_MIN="${LSY_NAMEFIRST_META_RESERVE_MIN:-36}"
+    LSY_NAMEFIRST_NAME_MIN="${LSY_NAMEFIRST_NAME_MIN:-12}"
+    LSY_NAMEFIRST_NAME_MAX="${LSY_NAMEFIRST_NAME_MAX:-64}"
+    LSY_DEBUG_LOGO_NAMEFIRST="${LSY_DEBUG_LOGO_NAMEFIRST:-0}"
+    LSY_DEBUG_LOGO_FILE="${LSY_DEBUG_LOGO_FILE:-/tmp/lsy-logo-namefirst.debug}"
     LIST_SOURCE="${LSY_LIST_SOURCE:-}"   # empty = auto-select best available in detect_sources()
     FILE_VIEWER="${LSY_FILE_VIEWER:-}"   # empty = auto-select best available in detect_sources()
     NAME_FIRST_VIEW="${LSY_NAME_FIRST_VIEW:-1}"
@@ -105,6 +114,7 @@
       declare -A SELECTED_PATHS=()
       declare -A ZIP_MOUNT_BY_ARCHIVE=()
       declare -A ZIP_ARCHIVE_BY_MOUNT=()
+      declare -A SSHFS_SESSION_MOUNTS=()
     else
       declare -a DISABLED_INTEGRATIONS=()
       declare -a SELECTED_PATHS=()
@@ -112,6 +122,7 @@
       declare -a ZIP_MOUNT_POINTS=()
       declare -a ZIP_ARCHIVE_MOUNTS=()
       declare -a ZIP_ARCHIVE_ARCHIVES=()
+      declare -a SSHFS_SESSION_MOUNTS_LIST=()
     fi
 
     cursor=0
@@ -134,6 +145,7 @@
     HAS_FZF=0
     HAS_DELTA=0
     HAS_FUSE_ZIP=0
+    HAS_SSHFS=0
     HAS_UNZIP=0
     HAS_ZIPCMD=0
     HAS_TAR=0
@@ -174,6 +186,13 @@
     FUSE_ZIP_SESSION_DIR=""
     FUSE_ZIP_MOUNT_COUNTER=0
     declare -a ZIP_MOUNT_ORDER=()
+    SSHFS_DIR="${LSY_SSHFS_DIR:-${TMPDIR:-/tmp}/lsy_sshfs_${UID:-$(id -u 2>/dev/null || printf '0')}}"
+    SSHFS_LAST_ERROR=""
+    SSHPICK_LABEL_WIDTH=0
+    declare -a SSHPICK_LABELS=()
+    declare -a SSHPICK_SPECS=()
+    SSHPICK_TOTAL=0
+    SSHPICK_CURSOR=1
 
     usage() {
       cat <<'EOF'
@@ -580,6 +599,7 @@ EOF
     }
 
     cleanup() {
+      sshfs_unmount_session_mounts
       cleanup_fuse_zip_mounts
       if [[ -n "$EXPORT_FILE" ]]; then
         pwd > "$EXPORT_FILE"
@@ -841,6 +861,12 @@ EOF
         HAS_FUSE_ZIP=0
       fi
 
+      if command -v sshfs >/dev/null 2>&1 && ! integration_is_disabled sshfs; then
+        HAS_SSHFS=1
+      else
+        HAS_SSHFS=0
+      fi
+
       if command -v sox >/dev/null 2>&1 && ! integration_is_disabled sox; then
         HAS_SOX=1
       else
@@ -1092,7 +1118,9 @@ EOF
             (( show_hidden )) && logols_args+=(-A)
             LAST_SOURCE_EXECUTED="logo-ls"
             LAST_SOURCE_ARGS="logo-ls ${logols_args[*]}"
-            if output="$(logo-ls "${logols_args[@]}" 2>/dev/null)"; then
+            # Force wide capture width so logo-ls does not soft-wrap rows. Wrapped
+            # rows break downstream parsing by splitting one entry into multiple lines.
+            if output="$(COLUMNS=4096 logo-ls "${logols_args[@]}" 2>/dev/null)"; then
               if [[ "$LSY_LOGO_LS_DIRS_FIRST" == "1" ]]; then
                 output="$(printf '%s\n' "$output" | reorder_logo_ls_dirs_first)"
               fi
@@ -1501,6 +1529,494 @@ EOF
         fi
       done
       return 1
+    }
+
+    sshfs_mount_is_tracked() {
+      local mp="$1"
+      local entry
+
+      if (( HAS_ASSOC_ARRAYS )); then
+        [[ -n "${SSHFS_SESSION_MOUNTS[$mp]+x}" ]]
+        return
+      fi
+
+      for entry in "${SSHFS_SESSION_MOUNTS_LIST[@]}"; do
+        [[ "$entry" == "$mp" ]] && return 0
+      done
+      return 1
+    }
+
+    sshfs_track_mount() {
+      local mp="$1"
+
+      sshfs_mount_is_tracked "$mp" && return 0
+      if (( HAS_ASSOC_ARRAYS )); then
+        SSHFS_SESSION_MOUNTS["$mp"]=1
+      else
+        SSHFS_SESSION_MOUNTS_LIST+=("$mp")
+      fi
+    }
+
+    sshfs_untrack_mount() {
+      local mp="$1"
+      local i
+      local -a remaining=()
+
+      if (( HAS_ASSOC_ARRAYS )); then
+        unset 'SSHFS_SESSION_MOUNTS[$mp]'
+        return 0
+      fi
+
+      for i in "${!SSHFS_SESSION_MOUNTS_LIST[@]}"; do
+        [[ "${SSHFS_SESSION_MOUNTS_LIST[$i]}" == "$mp" ]] && continue
+        remaining+=("${SSHFS_SESSION_MOUNTS_LIST[$i]}")
+      done
+      SSHFS_SESSION_MOUNTS_LIST=("${remaining[@]}")
+    }
+
+    sshfs_print_tracked_mounts() {
+      local mp
+
+      if (( HAS_ASSOC_ARRAYS )); then
+        for mp in "${!SSHFS_SESSION_MOUNTS[@]}"; do
+          printf '%s\n' "$mp"
+        done
+        return 0
+      fi
+
+      if (( ${#SSHFS_SESSION_MOUNTS_LIST[@]} > 0 )); then
+        printf '%s\n' "${SSHFS_SESSION_MOUNTS_LIST[@]}"
+      fi
+      return 0
+    }
+
+    # Parse: [label:]user@host[:port]:/path
+    sshfs_parse_spec() {
+      local spec="$1"
+      _ssh_label=""
+      _ssh_user=""
+      _ssh_host=""
+      _ssh_port=""
+      _ssh_path="/"
+
+      [[ "$spec" == *"@"* ]] || return 1
+      local left="${spec%%@*}" right="${spec#*@}"
+      if [[ "$left" == *":"* ]]; then
+        _ssh_label="${left%%:*}"
+        _ssh_user="${left#*:}"
+      else
+        _ssh_user="$left"
+      fi
+
+      if [[ "$right" == *":/"* ]]; then
+        local before_path="${right%%:/*}"
+        _ssh_path="/${right#*:/}"
+        if [[ "$before_path" == *":"* ]]; then
+          _ssh_host="${before_path%%:*}"
+          _ssh_port="${before_path#*:}"
+        else
+          _ssh_host="$before_path"
+        fi
+      else
+        _ssh_host="$right"
+        if [[ "$_ssh_host" == *":"* ]]; then
+          _ssh_port="${_ssh_host#*:}"
+          _ssh_host="${_ssh_host%%:*}"
+        fi
+      fi
+
+      [[ -n "$_ssh_user" && -n "$_ssh_host" ]] || return 1
+      return 0
+    }
+
+    sshfs_get_mount_point() {
+      local spec="$1"
+      local safe_name
+
+      sshfs_parse_spec "$spec" || return 1
+      safe_name="$(printf '%s_%s' "$_ssh_host" "$_ssh_path" | tr -cs 'a-zA-Z0-9_-' '_' | sed 's/_\+/_/g; s/^_//; s/_$//')"
+      printf '%s/%s' "$SSHFS_DIR" "${safe_name:-conn}"
+      return 0
+    }
+
+    sshfs_format_spec_for_display() {
+      local spec="$1"
+
+      sshfs_parse_spec "$spec" || {
+        printf '%s' "$spec"
+        return 0
+      }
+
+      if [[ -n "$_ssh_port" ]]; then
+        printf '%s@%s:%s:%s' "$_ssh_user" "$_ssh_host" "$_ssh_port" "$_ssh_path"
+      else
+        printf '%s@%s:%s' "$_ssh_user" "$_ssh_host" "$_ssh_path"
+      fi
+      return 0
+    }
+
+    sshfs_is_mounted() {
+      local mp="$1"
+
+      [[ -n "$mp" ]] || return 1
+      if [[ -r /proc/mounts ]]; then
+        grep -Fqs " ${mp} fuse.sshfs " /proc/mounts 2>/dev/null && return 0
+      fi
+
+      if command -v mount >/dev/null 2>&1; then
+        mount 2>/dev/null | awk -v mp="$mp" '
+          index($0, " on " mp " ") {
+            line=tolower($0)
+            if (line ~ /(sshfs|fuse|osxfuse|macfuse)/) { found=1; exit }
+          }
+          END { exit(found ? 0 : 1) }
+        '
+        return $?
+      fi
+
+      return 1
+    }
+
+    sshfs_do_mount() {
+      local spec="$1"
+      local mp
+      local -a opts=()
+
+      SSHFS_LAST_ERROR=""
+      sshfs_parse_spec "$spec" || {
+        SSHFS_LAST_ERROR="Invalid SSH spec: ${spec}"
+        return 1
+      }
+      if ! command -v sshfs >/dev/null 2>&1; then
+        SSHFS_LAST_ERROR="sshfs is not installed"
+        return 1
+      fi
+
+      mp="$(sshfs_get_mount_point "$spec")" || {
+        SSHFS_LAST_ERROR="Invalid SSH mount spec: ${spec}"
+        return 1
+      }
+      sshfs_is_mounted "$mp" && {
+        sshfs_track_mount "$mp"
+        return 0
+      }
+
+      if ! mkdir -p "$mp" 2>/dev/null; then
+        if [[ ! -d "$SSHFS_DIR" ]]; then
+          SSHFS_LAST_ERROR="Cannot create mount base directory: ${SSHFS_DIR}. Set LSY_SSHFS_DIR to a writable path."
+        elif [[ ! -w "$SSHFS_DIR" ]]; then
+          SSHFS_LAST_ERROR="Mount base directory is not writable: ${SSHFS_DIR}. Set LSY_SSHFS_DIR to a writable path."
+        else
+          SSHFS_LAST_ERROR="Cannot create mount point: ${mp}"
+        fi
+        return 1
+      fi
+
+      opts=("-o" "follow_symlinks,reconnect,ServerAliveInterval=15")
+      [[ -n "$_ssh_port" ]] && opts+=("-p" "$_ssh_port")
+      run_interactive_command sshfs "${opts[@]}" "${_ssh_user}@${_ssh_host}:${_ssh_path}" "$mp"
+
+      if sshfs_is_mounted "$mp"; then
+        sshfs_track_mount "$mp"
+        return 0
+      fi
+
+      SSHFS_LAST_ERROR="sshfs command failed for ${_ssh_user}@${_ssh_host}:${_ssh_path}"
+      return 1
+    }
+
+    sshfs_do_unmount() {
+      local mp="$1"
+      local cwd
+
+      cwd="$(pwd -P 2>/dev/null || pwd 2>/dev/null || printf '/')"
+      if [[ "$cwd" == "$mp" || "$cwd" == "$mp"/* ]]; then
+        cd "$HOME" 2>/dev/null || cd / 2>/dev/null || true
+      fi
+
+      if command -v fusermount3 >/dev/null 2>&1; then
+        if fusermount3 -u "$mp" 2>/dev/null || fusermount3 -uz "$mp" 2>/dev/null; then
+          sshfs_untrack_mount "$mp"
+          return 0
+        fi
+      fi
+
+      if command -v fusermount >/dev/null 2>&1; then
+        if fusermount -u "$mp" 2>/dev/null || fusermount -uz "$mp" 2>/dev/null; then
+          sshfs_untrack_mount "$mp"
+          return 0
+        fi
+      fi
+
+      if umount "$mp" 2>/dev/null || umount -l "$mp" 2>/dev/null; then
+        sshfs_untrack_mount "$mp"
+        return 0
+      fi
+
+      return 1
+    }
+
+    sshfs_unmount_session_mounts() {
+      local mp
+      local cwd
+
+      cwd="$(pwd -P 2>/dev/null || pwd 2>/dev/null || printf '/')"
+      while IFS= read -r mp; do
+        [[ -n "$mp" ]] || continue
+        if [[ "$cwd" == "$mp" || "$cwd" == "$mp"/* ]]; then
+          cd "$HOME" 2>/dev/null || cd / 2>/dev/null || true
+          break
+        fi
+      done < <(sshfs_print_tracked_mounts)
+
+      while IFS= read -r mp; do
+        [[ -n "$mp" ]] || continue
+        sshfs_is_mounted "$mp" || continue
+        sshfs_do_unmount "$mp" >/dev/null 2>&1 || true
+      done < <(sshfs_print_tracked_mounts)
+    }
+
+    _sshfs_emit_ssh_block() {
+      local alias="$1"
+      local host="${2:-$1}"
+      local user="${3:-$5}"
+      local port="$4"
+      local spec
+
+      [[ -z "$alias" || "$alias" == *"*"* ]] && return
+      spec="${user}@${host}:/"
+      [[ -n "$port" ]] && spec="${user}@${host}:${port}:/"
+      printf '%s|%s\n' "$alias" "$spec"
+    }
+
+    sshfs_get_ssh_config_hosts() {
+      local alias="" hostname="" user="" port="" line key val
+      local key_lower
+      local def_user="${USER:-$(id -un 2>/dev/null || printf '')}"
+
+      [[ -f "${HOME}/.ssh/config" ]] || return 0
+      while IFS= read -r line; do
+        line="${line#"${line%%[! ]*}"}"
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        key="${line%% *}"
+        val="${line#* }"
+        key_lower="$(lowercase_string "$key")"
+        case "$key_lower" in
+          host)
+            _sshfs_emit_ssh_block "$alias" "$hostname" "$user" "$port" "$def_user"
+            alias="$val"
+            hostname=""
+            user=""
+            port=""
+            ;;
+          hostname)
+            hostname="$val"
+            ;;
+          user)
+            user="$val"
+            ;;
+          port)
+            port="$val"
+            ;;
+        esac
+      done < "${HOME}/.ssh/config"
+
+      _sshfs_emit_ssh_block "$alias" "$hostname" "$user" "$port" "$def_user"
+      return 0
+    }
+
+    sshfs_mount_and_navigate() {
+      local spec="$1"
+      local mp
+
+      mp="$(sshfs_get_mount_point "$spec" 2>/dev/null || true)"
+      if [[ -z "$mp" ]]; then
+        draw_status
+        printf "\033[%d;1H\033[K\033[2mInvalid SSH spec: %s\033[0m" "$rows" "$spec"
+        return 1
+      fi
+
+      if ! sshfs_is_mounted "$mp"; then
+        if ! sshfs_do_mount "$spec"; then
+          draw_status
+          if [[ -n "$SSHFS_LAST_ERROR" ]]; then
+            printf "\033[%d;1H\033[K\033[2m%s\033[0m" "$rows" "$SSHFS_LAST_ERROR"
+          else
+            printf "\033[%d;1H\033[K\033[2mSSHFS mount failed: %s\033[0m" "$rows" "$spec"
+          fi
+          return 1
+        fi
+      fi
+
+      cd -- "$mp" 2>/dev/null || {
+        draw_status
+        printf "\033[%d;1H\033[K\033[2mCannot access mount: %s\033[0m" "$rows" "$mp"
+        return 1
+      }
+
+      clear_selection
+      cursor=0
+      top=0
+      load_data
+      draw_ui
+      return 0
+    }
+
+    _sshfs_draw_picker() {
+      local picker_status="${1-}"
+      local j mp mounted_badge spec raw_spec label
+
+      printf "\033[H\033[2J"
+      printf "\033[1;36mlsy - SSH Connections\033[0m\n\n"
+      if (( SSHPICK_TOTAL == 0 )); then
+        printf "  No SSH connections found.\n\n"
+        printf "  \033[2mAdd env vars: export LSY_SSH_0=\"label:user@host:/path\"\033[0m\n"
+        printf "  \033[2mOr add Host blocks in ~/.ssh/config\033[0m\n"
+      else
+        for (( j=1; j<=SSHPICK_TOTAL; j++ )); do
+          raw_spec="${SSHPICK_SPECS[$((j-1))]}"
+          spec="$(sshfs_format_spec_for_display "$raw_spec")"
+          label="${SSHPICK_LABELS[$((j-1))]}"
+          mp="$(sshfs_get_mount_point "$raw_spec" 2>/dev/null || true)"
+          if [[ -n "$mp" ]] && sshfs_is_mounted "$mp"; then
+            mounted_badge=$' \033[1;32m[mounted]\033[0m'
+          else
+            mounted_badge=""
+          fi
+
+          if (( j == SSHPICK_CURSOR )); then
+            printf "\033[1m > %*s\033[0m  \033[2m%s\033[0m%s\n" "$SSHPICK_LABEL_WIDTH" "$label" "$spec" "$mounted_badge"
+          else
+            printf "   \033[1;33m%*s\033[0m  \033[2m%s\033[0m%s\n" "$SSHPICK_LABEL_WIDTH" "$label" "$spec" "$mounted_badge"
+          fi
+        done
+      fi
+
+      printf "\n"
+      [[ -n "$picker_status" ]] && printf "%b\n" "$picker_status"
+      printf "\033[2mConfigure LSY_SSH_0..LSY_SSH_9 or ~/.ssh/config\033[0m\n"
+      printf "\033[2m↑↓ Navigate  Enter Mount+Open  u Unmount  q/Esc Back\033[0m\n"
+    }
+
+    _sshfs_draw_picker_row() {
+      local j="$1"
+      local row=$((j + 2))
+      local mp mounted_badge spec raw_spec label
+
+      (( j >= 1 && j <= SSHPICK_TOTAL )) || return
+
+      raw_spec="${SSHPICK_SPECS[$((j-1))]}"
+      spec="$(sshfs_format_spec_for_display "$raw_spec")"
+      label="${SSHPICK_LABELS[$((j-1))]}"
+      mp="$(sshfs_get_mount_point "$raw_spec" 2>/dev/null || true)"
+      if [[ -n "$mp" ]] && sshfs_is_mounted "$mp"; then
+        mounted_badge=$' \033[1;32m[mounted]\033[0m'
+      else
+        mounted_badge=""
+      fi
+
+      printf "\033[%d;1H\033[K" "$row"
+      if (( j == SSHPICK_CURSOR )); then
+        printf "\033[1m > %*s\033[0m  \033[2m%s\033[0m%s" "$SSHPICK_LABEL_WIDTH" "$label" "$spec" "$mounted_badge"
+      else
+        printf "   \033[1;33m%*s\033[0m  \033[2m%s\033[0m%s" "$SSHPICK_LABEL_WIDTH" "$label" "$spec" "$mounted_badge"
+      fi
+    }
+
+    show_ssh_picker() {
+      local i var_name val lbl
+      local cfgalias cfgspec
+      local key chosen_spec mp picker_status old_cursor
+
+      if (( !HAS_SSHFS )); then
+        draw_status
+        printf "\033[%d;1H\033[K\033[2mSSH picker unavailable: sshfs is not installed or is disabled in integrations.\033[0m" "$rows"
+        return 1
+      fi
+
+      SSHPICK_LABELS=()
+      SSHPICK_SPECS=()
+      SSHPICK_CURSOR=1
+      SSHPICK_LABEL_WIDTH=0
+
+      for i in 0 1 2 3 4 5 6 7 8 9; do
+        var_name="LSY_SSH_${i}"
+        val="${!var_name-}"
+        [[ -n "$val" ]] || continue
+        lbl="LSY_SSH_${i}"
+        if sshfs_parse_spec "$val" && [[ -n "$_ssh_label" ]]; then
+          lbl="$_ssh_label"
+        fi
+        SSHPICK_LABELS+=("$lbl")
+        SSHPICK_SPECS+=("$val")
+      done
+
+      while IFS='|' read -r cfgalias cfgspec; do
+        [[ -n "$cfgalias" && -n "$cfgspec" ]] || continue
+        SSHPICK_LABELS+=("$cfgalias")
+        SSHPICK_SPECS+=("$cfgspec")
+      done < <(sshfs_get_ssh_config_hosts)
+
+      SSHPICK_TOTAL=${#SSHPICK_LABELS[@]}
+      for lbl in "${SSHPICK_LABELS[@]}"; do
+        (( ${#lbl} > SSHPICK_LABEL_WIDTH )) && SSHPICK_LABEL_WIDTH=${#lbl}
+      done
+
+      picker_status=""
+      _sshfs_draw_picker "$picker_status"
+      while true; do
+        key="$(read_key || true)"
+        [[ -n "$key" ]] || continue
+        case "$key" in
+          "$KEY_UP")
+            if (( SSHPICK_CURSOR > 1 )); then
+              old_cursor=$SSHPICK_CURSOR
+              ((SSHPICK_CURSOR--))
+              _sshfs_draw_picker_row "$old_cursor"
+              _sshfs_draw_picker_row "$SSHPICK_CURSOR"
+            fi
+            ;;
+          "$KEY_DOWN")
+            if (( SSHPICK_CURSOR < SSHPICK_TOTAL )); then
+              old_cursor=$SSHPICK_CURSOR
+              ((SSHPICK_CURSOR++))
+              _sshfs_draw_picker_row "$old_cursor"
+              _sshfs_draw_picker_row "$SSHPICK_CURSOR"
+            fi
+            ;;
+          $'\n'|$'\r'|"$KEY_RIGHT")
+            (( SSHPICK_TOTAL > 0 )) || continue
+            chosen_spec="${SSHPICK_SPECS[$((SSHPICK_CURSOR - 1))]}"
+            sshfs_mount_and_navigate "$chosen_spec"
+            return 0
+            ;;
+          u|U)
+            (( SSHPICK_TOTAL > 0 )) || {
+              picker_status="\033[2mNo connection selected.\033[0m"
+              _sshfs_draw_picker "$picker_status"
+              continue
+            }
+            chosen_spec="${SSHPICK_SPECS[$((SSHPICK_CURSOR - 1))]}"
+            mp="$(sshfs_get_mount_point "$chosen_spec" 2>/dev/null || true)"
+            if [[ -n "$mp" ]] && sshfs_is_mounted "$mp"; then
+              if sshfs_do_unmount "$mp"; then
+                picker_status="\033[1;32mUnmounted: ${mp}\033[0m"
+              else
+                picker_status="\033[2mUnmount failed: ${mp}\033[0m"
+              fi
+            else
+              picker_status="\033[2mNot currently mounted.\033[0m"
+            fi
+            _sshfs_draw_picker "$picker_status"
+            ;;
+          q|$'\e'|"$KEY_LEFT"|"$KEY_QUIT")
+            break
+            ;;
+        esac
+      done
+
+      draw_ui
+      return 0
     }
 
     position_cursor_for_name() {
@@ -2030,22 +2546,62 @@ delete_current_or_selected() {
     # Reorder long-list rows to `name metadata...` using awk+column alignment.
     # Minimal modification: split on date-time anchor, reorder, let column handle alignment.
     format_name_first_aligned() {
-      local name_max_chars meta_reserve
-      meta_reserve=50
-      name_max_chars=$(( cols - meta_reserve ))
-      (( name_max_chars < 12 )) && name_max_chars=12
-      (( name_max_chars > 64 )) && name_max_chars=64
+      local term_cols width_pct name_limit name_min_soft name_max_cap
+      term_cols=$cols
+      (( term_cols < 1 )) && term_cols=1
 
-      awk -v max_name_chars="$name_max_chars" '
+      if [[ "$LSY_NAMEFIRST_WIDTH_PCT" =~ ^[0-9]+$ ]]; then
+        width_pct=$LSY_NAMEFIRST_WIDTH_PCT
+      else
+        width_pct=35
+      fi
+
+      if [[ "$LSY_NAMEFIRST_NAME_MIN" =~ ^[0-9]+$ ]]; then
+        name_min_soft=$LSY_NAMEFIRST_NAME_MIN
+      else
+        name_min_soft=12
+      fi
+
+      if [[ "$LSY_NAMEFIRST_NAME_MAX" =~ ^[0-9]+$ ]]; then
+        name_max_cap=$LSY_NAMEFIRST_NAME_MAX
+      else
+        name_max_cap=64
+      fi
+
+      (( width_pct < 1 )) && width_pct=1
+      (( width_pct > 100 )) && width_pct=100
+      (( name_min_soft < 1 )) && name_min_soft=1
+      (( name_max_cap < 1 )) && name_max_cap=1
+      (( name_max_cap < name_min_soft )) && name_max_cap=$name_min_soft
+
+      name_limit=$(( (term_cols * width_pct) / 100 ))
+      (( name_limit < name_min_soft )) && name_limit=$name_min_soft
+      (( name_limit > name_max_cap )) && name_limit=$name_max_cap
+      (( name_limit > term_cols )) && name_limit=$term_cols
+
+      awk \
+        -v name_limit="$name_limit" \
+        -v list_source="$LIST_SOURCE" \
+        -v debug_logo="$LSY_DEBUG_LOGO_NAMEFIRST" \
+        -v debug_file="$LSY_DEBUG_LOGO_FILE" '
         BEGIN {
-          esc = sprintf("%c", 27) "\\[[0-9;]*m"
+          esc = sprintf("%c", 27) "\\[[0-9;:]*m"
+          dt_iso_plain = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][[:space:]]+[0-9][0-9]:[0-9][0-9][[:space:]]+"
+          dt_rfc3339_plain = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9][^ ]*[[:space:]]+"
+          dt_stamp_plain = "[A-Za-z][A-Za-z][A-Za-z][[:space:]]+[0-9][0-9]?[[:space:]]+(([0-9][0-9]:[0-9][0-9](:[0-9][0-9])?)|((19|20)[0-9][0-9]))[[:space:]]+"
           # Separate patterns for ISO, RFC3339, and Stamp (logo-ls default) timestamps.
           # Keeping them separate avoids complex nested alternation issues across awk implementations.
           dt_iso     = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9](" esc ")*[[:space:]]+(" esc ")*[0-9][0-9]:[0-9][0-9](" esc ")*[[:space:]]+"
           # After the seconds, [^ ]* eats the timezone (+HH:MM, -HH:MM, Z) plus any trailing ANSI codes.
           dt_rfc3339 = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9](" esc ")*T[0-9][0-9]:[0-9][0-9]:[0-9][0-9][^ ]*[[:space:]]+"
-          dt_stamp   = "[A-Za-z][A-Za-z][A-Za-z](" esc ")*[[:space:]]+[0-9][0-9]?(" esc ")*[[:space:]]+(([0-9][0-9]:[0-9][0-9](:[0-9][0-9])?)|([0-9][0-9][0-9][0-9]))(" esc ")*[[:space:]]+"
+          dt_stamp   = "[A-Za-z][A-Za-z][A-Za-z](" esc ")*[[:space:]]+[0-9][0-9]?(" esc ")*[[:space:]]+(([0-9][0-9]:[0-9][0-9](:[0-9][0-9])?)|((19|20)[0-9][0-9]))(" esc ")*[[:space:]]+"
           ellipsis = "..."
+          row_count = 0
+          dbg_rows = 0
+          if (debug_logo == "1") {
+            print "--- logo-namefirst-debug ---" > debug_file
+            print "name_limit=" name_limit > debug_file
+          }
         }
         function strip_ansi(s, tmp) {
           tmp = s
@@ -2059,32 +2615,32 @@ delete_current_or_selected() {
           }
           return out
         }
-        function truncate_plain(plain, keep) {
-          if (max_name_chars <= 0 || length(plain) <= max_name_chars) {
+        function truncate_plain(plain, limit, keep) {
+          if (limit <= 0 || length(plain) <= limit) {
             return plain
           }
-          keep = max_name_chars - length(ellipsis)
+          keep = limit - length(ellipsis)
           if (keep < 1) keep = 1
           return substr(plain, 1, keep) ellipsis
         }
-        function truncate_colored(s, plain, has_ansi, out, keep, i, ch, rest, mlen, m) {
+        function truncate_colored(s, limit, plain, has_ansi, out, keep, i, ch, rest, mlen, m) {
           plain = strip_ansi(s)
           has_ansi = (plain != s)
           if (!has_ansi) {
-            return truncate_plain(plain)
+            return truncate_plain(plain, limit)
           }
-          if (max_name_chars <= 0 || length(plain) <= max_name_chars) {
+          if (limit <= 0 || length(plain) <= limit) {
             return s
           }
-          keep = max_name_chars - length(ellipsis)
+          keep = limit - length(ellipsis)
           if (keep < 1) keep = 1
           out = ""
           i = 1
           while (i <= length(s) && keep > 0) {
             ch = substr(s, i, 1)
             if (ch == sprintf("%c", 27)) {
-              rest = substr(s, i)
-              if (match(rest, /^\[[0-9;]*m/)) {
+              rest = substr(s, i + 1)
+              if (match(rest, /^\[[0-9;:]*m/)) {
                 m = substr(rest, 1, RLENGTH)
                 out = out ch m
                 i += RLENGTH + 1
@@ -2097,17 +2653,138 @@ delete_current_or_selected() {
           }
           return out ellipsis sprintf("%c[0m", 27)
         }
+        function take_colored_prefix(s, limit, plain, has_ansi, out, i, ch, rest, m) {
+          plain = strip_ansi(s)
+          has_ansi = (plain != s)
+          if (limit <= 0) {
+            return ""
+          }
+          if (!has_ansi) {
+            return substr(plain, 1, limit)
+          }
+          out = ""
+          i = 1
+          while (i <= length(s) && limit > 0) {
+            ch = substr(s, i, 1)
+            if (ch == sprintf("%c", 27)) {
+              rest = substr(s, i + 1)
+              if (match(rest, /^\[[0-9;:]*m/)) {
+                m = substr(rest, 1, RLENGTH)
+                out = out ch m
+                i += RLENGTH + 1
+                continue
+              }
+            }
+            out = out ch
+            i++
+            limit--
+          }
+          return out sprintf("%c[0m", 27)
+        }
+        function drop_colored_prefix(s, skip, plain, has_ansi, out, i, ch, rest, m, visible) {
+          plain = strip_ansi(s)
+          has_ansi = (plain != s)
+          if (skip <= 0) {
+            return s
+          }
+          if (!has_ansi) {
+            return substr(plain, skip + 1)
+          }
+          out = ""
+          i = 1
+          visible = 0
+          while (i <= length(s)) {
+            ch = substr(s, i, 1)
+            if (ch == sprintf("%c", 27)) {
+              rest = substr(s, i + 1)
+              if (match(rest, /^\[[0-9;:]*m/)) {
+                m = substr(rest, 1, RLENGTH)
+                if (visible >= skip) {
+                  out = out ch m
+                }
+                i += RLENGTH + 1
+                continue
+              }
+            }
+            visible++
+            if (visible > skip) {
+              out = out ch
+            }
+            i++
+          }
+          return out
+        }
         {
-          if (match($0, dt_iso) || match($0, dt_rfc3339) || match($0, dt_stamp)) {
+          row_count++
+          original[row_count] = $0
+          parsed[row_count] = 0
+
+          if (list_source == "logo-ls") {
+            plain_row = strip_ansi($0)
+            split_mode = "none"
+            if (match(plain_row, dt_iso_plain) || match(plain_row, dt_rfc3339_plain) || match(plain_row, dt_stamp_plain)) {
+              split_end = RSTART + RLENGTH - 1
+              meta = take_colored_prefix($0, split_end)
+              name = drop_colored_prefix($0, split_end)
+              split_mode = "date"
+            }
+
+            if (split_mode != "none") {
+
+              plain_name = strip_ansi(name)
+              if (match(plain_name, /^[[:space:]]+/)) {
+                lead_ws = RLENGTH
+                name = drop_colored_prefix(name, lead_ws)
+                plain_name = substr(plain_name, lead_ws + 1)
+              }
+
+              cleaned_plain = plain_name
+              sub(/[[:space:]]+\.\.\.[[:space:]]*$/, "", cleaned_plain)
+              sub(/[[:space:]]+$/, "", cleaned_plain)
+              if (length(cleaned_plain) < length(plain_name)) {
+                name = take_colored_prefix(name, length(cleaned_plain))
+              }
+
+              if (cleaned_plain == "" || cleaned_plain ~ /^[0-9][0-9]?[[:space:]]+(([0-9][0-9]:[0-9][0-9](:[0-9][0-9])?)|((19|20)[0-9][0-9]))[[:space:]]*$/) {
+                parsed[row_count] = 0
+                next
+              }
+
+              if (debug_logo == "1" && dbg_rows < 12) {
+                dbg_rows++
+                print "row=" row_count " mode=" split_mode > debug_file
+                print "plain=" plain_row > debug_file
+                print "name=" cleaned_plain > debug_file
+                print "meta=" strip_ansi(meta) > debug_file
+              }
+              name_col[row_count] = name
+              meta_col[row_count] = meta
+              parsed[row_count] = 1
+            } else if (debug_logo == "1" && dbg_rows < 12) {
+              dbg_rows++
+              print "row=" row_count " mode=none" > debug_file
+              print "plain=" plain_row > debug_file
+            }
+          } else if (match($0, dt_iso) || match($0, dt_rfc3339) || match($0, dt_stamp)) {
             name = substr($0, RSTART + RLENGTH)
             meta = substr($0, 1, RSTART + RLENGTH - 1)
-            name = truncate_colored(name)
-            plain_name = strip_ansi(name)
-            spacing = max_name_chars - length(plain_name) + 1
+            name_col[row_count] = name
+            meta_col[row_count] = meta
+            parsed[row_count] = 1
+          }
+        }
+        END {
+          for (i = 1; i <= row_count; i++) {
+            if (!parsed[i]) {
+              print original[i]
+              continue
+            }
+
+            disp_name = truncate_colored(name_col[i], name_limit)
+            plain_name = strip_ansi(disp_name)
+            spacing = name_limit - length(plain_name) + 1
             if (spacing < 1) spacing = 1
-            printf "%s%s%s\n", name, pad_spaces(spacing), meta
-          } else {
-            print
+            printf "%s%s%s\n", disp_name, pad_spaces(spacing), meta_col[i]
           }
         }
     '
@@ -2426,8 +3103,6 @@ delete_current_or_selected() {
           name="$(strip_symlink_target "$plain" "$name")"
           ;;
         logo-ls)
-          # logo-ls can emit several date layouts depending on time style.
-          # Handle RFC3339, ISO, and default Stamp (e.g. "Apr  3 10:15" or "Oct  3 2025").
           if [[ "$plain" =~ [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([+-][0-9:]+|Z)[[:space:]]+(.*)$ ]]; then
             name="${BASH_REMATCH[2]}"
           elif [[ "$plain" =~ [0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]+[0-9]{2}:[0-9]{2}[[:space:]]+(.*)$ ]]; then
@@ -2439,12 +3114,12 @@ delete_current_or_selected() {
           else
             return 1
           fi
-          # Strip leading icon token (non-alphanumeric non-path character(s) followed by space).
+          if [[ "$name" =~ ^(.*[^[:space:]])[[:space:]]+\.\.\.[[:space:]]*$ ]]; then
+            name="${BASH_REMATCH[1]}"
+          fi
           if [[ "$name" =~ ^[[:space:]]*[^[:alnum:][:space:]./~+-]+[[:space:]]+(.*)$ ]]; then
             name="${BASH_REMATCH[1]}"
           fi
-          # Some logo-ls themes glue icon+name with no space (e.g. "📁Documents/").
-          # Only strip when the current candidate path does not already resolve.
           if ! path_exists "$name" && [[ "$name" =~ ^[[:space:]]*[^[:alnum:][:space:]./_~+-]+(.*)$ ]]; then
             name="${BASH_REMATCH[1]}"
           fi
@@ -2981,6 +3656,10 @@ delete_current_or_selected() {
           (( HAS_SOX ))
           return
           ;;
+        sshfs)
+          (( HAS_SSHFS ))
+          return
+          ;;
         fuse-zip)
           (( HAS_FUSE_ZIP ))
           return
@@ -3014,6 +3693,7 @@ delete_current_or_selected() {
         "list source|lsd|LSDeluxe: modern ls replacement with icons and colors|1"
         "list source|logo-ls|logo-ls: directory listing with file-type logos and git status|1"
         "vcs|git|Version control integration for repo-aware workflows|1"
+        "network|sshfs|SSH filesystem: browse remote hosts via sshfs (press S for picker)|1"
         "archive|fuse-zip|Open .zip archives like folders and keep mounts until lsy exits|1"
         "archive|zip|Zip/unzip: extract and create .zip archives|1"
         "archive|tar|Tar: extract and create .tar .tar.gz .tgz .tar.bz2 .tar.xz .tar.zst archives|1"
@@ -3708,7 +4388,7 @@ delete_current_or_selected() {
         printf "\033[1;36mDirectory\033[0m   \033[1;33mRight\033[0m enter/open zip  \033[1;33mLeft\033[0m parent dir\n"
         printf "\033[1;36mSelect\033[0m      \033[1;33m%s\033[0m toggle  \033[1;33m%s\033[0m all  \033[1;33m%s\033[0m copy  \033[1;33m%s\033[0m move  \033[1;33m%s\033[0m paste  \033[1;33m%s\033[0m delete\n" "$KEY_SELECT_TOGGLE_LABEL" "$KEY_SELECT_ALL" "$KEY_COPY" "$KEY_MOVE" "$KEY_PASTE" "$KEY_DELETE"
         printf "\033[1;36mFile\033[0m        \033[1;33m%s\033[0m less viewer  \033[1;33m%s\033[0m GUI opener  \033[1;33m%s\033[0m edit  \033[1;33m%s\033[0m compare  \033[1;33m%s\033[0m search  \033[1;33m%s\033[0m find  \033[1;33m%s\033[0m zip\n" "$KEY_OPEN_LESS" "$KEY_OPEN_GUI" "$KEY_OPEN_EDITOR" "$KEY_COMPARE" "$KEY_SEARCH" "$KEY_FIND_FILE" "$KEY_EXTRACT_ZIP"
-        printf "\033[1;36mView\033[0m        \033[1;33m%s\033[0m hidden  \033[1;33m%s\033[0m debug  \033[1;33m%s\033[0m renderer  \033[1;33m%s\033[0m name-first\n" "$KEY_TOGGLE_HIDDEN" "$KEY_TOGGLE_DEBUG_LABEL" "$KEY_TOGGLE_SOURCE_LABEL" "$KEY_TOGGLE_NAME_FIRST_LABEL"
+        printf "\033[1;36mView\033[0m        \033[1;33m%s\033[0m hidden  \033[1;33m%s\033[0m debug  \033[1;33m%s\033[0m renderer  \033[1;33m%s\033[0m name-first  \033[1;33m%s\033[0m SSH\n" "$KEY_TOGGLE_HIDDEN" "$KEY_TOGGLE_DEBUG_LABEL" "$KEY_TOGGLE_SOURCE_LABEL" "$KEY_TOGGLE_NAME_FIRST_LABEL" "$KEY_SSH_PICKER"
         printf "\033[1;36mPanels\033[0m      \033[1;33m%s\033[0m bookmarks  \033[1;33m%s\033[0m integrations  \033[1;33m%s\033[0m help\n" "$KEY_BOOKMARKS" "$KEY_INTEGRATIONS" "$KEY_HELP"
         printf "\033[1;36mOther\033[0m       \033[1;33m%s\033[0m reload  \033[1;33m%s\033[0m help  \033[1;33m%s\033[0m quit\n" "$KEY_RELOAD" "$KEY_HELP" "$KEY_QUIT"
         printf "\033[%s;1H\033[2mPress any key to return...\033[0m\033[K" "$_rows"
@@ -3751,6 +4431,7 @@ delete_current_or_selected() {
         "${KEY_TOGGLE_DEBUG_LABEL}            Toggle debug details in footer"
         "${KEY_TOGGLE_SOURCE_LABEL}            Cycle list renderer (eza/lsd/logo-ls/ls)"
         "${KEY_TOGGLE_NAME_FIRST_LABEL}            Toggle name-first layout"
+        "${KEY_SSH_PICKER}            Open SSH connection picker"
         "${KEY_INTEGRATIONS}            Show integrations screen"
       )
 
@@ -3772,6 +4453,11 @@ delete_current_or_selected() {
         "LSY_KEY_*    Override any key binding"
         "LSY_SHOW_DEBUG_FOOTER  Start with debug footer shown (1/0)"
         "LSY_EDITOR   Optional override (else VISUAL, EDITOR, /etc/alternatives/editor, nano)"
+        "LSY_NAMEFIRST_WIDTH_PCT  Name-first width percent of terminal (default 35)"
+        "LSY_NAMEFIRST_NAME_MIN  Soft minimum name width in name-first mode (default 12)"
+        "LSY_NAMEFIRST_NAME_MAX  Maximum name width cap in name-first mode (default 64)"
+        "LSY_SSH_0..9  SSH specs: [label:]user@host[:port]:/path"
+        "LSY_SSHFS_DIR  Optional root directory for sshfs mounts"
         "LSY_FUSE_ZIP_ARGS  Extra args passed to fuse-zip mount"
         "LSY_FUSE_ZIP_MOUNT_ROOT  Optional root directory for fuse-zip mounts"
         "LSY_UNZIP_ARGS  Extra args passed to unzip extraction"
@@ -4020,6 +4706,9 @@ delete_current_or_selected() {
             ;;
           "$KEY_INTEGRATIONS")
             show_integrations
+            ;;
+          "$KEY_SSH_PICKER")
+            show_ssh_picker || true
             ;;
           "$KEY_BOOKMARKS")
             show_bookmarks
