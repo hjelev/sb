@@ -74,6 +74,8 @@
     LSY_LSD_HYPERLINK="${LSY_LSD_HYPERLINK:-never}"
     LSY_LSD_BLOCKS="${LSY_LSD_BLOCKS:-permission,user,group,size,date,name}"
     LSY_LSD_EXTRA_ARGS="${LSY_LSD_EXTRA_ARGS:-}"
+    LSY_BSD_LS_COLOR="${LSY_BSD_LS_COLOR:-auto}"
+    LSY_BSD_LS_EXTRA_ARGS="${LSY_BSD_LS_EXTRA_ARGS:-}"
 
     IS_DARWIN=0
     HAS_ASSOC_ARRAYS=0
@@ -534,11 +536,31 @@ EOF
     capture_directory_rows_bsd_ls() {
       local output=""
       local entry
+      local lsy_bsd_ls_color_mode="${LSY_BSD_LS_COLOR:-auto}"
+      local -a ls_args=() ls_extra_args=()
       local -a stat_args=()
 
       collect_directory_entries
       if (( ${#DIRECTORY_CAPTURE_ENTRIES[@]} == 0 )); then
         ROWS_COLOR=()
+        return 0
+      fi
+
+      ls_args=(-ldh -D '%Y-%m-%d %H:%M')
+      case "$lsy_bsd_ls_color_mode" in
+        0|off|false|no|never)
+          ;;
+        *)
+          ls_args+=(-G)
+          ;;
+      esac
+      if [[ -n "$LSY_BSD_LS_EXTRA_ARGS" ]]; then
+        read -r -a ls_extra_args <<< "$LSY_BSD_LS_EXTRA_ARGS"
+        ls_args+=("${ls_extra_args[@]}")
+      fi
+
+      if output="$(LC_ALL=C CLICOLOR_FORCE=1 ls "${ls_args[@]}" -- "${DIRECTORY_CAPTURE_ENTRIES[@]}" 2>/dev/null)"; then
+        read_stdin_into_array ROWS_COLOR <<< "$output"
         return 0
       fi
 
@@ -903,7 +925,7 @@ EOF
                 break
               fi
             elif (( IS_DARWIN )); then
-              LAST_SOURCE_ARGS="stat -f '%Sp %Su %z %Sm %N' -t '%Y-%m-%d %H:%M'"
+              LAST_SOURCE_ARGS="ls -ldh -D '%Y-%m-%d %H:%M' [-G] -- entries (fallback: stat -f '%Sp %Su %z %Sm %N' -t '%Y-%m-%d %H:%M')"
               if capture_directory_rows_bsd_ls; then
                 LAST_SOURCE_RC=0
                 LIST_SOURCE="ls"
@@ -1944,8 +1966,14 @@ delete_current_or_selected() {
           gsub(esc, "", tmp)
           return tmp
         }
-        function truncate_for_width(s, plain, keep) {
-          plain = strip_ansi(s)
+        function pad_spaces(count, out, i) {
+          out = ""
+          for (i = 0; i < count; i++) {
+            out = out " "
+          }
+          return out
+        }
+        function truncate_plain(plain, keep) {
           if (max_name_chars <= 0 || length(plain) <= max_name_chars) {
             return plain
           }
@@ -1953,17 +1981,50 @@ delete_current_or_selected() {
           if (keep < 1) keep = 1
           return substr(plain, 1, keep) ellipsis
         }
+        function truncate_colored(s, plain, has_ansi, out, keep, i, ch, rest, mlen, m) {
+          plain = strip_ansi(s)
+          has_ansi = (plain != s)
+          if (!has_ansi) {
+            return truncate_plain(plain)
+          }
+          if (max_name_chars <= 0 || length(plain) <= max_name_chars) {
+            return s
+          }
+          keep = max_name_chars - length(ellipsis)
+          if (keep < 1) keep = 1
+          out = ""
+          i = 1
+          while (i <= length(s) && keep > 0) {
+            ch = substr(s, i, 1)
+            if (ch == sprintf("%c", 27)) {
+              rest = substr(s, i)
+              if (match(rest, /^\[[0-9;]*m/)) {
+                m = substr(rest, 1, RLENGTH)
+                out = out ch m
+                i += RLENGTH + 1
+                continue
+              }
+            }
+            out = out ch
+            i++
+            keep--
+          }
+          return out ellipsis sprintf("%c[0m", 27)
+        }
         {
           if (match($0, dt)) {
             name = substr($0, RSTART + RLENGTH)
             meta = substr($0, 1, RSTART + RLENGTH - 1)
-            name = truncate_for_width(name)
-            printf "%s\t%s\n", name, meta
+            name = truncate_colored(name)
+            plain_name = strip_ansi(name)
+            spacing = max_name_chars - length(plain_name) + 1
+            if (spacing < 1) spacing = 1
+            printf "%s%s%s\n", name, pad_spaces(spacing), meta
           } else {
             print
           }
         }
-    ' | column -t -s $'\t'
+    '
     }
 
     load_data() {
