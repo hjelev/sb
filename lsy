@@ -74,6 +74,11 @@
     LSY_LSD_HYPERLINK="${LSY_LSD_HYPERLINK:-never}"
     LSY_LSD_BLOCKS="${LSY_LSD_BLOCKS:-permission,user,group,size,date,name}"
     LSY_LSD_EXTRA_ARGS="${LSY_LSD_EXTRA_ARGS:-}"
+    LSY_LOGO_LS_ICONS="${LSY_LOGO_LS_ICONS:-1}"        # 1=show icons, 0=disable (-i)
+    LSY_LOGO_LS_COLOR="${LSY_LOGO_LS_COLOR:-1}"        # 1=show color, 0=disable (-c)
+    LSY_LOGO_LS_GIT_STATUS="${LSY_LOGO_LS_GIT_STATUS:-0}" # 1=show git status (-D)
+    LSY_LOGO_LS_DIRS_FIRST="${LSY_LOGO_LS_DIRS_FIRST:-1}" # 1=directories first ordering
+    LSY_LOGO_LS_EXTRA_ARGS="${LSY_LOGO_LS_EXTRA_ARGS:-}"
     LSY_BSD_LS_COLOR="${LSY_BSD_LS_COLOR:-auto}"
     LSY_BSD_LS_EXTRA_ARGS="${LSY_BSD_LS_EXTRA_ARGS:-}"
 
@@ -118,6 +123,7 @@
     SHOW_DEBUG_FOOTER=0
     HAS_EZA=0
     HAS_LSD=0
+    HAS_LOGO_LS=0
     HAS_BAT=0
     HAS_BATCAT=0
     HAS_CHAFA=0
@@ -723,7 +729,7 @@ EOF
     }
 
     detect_sources() {
-      # Detect list source tools (prefer eza > lsd > ls); respect user-disabled integrations.
+      # Detect list source tools (prefer eza > lsd > logo-ls > ls); respect user-disabled integrations.
       if command -v eza >/dev/null 2>&1 && ! integration_is_disabled eza; then
         HAS_EZA=1
       else
@@ -736,23 +742,42 @@ EOF
         HAS_LSD=0
       fi
 
+      if command -v logo-ls >/dev/null 2>&1 && ! integration_is_disabled logo-ls; then
+        HAS_LOGO_LS=1
+      else
+        HAS_LOGO_LS=0
+      fi
+
       if [[ -z "$LIST_SOURCE" ]]; then
         if (( HAS_EZA )); then
           LIST_SOURCE=eza
         elif (( HAS_LSD )); then
           LIST_SOURCE=lsd
+        elif (( HAS_LOGO_LS )); then
+          LIST_SOURCE=logo-ls
         else
           LIST_SOURCE=ls
         fi
       else
         case "$LIST_SOURCE" in
-          ls|lsd|eza) ;;
+          ls|lsd|eza|logo-ls) ;;
           *) LIST_SOURCE=ls ;;
         esac
         if [[ "$LIST_SOURCE" == "eza" ]] && (( !HAS_EZA )); then
-          (( HAS_LSD )) && LIST_SOURCE=lsd || LIST_SOURCE=ls
+          if (( HAS_LSD )); then
+            LIST_SOURCE=lsd
+          elif (( HAS_LOGO_LS )); then
+            LIST_SOURCE=logo-ls
+          else
+            LIST_SOURCE=ls
+          fi
         fi
-        [[ "$LIST_SOURCE" == "lsd" ]] && (( !HAS_LSD )) && LIST_SOURCE=ls
+        if [[ "$LIST_SOURCE" == "lsd" ]] && (( !HAS_LSD )); then
+          (( HAS_LOGO_LS )) && LIST_SOURCE=logo-ls || LIST_SOURCE=ls
+        fi
+        if [[ "$LIST_SOURCE" == "logo-ls" ]] && (( !HAS_LOGO_LS )); then
+          LIST_SOURCE=ls
+        fi
       fi
 
       # Detect file viewer tools (prefer bat > batcat > less); respect user-disabled integrations.
@@ -901,6 +926,24 @@ EOF
       printf '%s' "$joined"
     }
 
+    reorder_logo_ls_dirs_first() {
+      awk '
+        {
+          line = $0
+          # Prefer explicit classify suffix / on the final token.
+          if (line ~ /[^[:space:]]+\/[[:space:]]*$/ || line ~ /^d/) {
+            dirs[++dirs_n] = line
+          } else {
+            files[++files_n] = line
+          }
+        }
+        END {
+          for (i = 1; i <= dirs_n; i++) print dirs[i]
+          for (i = 1; i <= files_n; i++) print files[i]
+        }
+      '
+    }
+
     capture_directory_rows() {
       local requested_source="${1:-$LIST_SOURCE}"
       local source="$LIST_SOURCE"
@@ -1024,6 +1067,44 @@ EOF
             (( HAS_EZA )) && LAST_SOURCE_FALLBACK_TO=eza || LAST_SOURCE_FALLBACK_TO=ls
             source="$LAST_SOURCE_FALLBACK_TO"
             LIST_SOURCE="$source"
+            ;;
+          logo-ls)
+            if (( !HAS_LOGO_LS )); then
+              LAST_SOURCE_EXECUTED="logo-ls"
+              LAST_SOURCE_RC=127
+              LAST_SOURCE_FALLBACK=1
+              LAST_SOURCE_FALLBACK_TO=ls
+              source=ls
+              LIST_SOURCE=ls
+              continue
+            fi
+
+            local -a logols_args=() logols_extra_args=()
+            # -l long listing, -h human-readable sizes. Keep logo-ls native default time style.
+            logols_args=(-l -h)
+            (( LSY_LOGO_LS_ICONS == 0 )) && logols_args+=(-i)
+            (( LSY_LOGO_LS_COLOR == 0 )) && logols_args+=(-c)
+            (( LSY_LOGO_LS_GIT_STATUS == 1 )) && logols_args+=(-D)
+            if [[ -n "$LSY_LOGO_LS_EXTRA_ARGS" ]]; then
+              read -r -a logols_extra_args <<< "$LSY_LOGO_LS_EXTRA_ARGS"
+              logols_args+=("${logols_extra_args[@]}")
+            fi
+            (( show_hidden )) && logols_args+=(-A)
+            LAST_SOURCE_EXECUTED="logo-ls"
+            LAST_SOURCE_ARGS="logo-ls ${logols_args[*]}"
+            if output="$(logo-ls "${logols_args[@]}" 2>/dev/null)"; then
+              if [[ "$LSY_LOGO_LS_DIRS_FIRST" == "1" ]]; then
+                output="$(printf '%s\n' "$output" | reorder_logo_ls_dirs_first)"
+              fi
+              LAST_SOURCE_RC=0
+              LIST_SOURCE="logo-ls"
+              break
+            fi
+            LAST_SOURCE_RC=$?
+            LAST_SOURCE_FALLBACK=1
+            LAST_SOURCE_FALLBACK_TO=ls
+            source=ls
+            LIST_SOURCE=ls
             ;;
           *)
             LAST_SOURCE_EXECUTED="$source"
@@ -1958,7 +2039,12 @@ delete_current_or_selected() {
       awk -v max_name_chars="$name_max_chars" '
         BEGIN {
           esc = sprintf("%c", 27) "\\[[0-9;]*m"
-          dt = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9](" esc ")*[[:space:]]+(" esc ")*[0-9][0-9]:[0-9][0-9](" esc ")*[[:space:]]+"
+          # Separate patterns for ISO, RFC3339, and Stamp (logo-ls default) timestamps.
+          # Keeping them separate avoids complex nested alternation issues across awk implementations.
+          dt_iso     = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9](" esc ")*[[:space:]]+(" esc ")*[0-9][0-9]:[0-9][0-9](" esc ")*[[:space:]]+"
+          # After the seconds, [^ ]* eats the timezone (+HH:MM, -HH:MM, Z) plus any trailing ANSI codes.
+          dt_rfc3339 = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9](" esc ")*T[0-9][0-9]:[0-9][0-9]:[0-9][0-9][^ ]*[[:space:]]+"
+          dt_stamp   = "[A-Za-z][A-Za-z][A-Za-z](" esc ")*[[:space:]]+[0-9][0-9]?(" esc ")*[[:space:]]+(([0-9][0-9]:[0-9][0-9](:[0-9][0-9])?)|([0-9][0-9][0-9][0-9]))(" esc ")*[[:space:]]+"
           ellipsis = "..."
         }
         function strip_ansi(s, tmp) {
@@ -2012,7 +2098,7 @@ delete_current_or_selected() {
           return out ellipsis sprintf("%c[0m", 27)
         }
         {
-          if (match($0, dt)) {
+          if (match($0, dt_iso) || match($0, dt_rfc3339) || match($0, dt_stamp)) {
             name = substr($0, RSTART + RLENGTH)
             meta = substr($0, 1, RSTART + RLENGTH - 1)
             name = truncate_colored(name)
@@ -2309,9 +2395,10 @@ delete_current_or_selected() {
     # Strip symlink target from a name string if the row represents a symlink (l*).
     strip_symlink_target() {
       local plain="$1" name="$2"
-      if [[ "$plain" == l* ]]; then
+      if [[ "$plain" == l* || "$plain" == L* ]]; then
         name="${name%% -> *}"
         name="${name%% ⇒ *}"
+        name="${name%% ~> *}"
       fi
       printf '%s' "$name"
     }
@@ -2338,6 +2425,38 @@ delete_current_or_selected() {
           fi
           name="$(strip_symlink_target "$plain" "$name")"
           ;;
+        logo-ls)
+          # logo-ls can emit several date layouts depending on time style.
+          # Handle RFC3339, ISO, and default Stamp (e.g. "Apr  3 10:15" or "Oct  3 2025").
+          if [[ "$plain" =~ [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([+-][0-9:]+|Z)[[:space:]]+(.*)$ ]]; then
+            name="${BASH_REMATCH[2]}"
+          elif [[ "$plain" =~ [0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]+[0-9]{2}:[0-9]{2}[[:space:]]+(.*)$ ]]; then
+            name="${BASH_REMATCH[1]}"
+          elif [[ "$plain" =~ [A-Za-z][A-Za-z][A-Za-z][[:space:]]+[[:digit:]]{1,2}[[:space:]]+(([0-9]{2}:[0-9]{2}(:[0-9]{2})?)|([0-9]{4}))[[:space:]]+(.*)$ ]]; then
+            name="${BASH_REMATCH[5]}"
+          elif [[ "$plain" =~ [A-Za-z][A-Za-z][A-Za-z][[:space:]]+[[:digit:]]{1,2}[[:space:]]+[0-9]{4}[[:space:]]+(.*)$ ]]; then
+            name="${BASH_REMATCH[1]}"
+          else
+            return 1
+          fi
+          # Strip leading icon token (non-alphanumeric non-path character(s) followed by space).
+          if [[ "$name" =~ ^[[:space:]]*[^[:alnum:][:space:]./~+-]+[[:space:]]+(.*)$ ]]; then
+            name="${BASH_REMATCH[1]}"
+          fi
+          # Some logo-ls themes glue icon+name with no space (e.g. "📁Documents/").
+          # Only strip when the current candidate path does not already resolve.
+          if ! path_exists "$name" && [[ "$name" =~ ^[[:space:]]*[^[:alnum:][:space:]./_~+-]+(.*)$ ]]; then
+            name="${BASH_REMATCH[1]}"
+          fi
+          name="$(strip_symlink_target "$plain" "$name")"
+          # logo-ls appends -F classify suffixes: / (dir), @ (symlink), * (exe), = (socket), | (fifo).
+          # Strip them so path resolution works; display is unaffected (drawn from ROWS_COLOR/PLAIN).
+          name="${name%/}"
+          name="${name%@}"
+          name="${name%\*}"
+          name="${name%=}"
+          name="${name%|}"
+          ;;
         *)
           return 1
           ;;
@@ -2352,12 +2471,51 @@ delete_current_or_selected() {
       [[ -e "$p" || -L "$p" ]]
     }
 
+    normalize_candidate_path() {
+      local value="$1"
+
+      # Trim leading/trailing whitespace.
+      value="${value#"${value%%[![:space:]]*}"}"
+      value="${value%"${value##*[![:space:]]}"}"
+
+      # Remove renderer symlink target tails.
+      value="${value%% -> *}"
+      value="${value%% ⇒ *}"
+      value="${value%% ~> *}"
+
+      # Remove logo-ls classify suffixes.
+      value="${value%/}"
+      value="${value%@}"
+      value="${value%\*}"
+      value="${value%=}"
+      value="${value%|}"
+
+      # Some icon themes glue glyphs directly to names; peel non-path glyphs.
+      while [[ "$value" =~ ^[[:space:]]*[^[:alnum:][:space:]./_~+-]+(.*)$ ]]; do
+        value="${BASH_REMATCH[1]}"
+      done
+
+      # Trim again after normalization.
+      value="${value#"${value%%[![:space:]]*}"}"
+      value="${value%"${value##*[![:space:]]}"}"
+
+      printf '%s' "$value"
+    }
+
     resolve_row_path_from_plain() {
       local plain="$1" name candidate
       name="$(parse_name_from_plain_row "$plain" 2>/dev/null || true)"
-      [[ -n "$name" ]] || return 1
 
-      candidate="$name"
+      if [[ -n "$name" ]]; then
+        candidate="$name"
+      elif [[ "$LIST_SOURCE" == "logo-ls" ]]; then
+        # For logo-ls, fall back to scanning from the full row when parser patterns miss.
+        candidate="$plain"
+      else
+        return 1
+      fi
+
+      candidate="$(normalize_candidate_path "$candidate")"
       if path_exists "$candidate"; then
         printf '%s' "$candidate"
         return 0
@@ -2366,6 +2524,7 @@ delete_current_or_selected() {
       # Some renderers can leave icon tokens in plain text; peel leading tokens until path resolves.
       while [[ "$candidate" =~ ^[[:space:]]*[^[:space:]]+[[:space:]]+(.*)$ ]]; do
         candidate="${BASH_REMATCH[1]}"
+        candidate="$(normalize_candidate_path "$candidate")"
         [[ -n "$candidate" ]] || break
         if path_exists "$candidate"; then
           printf '%s' "$candidate"
@@ -2853,6 +3012,7 @@ delete_current_or_selected() {
         "list source|ls|Built-in GNU/BSD ls: directory listing|0"
         "list source|eza|A modern ls replacement with rich metadata and icons|1"
         "list source|lsd|LSDeluxe: modern ls replacement with icons and colors|1"
+        "list source|logo-ls|logo-ls: directory listing with file-type logos and git status|1"
         "vcs|git|Version control integration for repo-aware workflows|1"
         "archive|fuse-zip|Open .zip archives like folders and keep mounts until lsy exits|1"
         "archive|zip|Zip/unzip: extract and create .zip archives|1"
@@ -3505,6 +3665,7 @@ delete_current_or_selected() {
 
       (( HAS_LSD )) && sources+=(lsd)
       (( HAS_EZA )) && sources+=(eza)
+      (( HAS_LOGO_LS )) && sources+=(logo-ls)
 
       for i in "${!sources[@]}"; do
         if [[ "${sources[$i]}" == "$LIST_SOURCE" ]]; then
@@ -3588,7 +3749,7 @@ delete_current_or_selected() {
         "View"
         "${KEY_TOGGLE_HIDDEN}            Toggle hidden files on/off"
         "${KEY_TOGGLE_DEBUG_LABEL}            Toggle debug details in footer"
-        "${KEY_TOGGLE_SOURCE_LABEL}            Cycle list renderer (eza/lsd/ls)"
+        "${KEY_TOGGLE_SOURCE_LABEL}            Cycle list renderer (eza/lsd/logo-ls/ls)"
         "${KEY_TOGGLE_NAME_FIRST_LABEL}            Toggle name-first layout"
         "${KEY_INTEGRATIONS}            Show integrations screen"
       )
