@@ -313,10 +313,11 @@
     }
 
     usage() {
-      local sb_label
-      sb_label="$(sb_name_with_version)"
       cat <<EOF
-$sb_label
+ ┌─┐┬ ┬┌─┐┬  ┬    ┌┐ ┬ ┬┌┬┐┌┬┐┬ ┬
+ └─┐├─┤├┤ │  │    ├┴┐│ │ ││ ││└┬┘
+ └─┘┴ ┴└─┘┴─┘┴─┘  └─┘└─┘─┴┘─┴┘ ┴
+	version ($VERSION)
 
 Usage: sb [--export-path FILE] [--update] [--version] [--help]
 
