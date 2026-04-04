@@ -13,20 +13,20 @@ usage() {
     cat <<'EOF'
 Usage: install.sh [--version TAG] [--ref GIT_REF] [--install-dir DIR] [--no-shell-setup] [--uninstall]
 
-Installs sb into a directory on your PATH.
+Installs Shell Buddy into a directory on your PATH.
 
 Options:
   --version TAG      Install a tagged version, for example v0.1.0.
   --ref GIT_REF      Install from a git ref such as master, main, or a commit SHA.
     --install-dir DIR  Install destination. Defaults to SB_INSTALL_DIR or first writable PATH dir.
   --no-shell-setup   Do not add the sb() shell function to your shell rc file.
-    --uninstall        Remove sb from --install-dir and remove shell integration.
+        --uninstall        Remove Shell Buddy from --install-dir and remove shell integration.
   --help             Show this help text and exit.
 
 If neither --version nor --ref is provided, the installer tries the latest GitHub
 release first and falls back to the default branch when no release exists yet.
 
-For uninstalling, pass --uninstall. If sb was installed into a custom location,
+For uninstalling, pass --uninstall. If Shell Buddy was installed into a custom location,
 provide the same location with --install-dir or SB_INSTALL_DIR.
 EOF
 }
@@ -321,7 +321,7 @@ uninstall_sb() {
         rm -f "$install_path"
         printf 'Removed %s\n' "$install_path"
     else
-        printf 'No sb binary found at %s\n' "$install_path"
+        printf 'No Shell Buddy binary found at %s\n' "$install_path"
     fi
 
     remove_shell_integrations
@@ -402,11 +402,11 @@ if [[ -n "$VERSION" ]]; then
 elif [[ -z "$REF" ]]; then
     if VERSION="$(latest_release_tag 2>/dev/null)" && [[ -n "$VERSION" ]]; then
         REF="$VERSION"
-        printf 'Installing sb %s\n' "$VERSION"
+        printf 'Installing Shell Buddy v%s\n' "$VERSION"
     elif REF="$(resolve_default_ref)"; then
         printf 'No GitHub release found yet, installing from %s\n' "$REF"
     else
-        echo "Error: no release found and no fallback branch with sb script is accessible." >&2
+        echo "Error: no release found and no fallback branch with the Shell Buddy script is accessible." >&2
         exit 1
     fi
 fi
@@ -433,7 +433,7 @@ fi
 chmod 0755 "$TMP_FILE"
 mv "$TMP_FILE" "$INSTALL_DIR/sb"
 
-printf 'Installed sb to %s/sb\n' "$INSTALL_DIR"
+printf 'Installed Shell Buddy to %s/sb\n' "$INSTALL_DIR"
 ensure_path_hint
 setup_shell_integration "$INSTALL_DIR/sb"
 printf 'Run: sb  # press i to open the integrations screen\n'
