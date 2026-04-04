@@ -419,7 +419,6 @@ if [[ -n "$VERSION" ]]; then
 elif [[ -z "$REF" ]]; then
     if VERSION="$(latest_release_tag 2>/dev/null)" && [[ -n "$VERSION" ]]; then
         # Release tag found; check if master has different commits
-        local tag_sha master_sha
         tag_sha="$(resolve_ref_short_sha "$VERSION" 2>/dev/null)" || tag_sha=""
         master_sha="$(resolve_ref_short_sha master 2>/dev/null)" || master_sha=""
         
@@ -459,7 +458,7 @@ elif [[ -n "$REF" ]]; then
     REF_SHORT_SHA="$(resolve_ref_short_sha "$REF")"
     if [[ -n "$REF_SHORT_SHA" ]]; then
         # Use "dev" for master/main, otherwise use ref name
-        local version_name="$REF"
+        version_name="$REF"
         [[ "$REF" == "master" || "$REF" == "main" ]] && version_name="dev"
         stamp_script_version "$TMP_FILE" "${version_name}@${REF_SHORT_SHA}"
         printf 'Stamped version as %s@%s\n' "$version_name" "$REF_SHORT_SHA"
