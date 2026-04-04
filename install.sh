@@ -53,6 +53,15 @@ version_from_tag() {
     return 1
 }
 
+display_version_label() {
+    local version="$1"
+    if [[ "$version" =~ ^[0-9] ]]; then
+        printf 'v%s' "$version"
+    else
+        printf '%s' "$version"
+    fi
+}
+
 stamp_script_version() {
     local script_path="$1"
     local version="$2"
@@ -428,7 +437,7 @@ elif [[ -z "$REF" ]]; then
         
         if [[ -n "$tag_sha" && -n "$master_sha" && "$tag_sha" != "$master_sha" ]]; then
             # SHAs differ: offer user choice
-            printf 'Release v%s found.\n' "$VERSION"
+            printf 'Release %s found.\n' "$(display_version_label "$VERSION")"
             printf 'Master branch has newer commits (%s vs %s).\n' "$master_sha" "$tag_sha"
             if prompt_yes_no 'Install from master (dev) instead? [y/N] '; then
                 REF="master"
@@ -439,7 +448,7 @@ elif [[ -z "$REF" ]]; then
         else
             # SHAs match or could not compare; install release
             REF="$VERSION"
-            printf 'Installing Shell Buddy v%s\n' "$VERSION"
+            printf 'Installing Shell Buddy %s\n' "$(display_version_label "$VERSION")"
         fi
     elif REF="$(resolve_default_ref)"; then
         printf 'No GitHub release found, installing from %s\n' "$REF"

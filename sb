@@ -239,10 +239,33 @@
 
     sb_name_with_version() {
       if [[ -n "$VERSION" ]]; then
-        printf 'Shell Buddy v%s' "$VERSION"
+        if [[ "$VERSION" =~ ^[0-9] ]]; then
+          printf 'Shell Buddy v%s' "$VERSION"
+        else
+          printf 'Shell Buddy %s' "$VERSION"
+        fi
       else
         printf 'Shell Buddy'
       fi
+    }
+
+    render_help_logo() {
+      local c1 c2 c3 cr
+      c1=""
+      c2=""
+      c3=""
+      cr=""
+      if command -v tput >/dev/null 2>&1 && [[ -n "${TERM:-}" && "${TERM}" != "dumb" ]]; then
+        c1="$(tput setaf 15 2>/dev/null || true)"
+        c2="$(tput setaf 250 2>/dev/null || true)"
+        c3="$(tput setaf 245 2>/dev/null || true)"
+        cr="$(tput sgr0 2>/dev/null || true)"
+      fi
+
+      printf '%s\n' "${c1} ┌─┐┬ ┬┌─┐┬  ┬    ┌┐ ┬ ┬┌┬┐┌┬┐┬ ┬${cr}"
+      printf '%s\n' "${c2} └─┐├─┤├┤ │  │    ├┴┐│ │ ││ ││└┬┘${cr}"
+      printf '%s\n' "${c3} └─┘┴ ┴└─┘┴─┘┴─┘  └─┘└─┘─┴┘─┴┘ ┴${cr}"
+      printf '\tversion (%s)\n' "$VERSION"
     }
 
     resolve_self_path() {
@@ -331,22 +354,10 @@
     }
 
     usage() {
-      local c1 c2 c3 cr
-      c1=""
-      c2=""
-      c3=""
-      cr=""
-      if command -v tput >/dev/null 2>&1 && [[ -n "${TERM:-}" && "${TERM}" != "dumb" ]]; then
-        c1="$(tput setaf 15 2>/dev/null || true)"
-        c2="$(tput setaf 250 2>/dev/null || true)"
-        c3="$(tput setaf 245 2>/dev/null || true)"
-        cr="$(tput sgr0 2>/dev/null || true)"
-      fi
+      local logo_block
+      logo_block="$(render_help_logo)"
       cat <<EOF
-    ${c1} ┌─┐┬ ┬┌─┐┬  ┬    ┌┐ ┬ ┬┌┬┐┌┬┐┬ ┬${cr}
-    ${c2} └─┐├─┤├┤ │  │    ├┴┐│ │ ││ ││└┬┘${cr}
-    ${c3} └─┘┴ ┴└─┘┴─┘┴─┘  └─┘└─┘─┴┘─┴┘ ┴${cr}
-	version ($VERSION)
+${logo_block}
 
 Usage: sb [--export-path FILE] [--update] [--version] [--help]
 
@@ -1070,6 +1081,21 @@ EOF
         printf "\033[%d;1H\033[K\033[2mCommand cancelled.\033[0m" "$rows"
         return 1
       }
+
+      if [[ "$user_cmd" == "logo" ]]; then
+        disable_mouse_tracking
+        printf "\033[?25h"
+        stty "$orig_stty" 2>/dev/null || true
+        clear
+        render_help_logo
+        printf "\n\033[2mPress any key to return...\033[0m"
+        IFS= read -rsn1 || true
+        stty -echo cbreak -ixon intr undef
+        printf "\033[?25l"
+        enable_mouse_tracking
+        on_resize
+        return 0
+      fi
 
       disable_mouse_tracking
       printf "\033[?25h"
@@ -4839,6 +4865,7 @@ delete_current_or_selected() {
 
     read_key() {
       local k k2 ch seq normalized
+      local mouse_complete=0
       IFS= read -rsn1 k || return 1
       # In some terminal modes, Enter may arrive as an empty read token.
       # Canonicalize it so dispatch paths consistently receive KEY_ENTER.
@@ -4877,10 +4904,51 @@ delete_current_or_selected() {
 
       # CSI sequence: read until final byte in 0x40..0x7E range.
       if [[ "$k2" == '[' ]]; then
+        # SGR mouse report starts with ESC [ < ... and must end with M/m.
+        # If a partial sequence leaks through (timeouts), swallow it so delimiters like ';'
+        # do not get interpreted as standalone keys (e.g. run-command key).
+        if IFS= read -rsn1 -t 0.005 ch; then
+          seq+="$ch"
+          if [[ "$ch" == '<' ]]; then
+            mouse_complete=0
+            while IFS= read -rsn1 -t 0.02 ch; do
+              seq+="$ch"
+              if [[ "$ch" == 'M' || "$ch" == 'm' ]]; then
+                mouse_complete=1
+                break
+              fi
+              (( ${#seq} >= 64 )) && break
+            done
+            if (( !mouse_complete )); then
+              while IFS= read -rsn1 -t 0.001 ch; do
+                [[ "$ch" == 'M' || "$ch" == 'm' ]] && break
+              done
+              LAST_KEY_RAW="$seq"
+              printf '%s' ""
+              return 0
+            fi
+            LAST_KEY_RAW="$seq"
+            normalized="$(normalize_function_key_sequence "$seq")"
+            printf '%s' "$normalized"
+            return 0
+          fi
+          [[ "$ch" =~ [@-~] ]] || {
+            while IFS= read -rsn1 -t 0.005 ch; do
+              seq+="$ch"
+              [[ "$ch" =~ [@-~] ]] && break
+              (( ${#seq} >= 32 )) && break
+            done
+          }
+          LAST_KEY_RAW="$seq"
+          normalized="$(normalize_function_key_sequence "$seq")"
+          printf '%s' "$normalized"
+          return 0
+        fi
+
         while IFS= read -rsn1 -t 0.005 ch; do
           seq+="$ch"
           [[ "$ch" =~ [@-~] ]] && break
-          (( ${#seq} >= 16 )) && break
+          (( ${#seq} >= 32 )) && break
         done
         LAST_KEY_RAW="$seq"
         normalized="$(normalize_function_key_sequence "$seq")"
