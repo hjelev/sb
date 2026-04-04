@@ -21,23 +21,25 @@ A lightweight terminal file browser written in Bash.
 - Create a new file (`n`) or folder (`N`)
 - Download a file from a URL into the current folder with `w`
 - Upload selected file(s) to catbox.moe with `u`
-- Create an archive from selected items (or current item) with `z` (`.zip`, `.tar.gz`, `.tgz`, or `.tar`)
-- Extract archive(s) with `x`, choose destination folder, and for multiple archives optionally extract each into its own archive-named folder
+- Create or extract archives with `z` (interactive prompt)
 - Delete selected item(s) with confirmation (`d`)
 - Batch rename with `r` (uses `moreutils`/`vidir`): renames selected items, or all visible items when nothing is selected
-- Toggle executable permission on selected item (`X`)
+- Toggle executable permission on selected item (`x`)
 - Open selected file in `less` (`l`)
 - Edit selected file in terminal editor (`e`)
 - Open selected file/folder in GUI associated app (`o`)
 - Toggle hidden files (`.`)
-- Sort files with shortcuts: `Ctrl+N` (name asc/desc), `Ctrl+D` (date asc/desc), `Ctrl+S` (size asc/desc), `Ctrl+X` (extension asc/desc)
-- Adjust name column width with `[` and `]`; jump directly to min/max with `{` and `}`
-- Built-in help screen (`h`)
+- Built-in help screen (`h`/`F1`) with scrollable shortcut and environment override reference
 - Bookmark shortcuts via env vars (`0-9`) and bookmark list screen (`b`)
+- Integrations screen (`i`) to view install/version status and enable/disable optional tools (including one-click toggle for all optional integrations)
 - Preserves cursor position per directory while navigating
 - Shows current directory path in the header row
 - If the current folder is inside a Git repo, shows `(branch)` in the header and appends `*` when there are unstaged changes
 - Displays owner, permissions, size, and modified time
+- Toggle debug footer details with `F8`
+- Toggle name-first layout with `F9`
+- Renderer/source toggle with `F12` (cycles `eza`/`lsd`/`dust`/`logo-ls`/`ls`)
+- Run interactive shell commands without leaving `sb` via `;`
 - Optional image preview in terminal (via `chafa`)
 - Optional Markdown preview in terminal (via `glow`)
 - Optional delimited-file preview in terminal (via `csvlens` for `.csv`, `.tsv`, `.tab`, `.psv`, `.dsv`)
@@ -45,6 +47,7 @@ A lightweight terminal file browser written in Bash.
 - Optional archive content preview in terminal (via `ouch list` for archives like `.zip`, `.tar`, `.tar.gz`, `.tgz`, `.bz2`, `.xz`, `.rar`, `.7z`, `.gz`)
 - Optional `.zip` archive browsing as folders (via `fuse-zip`; preferred when both `ouch` and `fuse-zip` are installed)
 - Optional PDF text preview in terminal (via `pdftotext`; rendered with `bat` when available, otherwise `less`)
+- Optional binary-aware open/edit flow (via `hexyl` for preview and `hexedit` for editing)
 - Optional audio preview/playback in terminal (via `sox` for `.mp3`, `.wav`, `.ogg`, `.flac`, `.aac`, `.m4a`)
 - Optional syntax-highlighted file preview (via `bat`)
 - Optional fuzzy jump integration (via `fzf`, key `f`)
@@ -75,6 +78,8 @@ A lightweight terminal file browser written in Bash.
 - Optional: `ouch` (for archive content preview)
 - Optional: `fuse-zip` (for mounting and browsing `.zip` archives)
 - Optional: `pdftotext` (for PDF text extraction/preview)
+- Optional: `hexyl` (for hex/binary preview)
+- Optional: `hexedit` (for hex/binary editing)
 - Optional: `sox` (for audio preview/playback)
 - Optional: `bat` (for syntax-highlighted file/PDF text preview)
 - Optional: `fzf` (for fuzzy jump)
@@ -245,24 +250,25 @@ After you quit (`q`), the script writes the current working directory to the exp
 | `N` | Create a new folder |
 | `w` | Download URL into current directory |
 | `u` | Upload selected file(s) to catbox.moe |
-| `z` | Create archive from selected item(s) (`.zip`/`.tar.gz`/`.tgz`/`.tar`) |
-| `x` | Extract archive(s), prompt for destination, and optionally split multiple archives into separate archive-named folders |
+| `z` | Create/extract archive (interactive prompt) |
 | `p` | Protect/unprotect current file with `age` |
 | `g` | Search text with ripgrep |
-| `i` | Show integration status |
-| `l` | Open selected file in `less` |
-| `e` | Edit selected file in CLI editor (`$VISUAL`/`$EDITOR` fallback chain) |
+| `f` / `/` | Fuzzy-find file names in current directory tree (fzf) |
+| `;` | Run interactive shell command |
+| `i` | Show integrations screen (view status/version; enable/disable optional tools) |
+| `F3` / `l` | Open selected file in `less` |
+| `F4` / `e` | Edit selected file in CLI editor (`$VISUAL`/`$EDITOR` fallback chain) |
 | `o` | Open selected item in GUI associated app |
-| `X` | Toggle executable permission on selected item |
+| `x` | Toggle executable permission on selected item |
 | `d` | Delete selected item(s) |
 | `.` | Toggle hidden files |
-| `Ctrl+N` | Sort by name (toggle ascending / descending) |
-| `Ctrl+D` | Sort by date modified (toggle ascending / descending) |
-| `Ctrl+S` | Sort by size (toggle ascending / descending) |
-| `Ctrl+X` | Sort by extension (toggle ascending / descending) |
-| `[` / `]` | Decrease / increase name column width |
-| `{` / `}` | Set name column width to minimum / maximum |
-| `h` | Show help screen |
+| `F6` | Reload current directory |
+| `F8` | Toggle debug footer |
+| `F9` | Toggle name-first layout |
+| `F12` | Renderer/source toggle |
+| `F2` / `r` | Rename current/selected item(s) |
+| `F5` / `c` | Copy selected item(s) into clipboard |
+| `h` / `F1` | Show help screen |
 | `b` | Show configured bookmarks from environment |
 | `q` | Quit |
 
@@ -284,68 +290,83 @@ All keyboard shortcuts are configurable via environment variables with sensible 
 
 ```bash
 # Navigation
-export SB_KEY_NAV_UP="$'\e[A'"           # Default: arrow up
-export SB_KEY_NAV_DOWN="$'\e[B'"         # Default: arrow down
-export SB_KEY_HOME="$'\e[H'"             # Default: Home key
-export SB_KEY_END="$'\e[F'"              # Default: End key
-export SB_KEY_PAGE_UP="$'\e[5~'"         # Default: PgUp
-export SB_KEY_PAGE_DOWN="$'\e[6~'"       # Default: PgDn
-
-# Main Navigation Actions
-export SB_KEY_ENTER="$'\e[C'"            # Default: arrow right + Enter + Ctrl+M
-export SB_KEY_EXIT="$'\e[D'"             # Default: arrow left (parent directory)
-export SB_KEY_SELECT_TOGGLE=' '          # Default: Space + Insert + Alt+L
+export SB_KEY_UP="$'\e[A'"              # Default: arrow up
+export SB_KEY_DOWN="$'\e[B'"            # Default: arrow down
+export SB_KEY_RIGHT="$'\e[C'"           # Default: arrow right
+export SB_KEY_LEFT="$'\e[D'"            # Default: arrow left
+export SB_KEY_HOME="$'\e[H'"            # Default: Home key
+export SB_KEY_END="$'\e[F'"             # Default: End key
+export SB_KEY_PGUP="$'\e[5~'"           # Default: PgUp
+export SB_KEY_PGDN="$'\e[6~'"           # Default: PgDn
+export SB_KEY_ENTER="$'\r'"             # Default: Enter
 
 # Main Actions
-export SB_KEY_HOME_DIR="~"               # Default: tilde
-export SB_KEY_QUIT="q"                   # Default: q
-export SB_KEY_HELP="h"                   # Default: h
+export SB_KEY_HOME_DIR="~"              # Default: tilde
+export SB_KEY_QUIT="q"                  # Default: q
+export SB_KEY_HELP="h"                  # Default: h
+export SB_KEY_HELP_F1="$'\eOP'"         # Default: F1
+export SB_KEY_HELP_LABEL="h/F1"         # Default label shown in UI
+export SB_KEY_RELOAD="$'\e[17~'"        # Default: F6
+export SB_KEY_RELOAD_LABEL="F6"         # Default label shown in UI
 
 # Selection & Operations
-export SB_KEY_SELECT_ALL="*"             # Default: asterisk
-export SB_KEY_COPY="c"                   # Default: c
-export SB_KEY_COPY_ABSOLUTE="$'\x03'"    # Default: Ctrl+C
-export SB_KEY_PASTE="v"                  # Default: v
-export SB_KEY_MOVE="m"                   # Default: m
-export SB_KEY_DELETE="d"                 # Default: d
+export SB_KEY_SELECT_TOGGLE=' '          # Default: Space (Insert also works)
+export SB_KEY_SELECT_TOGGLE_LABEL="Space/Ins" # Default label shown in UI
+export SB_KEY_SELECT_ALL="*"            # Default: asterisk
+export SB_KEY_COPY="c"                  # Default: c
+export SB_KEY_COPY_F5="$'\e[15~'"       # Default: F5
+export SB_KEY_COPY_F5_LABEL="F5"        # Default label shown in UI
+export SB_KEY_COPY_PATH="$'\x03'"       # Default: Ctrl+C
+export SB_KEY_COPY_PATH_LABEL="Ctrl+C"  # Default label shown in UI
+export SB_KEY_PASTE="v"                 # Default: v
+export SB_KEY_MOVE="m"                  # Default: m
+export SB_KEY_DELETE="d"                # Default: d
 
 # File Operations
-export SB_KEY_CREATE_FILE="n"            # Default: n
-export SB_KEY_CREATE_DIR="N"             # Default: N (uppercase)
-export SB_KEY_RENAME="r"                 # Default: r
-export SB_KEY_TOGGLE_EXEC="X"            # Default: X
-export SB_KEY_DOWNLOAD="w"               # Default: w
-export SB_KEY_UPLOAD="u"                 # Default: u (catbox.moe)
-export SB_KEY_CREATE_ARCHIVE="z"         # Default: z
-export SB_KEY_EXTRACT_ARCHIVE="x"        # Default: x
-export SB_KEY_EDIT="e"                   # Default: e
-export SB_KEY_OPEN_GUI="o"               # Default: o
-export SB_KEY_LESS="l"                   # Default: l
+export SB_KEY_CREATE_FILE="n"           # Default: n
+export SB_KEY_CREATE_DIR="N"            # Default: N (uppercase)
+export SB_KEY_RENAME="r"                # Default: r
+export SB_KEY_RENAME_F2="$'\eOQ'"       # Default: F2
+export SB_KEY_RENAME_F2_LABEL="F2"      # Default label shown in UI
+export SB_KEY_CHMOD_X="x"               # Default: x
+export SB_KEY_DOWNLOAD="w"              # Default: w
+export SB_KEY_AGE_TOGGLE="p"            # Default: p
+export SB_KEY_EXTRACT_ZIP="z"           # Default: z
+export SB_KEY_OPEN_LESS="l"             # Default: l
+export SB_KEY_OPEN_LESS_F3="$'\eOR'"    # Default: F3
+export SB_KEY_OPEN_LESS_F3_LABEL="F3"   # Default label shown in UI
+export SB_KEY_OPEN_EDITOR="e"           # Default: e
+export SB_KEY_OPEN_EDITOR_F4="$'\eOS'"  # Default: F4
+export SB_KEY_OPEN_EDITOR_F4_LABEL="F4" # Default label shown in UI
+export SB_KEY_OPEN_GUI="o"              # Default: o
 
 # Searching & Browsing
-export SB_KEY_FZF_JUMP="f"               # Default: f (fuzzy find)
-export SB_KEY_RIPGREP="g"                # Default: g (text search)
-export SB_KEY_COMPARE_DELTA="C"          # Default: C (uppercase)
-export SB_KEY_JUMP_PATH="$'\t'"          # Default: Tab
+export SB_KEY_FIND_FILE="f"             # Default: f (fuzzy find)
+export SB_KEY_FIND_FILE_ALT="/"         # Default: / (alternate fuzzy find)
+export SB_KEY_SEARCH="g"                # Default: g (text search)
+export SB_KEY_COMPARE="C"               # Default: C (uppercase)
+export SB_KEY_RUN_COMMAND=";"           # Default: ;
 
 # Features
-export SB_KEY_DUST_MODE="s"              # Default: s (disk usage)
-export SB_KEY_INTEGRATIONS="i"           # Default: i (show status)
-export SB_KEY_SSH_PICKER="S"             # Default: S (uppercase, SSH)
-export SB_KEY_BOOKMARKS="b"              # Default: b
-export SB_KEY_TOGGLE_HIDDEN="."          # Default: period
+export SB_KEY_DUST_MODE="s"             # Default: s (disk usage source)
+export SB_KEY_INTEGRATIONS="i"          # Default: i
+export SB_KEY_SSH_PICKER="S"            # Default: S (uppercase, SSH)
+export SB_KEY_BOOKMARKS="b"             # Default: b
+export SB_KEY_TOGGLE_HIDDEN="."         # Default: period
+export SB_KEY_TOGGLE_DEBUG="$'\e[19~'"   # Default: F8
+export SB_KEY_TOGGLE_DEBUG_LABEL="F8"   # Default label shown in UI
+export SB_KEY_TOGGLE_NAME_FIRST="$'\e[20~'" # Default: F9
+export SB_KEY_TOGGLE_NAME_FIRST_LABEL="F9" # Default label shown in UI
+export SB_KEY_TOGGLE_SOURCE="$'\e[24~'"  # Default: F12
+export SB_KEY_TOGGLE_SOURCE_LABEL="F12" # Default label shown in UI
 
-# Sorting
-export SB_KEY_SORT_NAME="$'\x0e'"        # Default: Ctrl+N
-export SB_KEY_SORT_DATE="$'\x04'"        # Default: Ctrl+D
-export SB_KEY_SORT_SIZE="$'\x13'"        # Default: Ctrl+S
-export SB_KEY_SORT_EXT="$'\x18'"         # Default: Ctrl+X
-
-# Column Width
-export SB_KEY_COLUMN_SHRINK="["          # Default: [
-export SB_KEY_COLUMN_GROW="]"            # Default: ]
-export SB_KEY_COLUMN_MIN="{"             # Default: {
-export SB_KEY_COLUMN_MAX="}"             # Default: }
+# Related behavior/env toggles shown in Help
+export SB_SHOW_DEBUG_FOOTER="0"         # Default: debug footer starts hidden
+export SB_NAMEFIRST_WIDTH_PCT="35"      # Default: name-first width percent
+export SB_NAMEFIRST_NAME_MIN="12"       # Default: soft minimum name width
+export SB_NAMEFIRST_NAME_MAX="64"       # Default: max name width cap
+export SB_HEXYL_ARGS=""                 # Default: extra args for hexyl preview
+export SB_HEXEDIT_ARGS=""               # Default: extra args for hexedit editor
 ```
 
 `sb` runs in terminal raw mode and maps `Ctrl+C` as a normal key while the UI is active; use `q` to quit.
@@ -353,13 +374,13 @@ export SB_KEY_COLUMN_MAX="}"             # Default: }
 **Example:** Vim-style customization:
 
 ```bash
-export SB_KEY_NAV_UP="k"
-export SB_KEY_NAV_DOWN="j"
-export SB_KEY_EXIT="h"
-export SB_KEY_ENTER="l"
+export SB_KEY_UP="k"
+export SB_KEY_DOWN="j"
+export SB_KEY_LEFT="h"
+export SB_KEY_RIGHT="l"
 export SB_KEY_HELP="?"
-export SB_KEY_COMPARE_DELTA="C"
-export SB_KEY_COPY_ABSOLUTE="$'\x03'"   # Ctrl+C
+export SB_KEY_COMPARE="C"
+export SB_KEY_COPY_PATH="$'\x03'"   # Ctrl+C
 sb
 ```
 
