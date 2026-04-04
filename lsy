@@ -4830,17 +4830,17 @@ delete_current_or_selected() {
 
       printf -v payload '%s\n' "${abs_items[@]}"
 
-      if command -v wl-copy >/dev/null 2>&1; then
+      if ! integration_is_disabled wl-copy && command -v wl-copy >/dev/null 2>&1; then
         printf '%s' "$payload" | wl-copy
-      elif command -v xclip >/dev/null 2>&1; then
+      elif ! integration_is_disabled xclip && command -v xclip >/dev/null 2>&1; then
         printf '%s' "$payload" | xclip -selection clipboard
-      elif command -v xsel >/dev/null 2>&1; then
+      elif ! integration_is_disabled xsel && command -v xsel >/dev/null 2>&1; then
         printf '%s' "$payload" | xsel --clipboard --input
-      elif command -v pbcopy >/dev/null 2>&1; then
+      elif ! integration_is_disabled pbcopy && command -v pbcopy >/dev/null 2>&1; then
         printf '%s' "$payload" | pbcopy
       else
         draw_status
-        printf "\033[%d;1H\033[K\033[2mCopy full path failed: no clipboard tool found (wl-copy/xclip/xsel/pbcopy).\033[0m" "$rows"
+        printf "\033[%d;1H\033[K\033[2mCopy full path failed: no enabled clipboard tool found (wl-copy/xclip/xsel/pbcopy).\033[0m" "$rows"
         return 1
       fi
 
@@ -5175,6 +5175,10 @@ delete_current_or_selected() {
         "search|fzf|Interactive fuzzy finder for file names and search results|1"
         "network|wget|Download files from URLs (preferred if available)|1"
         "network|curl|Download files from URLs when wget is unavailable|1"
+        "clipboard|wl-copy|Wayland clipboard backend used by Ctrl+C full-path copy|1"
+        "clipboard|xclip|X11 clipboard backend used by Ctrl+C full-path copy|1"
+        "clipboard|xsel|X11 clipboard backend used by Ctrl+C full-path copy|1"
+        "clipboard|pbcopy|macOS clipboard backend used by Ctrl+C full-path copy|1"
         "security|age|Encrypt/decrypt file with passphrase and open .age files on demand|1"
         "rename|vidir|Bulk rename selected items in your editor|1"
         "preview|csvlens|Terminal CSV/TSV preview for .csv .tsv .tab .psv .dsv .ssv|1"
