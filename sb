@@ -322,8 +322,8 @@
       printf '%s\n' "${c1} ┌─┐┬ ┬┌─┐┬  ┬    ┌┐ ┬ ┬┌┬┐┌┬┐┬ ┬${cr}"
       printf '%s\n' "${c2} └─┐├─┤├┤ │  │    ├┴┐│ │ ││ ││└┬┘${cr}"
       printf '%s\n' "${c3} └─┘┴ ┴└─┘┴─┘┴─┘  └─┘└─┘─┴┘─┴┘ ┴${cr}"
-      printf '  %s\n' "$slogan"
-      printf '%s\tversion (%s)%s\n' "$c3" "$VERSION" "$cr"
+      printf ' %s\n' "$slogan"
+      printf ' %sversion (%s)%s\n' "$c3" "$VERSION" "$cr"
     }
 
     resolve_self_path() {
@@ -1221,6 +1221,7 @@ EOF
       local branch_prefix=""
       local rc=0
       local tmp_log=""
+      local confirm_reply=""
 
       if integration_is_disabled git; then
         draw_status
@@ -1240,10 +1241,55 @@ EOF
         return 1
       fi
 
-      commit_msg="$(read_line_prompt "Commit message: " "")"
+      # Show git diff first
+      disable_mouse_tracking
+      printf "\033[?25h"
+      stty "$orig_stty" 2>/dev/null || true
+      clear
+      printf '\033[1;36mGit Changes:\033[0m\n\n'
+      if command -v delta >/dev/null 2>&1 && ! integration_is_disabled delta; then
+        local -a delta_args=()
+        if [[ -n "$SB_DELTA_ARGS" ]]; then
+          read -r -a delta_args <<< "$SB_DELTA_ARGS"
+        fi
+        git --no-pager diff --color=always | delta "${delta_args[@]}"
+      else
+        git --no-pager diff --color=always
+      fi
+      printf '\n\033[1;33mContinue with add, commit, and push? [y/N] \033[0m'
+      IFS= read -rsn1 confirm_reply
+      printf '\n'
+
+      if [[ ! "$confirm_reply" =~ ^[Yy]$ ]]; then
+        printf '\033[2mGit workflow cancelled.\033[0m\n'
+        printf "\033[2mPress any key to return...\033[0m"
+        IFS= read -rsn1 || true
+        stty -echo cbreak -ixon intr undef
+        printf "\033[?25l"
+        enable_mouse_tracking
+        on_resize
+        draw_ui
+        footer_message_auto "Git workflow cancelled by user."
+        return 1
+      fi
+
+      # Ask for commit message after confirming to continue.
+      # Read from the controlling TTY with echo enabled so typed text stays visible.
+      local tty="/dev/tty"
+      [[ -r "$tty" && -w "$tty" ]] || tty="/proc/self/fd/2"
+      printf '\033[1;36mCommit message: \033[0m' >"$tty"
+      stty echo <"$tty"
+      IFS= read -r commit_msg <"$tty"
       commit_msg="$(trim_whitespace "$commit_msg")"
       if [[ -z "$commit_msg" ]]; then
-        draw_status
+        printf '\033[2mGit workflow cancelled: commit message is empty.\033[0m\n'
+        printf "\033[2mPress any key to return...\033[0m"
+        IFS= read -rsn1 || true
+        stty -echo cbreak -ixon intr undef
+        printf "\033[?25l"
+        enable_mouse_tracking
+        on_resize
+        draw_ui
         footer_message_auto "Git workflow cancelled: commit message is empty."
         return 1
       fi
@@ -1263,7 +1309,11 @@ EOF
       fi
 
       tmp_log="$(mktemp "${TMPDIR:-/tmp}/sb-git-workflow.XXXXXX")" || {
-        draw_status
+        stty -echo cbreak -ixon intr undef
+        printf "\033[?25l"
+        enable_mouse_tracking
+        on_resize
+        draw_ui
         footer_message_auto "Git workflow failed: unable to create temporary log file."
         return 1
       }
@@ -1291,17 +1341,17 @@ EOF
         rm -f -- "$tmp_log"
         GIT_HEADER_CACHE_PWD=""
         GIT_HEADER_CACHE_SUFFIX=""
+        stty -echo cbreak -ixon intr undef
+        printf "\033[?25l"
+        enable_mouse_tracking
+        on_resize
         load_data
         draw_ui
         footer_message_auto "Git workflow complete: add, commit, push succeeded."
         return 0
       fi
 
-      disable_mouse_tracking
-      printf "\033[?25h"
-      stty "$orig_stty" 2>/dev/null || true
-      clear
-      printf 'Git workflow failed (exit %d) in %s\n\n' "$rc" "$(pwd -P 2>/dev/null || pwd)"
+      printf "\033[1;31mGit workflow failed (exit %d) in %s\033[0m\n\n" "$rc" "$(pwd -P 2>/dev/null || pwd)"
       cat -- "$tmp_log"
       printf "\n\033[2mPress any key to return...\033[0m"
       IFS= read -rsn1 || true
