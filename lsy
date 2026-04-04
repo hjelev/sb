@@ -53,6 +53,8 @@
     LSY_GLOW_ARGS="${LSY_GLOW_ARGS:-}"
     LSY_CSVLENS_ARGS="${LSY_CSVLENS_ARGS:-}"
     LSY_JNV_ARGS="${LSY_JNV_ARGS:-}"
+    LSY_HEXYL_ARGS="${LSY_HEXYL_ARGS:-}"
+    LSY_HEXEDIT_ARGS="${LSY_HEXEDIT_ARGS:-}"
     LSY_RG_ARGS="${LSY_RG_ARGS:-}"
     LSY_FZF_ARGS="${LSY_FZF_ARGS:---ansi --reverse}"
     LSY_DELTA_ARGS="${LSY_DELTA_ARGS:---side-by-side --line-numbers}"
@@ -147,6 +149,8 @@
     HAS_GLOW=0
     HAS_CSVLENS=0
     HAS_JNV=0
+    HAS_HEXYL=0
+    HAS_HEXEDIT=0
     HAS_RG=0
     HAS_FZF=0
     HAS_VIDIR=0
@@ -1242,6 +1246,18 @@ EOF
         HAS_JNV=0
       fi
 
+      if command -v hexyl >/dev/null 2>&1 && ! integration_is_disabled hexyl; then
+        HAS_HEXYL=1
+      else
+        HAS_HEXYL=0
+      fi
+
+      if command -v hexedit >/dev/null 2>&1 && ! integration_is_disabled hexedit; then
+        HAS_HEXEDIT=1
+      else
+        HAS_HEXEDIT=0
+      fi
+
       if command -v rg >/dev/null 2>&1 && ! integration_is_disabled rg; then
         HAS_RG=1
       else
@@ -1645,6 +1661,12 @@ EOF
         fi
       fi
 
+      # Only fall back to hexyl when no richer typed integration claimed the file.
+      if (( HAS_HEXYL )) && should_use_hex_fallback_file "$item"; then
+        open_file_with_hexyl "$item"
+        return $?
+      fi
+
       case "$FILE_VIEWER" in
         less)
           command -v less >/dev/null 2>&1 || return 1
@@ -1752,6 +1774,130 @@ EOF
       return 1
     }
 
+    is_binary_file_quick() {
+      local item="$1"
+      local sample_bytes=0 nontext_bytes=0 mime="" desc="" mime_lc="" desc_lc=""
+
+      [[ -f "$item" ]] || return 1
+
+      # Shebang files are text scripts even without extensions.
+      if [[ "$(LC_ALL=C head -c 2 -- "$item" 2>/dev/null)" == '#!' ]]; then
+        return 1
+      fi
+
+      # Fast path: a NUL byte in the first 4KiB is a strong binary signal.
+      if LC_ALL=C head -c 4096 -- "$item" 2>/dev/null | grep -qU $'\x00'; then
+        return 0
+      fi
+
+      if command -v file >/dev/null 2>&1; then
+        mime="$(file --brief --mime-type -- "$item" 2>/dev/null || true)"
+        desc="$(file --brief -- "$item" 2>/dev/null || true)"
+        mime_lc="$(lowercase_string "$mime")"
+        desc_lc="$(lowercase_string "$desc")"
+
+        case "$mime_lc" in
+          text/*|application/json|application/xml|application/x-sh|application/javascript|application/x-empty|application/x-shellscript|application/x-python|application/x-perl|application/x-ruby)
+            return 1
+            ;;
+          image/*|audio/*|video/*|font/*|application/pdf|application/zip|application/x-7z-compressed|application/x-tar|application/gzip|application/x-executable|application/x-pie-executable|application/x-sharedlib|application/x-object)
+            return 0
+            ;;
+          *)
+            ;;
+        esac
+
+        if [[ "$desc_lc" == *text* || "$desc_lc" == *script* || "$desc_lc" == *source* || "$desc_lc" == *utf-* || "$desc_lc" == *unicode* ]]; then
+          return 1
+        fi
+
+        if [[ "$desc_lc" == *executable* || "$desc_lc" == *"shared object"* || "$desc_lc" == *archive* || "$desc_lc" == *"image data"* || "$desc_lc" == *audio* || "$desc_lc" == *video* || "$desc_lc" == *pdf* || "$desc_lc" == *font* ]]; then
+          return 0
+        fi
+      fi
+
+      # Heuristic: treat mostly-printable samples as text, even without extension.
+      sample_bytes="$(LC_ALL=C head -c 4096 -- "$item" 2>/dev/null | wc -c | tr -d '[:space:]')"
+      nontext_bytes="$(LC_ALL=C head -c 4096 -- "$item" 2>/dev/null | tr -d '\11\12\15\40-\176' | wc -c | tr -d '[:space:]')"
+      [[ -z "$sample_bytes" ]] && sample_bytes=0
+      [[ -z "$nontext_bytes" ]] && nontext_bytes=0
+
+      if (( sample_bytes == 0 )); then
+        return 1
+      fi
+
+      # <= 20% non-printable bytes in sample: likely text/source/script.
+      if (( nontext_bytes * 100 <= sample_bytes * 20 )); then
+        return 1
+      fi
+
+      if [[ -n "$mime_lc" && "$mime_lc" != "application/octet-stream" ]]; then
+        return 0
+      fi
+
+      # Fallback for ambiguous files: require stronger non-text signal before binary.
+      if (( nontext_bytes * 100 >= sample_bytes * 35 )); then
+        return 0
+      fi
+
+      return 1
+    }
+
+    should_use_hex_fallback_file() {
+      local item="$1"
+      local mime_probe=""
+      local desc_probe=""
+      local desc_probe_lc=""
+
+      is_binary_file_quick "$item" || return 1
+
+      if command -v file >/dev/null 2>&1; then
+        mime_probe="$(file --brief --mime-type -- "$item" 2>/dev/null || true)"
+        desc_probe="$(file --brief -- "$item" 2>/dev/null || true)"
+        desc_probe_lc="$(lowercase_string "$desc_probe")"
+
+        if [[ "$mime_probe" == text/* || "$desc_probe_lc" == *text* || "$desc_probe_lc" == *script* || "$desc_probe_lc" == *source* ]]; then
+          return 1
+        fi
+      fi
+
+      return 0
+    }
+
+    open_file_with_hexyl() {
+      local item="$1"
+      local -a hexyl_args=()
+
+      (( HAS_HEXYL )) || return 1
+      if [[ -n "$LSY_HEXYL_ARGS" ]]; then
+        read -r -a hexyl_args <<< "$LSY_HEXYL_ARGS"
+      fi
+
+      if command -v less >/dev/null 2>&1; then
+        run_interactive_command bash -c '
+          file="$1"
+          shift
+          hexyl "$@" -- "$file" | less -R
+        ' _ "$item" "${hexyl_args[@]}"
+      else
+        run_interactive_command hexyl "${hexyl_args[@]}" -- "$item"
+      fi
+      return $?
+    }
+
+    open_file_with_hexedit() {
+      local item="$1"
+      local -a hexedit_args=()
+
+      (( HAS_HEXEDIT )) || return 1
+      if [[ -n "$LSY_HEXEDIT_ARGS" ]]; then
+        read -r -a hexedit_args <<< "$LSY_HEXEDIT_ARGS"
+      fi
+
+      run_interactive_command hexedit "${hexedit_args[@]}" "$(safe_command_path "$item")"
+      return $?
+    }
+
     open_file_with_less() {
       local item="$1"
       command -v less >/dev/null 2>&1 || return 1
@@ -1778,6 +1924,11 @@ EOF
       local editor_spec=""
       local -a editor_cmd=()
       local alt_editor_link=""
+
+      if (( HAS_HEXEDIT )) && should_use_hex_fallback_file "$item"; then
+        open_file_with_hexedit "$item"
+        return $?
+      fi
 
       if [[ -n "${LSY_EDITOR:-}" ]]; then
         editor_spec="$LSY_EDITOR"
@@ -4443,6 +4594,14 @@ delete_current_or_selected() {
           (( HAS_JNV ))
           return
           ;;
+        hexyl)
+          (( HAS_HEXYL ))
+          return
+          ;;
+        hexedit)
+          (( HAS_HEXEDIT ))
+          return
+          ;;
         rg)
           (( HAS_RG ))
           return
@@ -4520,6 +4679,8 @@ delete_current_or_selected() {
         "archive|rar|RAR: extract .rar archives (unrar or rar)|1"
         "compare|delta|Side-by-side file diff for exactly 2 selected files|1"
         "preview|jnv|Terminal JSON preview for .json .jsonl .ndjson .geojson|1"
+        "preview|hexyl|Hex viewer used for binary files detected on open|1"
+        "editor|hexedit|Hex editor used on e for binary files detected on open|1"
         "search|rg|Bulk recursive exact-text search in current folder|1"
         "search|fzf|Interactive fuzzy finder for file names and search results|1"
         "network|wget|Download files from URLs (preferred if available)|1"
@@ -5343,6 +5504,8 @@ delete_current_or_selected() {
         "LSY_FZF_ARGS  Extra args passed to fzf"
         "LSY_DELTA_ARGS  Extra args passed to delta compare"
         "LSY_JNV_ARGS  Extra args passed to jnv JSON preview"
+        "LSY_HEXYL_ARGS  Extra args passed to hexyl binary preview"
+        "LSY_HEXEDIT_ARGS  Extra args passed to hexedit binary editor"
         "LSY_CSVLENS_ARGS  Extra args passed to csvlens preview"
         "LSY_GLOW_ARGS  Extra args passed to glow markdown preview"
         "LSY_EZA_*    Configure eza renderer"
