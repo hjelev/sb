@@ -50,6 +50,7 @@
     KEY_OPEN_GUI="${SB_KEY_OPEN_GUI:-o}"
     KEY_OPEN_EDITOR="${SB_KEY_OPEN_EDITOR:-e}"
     KEY_FIND_FILE="${SB_KEY_FIND_FILE:-f}"
+    KEY_FIND_FILE_ALT="${SB_KEY_FIND_FILE_ALT:-/}"
     KEY_SEARCH="${SB_KEY_SEARCH:-g}"
     KEY_COMPARE="${SB_KEY_COMPARE:-C}"
     KEY_DUST_MODE="${SB_KEY_DUST_MODE:-s}"
@@ -233,6 +234,7 @@
     declare -a SSHPICK_SPECS=()
     SSHPICK_TOTAL=0
     SSHPICK_CURSOR=1
+    PREVIEW_FOCUS_PATH=""
     LAST_KEY_RAW=""
 
     sb_name_with_version() {
@@ -779,6 +781,8 @@ EOF
       clear
       "$@"
       rc=$?
+      PREVIEW_FOCUS_PATH="${images[$cursor_idx]}"
+
       stty -echo cbreak -ixon intr undef
       printf "\033[?25l"
       enable_mouse_tracking
@@ -802,6 +806,109 @@ EOF
       printf "\033[?25l"
       enable_mouse_tracking
       on_resize
+      return $rc
+    }
+
+    path_is_image_file() {
+      local item="$1"
+      local mime=""
+      local lower=""
+
+      [[ -f "$item" ]] || return 1
+
+      if command -v file >/dev/null 2>&1; then
+        mime="$(file --brief --mime-type -- "$item" 2>/dev/null || true)"
+        [[ "$mime" == image/* ]] && return 0
+      fi
+
+      lower="$(printf '%s' "$item" | tr '[:upper:]' '[:lower:]')"
+      case "$lower" in
+        *.png|*.jpg|*.jpeg|*.gif|*.bmp|*.webp|*.tif|*.tiff|*.svg|*.avif|*.heic|*.heif|*.ico)
+          return 0
+          ;;
+      esac
+      return 1
+    }
+
+    run_chafa_image_gallery() {
+      local current_item="$1"
+      shift
+      local -a chafa_args=("$@")
+      local current_abs current_dir
+      local key item rc=0 i cursor_idx
+      local -a all_files=()
+      local -a images=()
+
+      if [[ "$current_item" == /* ]]; then
+        current_abs="$current_item"
+      else
+        current_abs="$(pwd -P 2>/dev/null || pwd)/${current_item#./}"
+      fi
+      current_dir="$(path_dirname "$current_abs")"
+
+      while IFS= read -r -d '' item; do
+        all_files+=("$item")
+      done < <(find "$current_dir" -maxdepth 1 -type f -print0 2>/dev/null | sort -z)
+
+      for item in "${all_files[@]}"; do
+        if path_is_image_file "$item"; then
+          images+=("$item")
+        fi
+      done
+
+      if (( ${#images[@]} == 0 )); then
+        run_interactive_preview_command chafa "${chafa_args[@]}" -- "$current_item"
+        return $?
+      fi
+
+      cursor_idx=0
+      for i in "${!images[@]}"; do
+        if [[ "${images[$i]}" == "$current_abs" ]]; then
+          cursor_idx=$i
+          break
+        fi
+      done
+
+      disable_mouse_tracking
+      printf "\033[?25h"
+      stty "$orig_stty" 2>/dev/null || true
+
+      while true; do
+        clear
+        chafa "${chafa_args[@]}" -- "${images[$cursor_idx]}"
+        rc=$?
+        if (( rc != 0 )); then
+          break
+        fi
+
+        printf "\n\033[2m[%d/%d] ← previous  → next  any other key return\033[0m" "$((cursor_idx + 1))" "${#images[@]}"
+
+        stty -echo cbreak -ixon intr undef
+        key="$(read_key || true)"
+        stty "$orig_stty" 2>/dev/null || true
+
+        case "$key" in
+          "$KEY_RIGHT")
+            if (( cursor_idx + 1 < ${#images[@]} )); then
+              ((cursor_idx++))
+              continue
+            fi
+            ;;
+          "$KEY_LEFT")
+            if (( cursor_idx > 0 )); then
+              ((cursor_idx--))
+              continue
+            fi
+            ;;
+        esac
+        break
+      done
+
+      stty -echo cbreak -ixon intr undef
+      printf "\033[?25l"
+      enable_mouse_tracking
+      on_resize
+      PREVIEW_FOCUS_PATH="${images[$cursor_idx]}"
       return $rc
     }
 
@@ -2093,7 +2200,7 @@ EOF
           if [[ -n "$SB_CHAFA_ARGS" ]]; then
             read -r -a chafa_args <<< "$SB_CHAFA_ARGS"
           fi
-          run_interactive_preview_command chafa "${chafa_args[@]}" -- "$item"
+          run_chafa_image_gallery "$item" "${chafa_args[@]}"
           return $?
         fi
       fi
@@ -3150,7 +3257,7 @@ NR>3 && !/^[-]/ && NF>=4 {
       [[ -n "$target_name" ]] || return 1
       for i in "${!ROWS_COLOR[@]}"; do
         path="$(ensure_row_path "$i" 2>/dev/null || true)"
-        [[ "$path" == "$target_name" ]] || continue
+        [[ "$path" == "$target_name" || "$(path_basename "$path")" == "$target_name" ]] || continue
         cursor=$i
         if (( cursor < top )); then
           top=$cursor
@@ -5987,6 +6094,12 @@ delete_current_or_selected() {
         preview_archive_listing "$item" && { draw_ui; return 0; }
       fi
       open_file_with_viewer "$item" || return 1
+      if [[ -n "$PREVIEW_FOCUS_PATH" ]]; then
+        jump_cursor_to_path "$PREVIEW_FOCUS_PATH" >/dev/null 2>&1 \
+          || position_cursor_for_name "$(path_basename "$PREVIEW_FOCUS_PATH")" >/dev/null 2>&1 \
+          || true
+        PREVIEW_FOCUS_PATH=""
+      fi
       draw_ui
       return 0
     }
@@ -6021,7 +6134,7 @@ delete_current_or_selected() {
     jump_cursor_to_path() {
       local target_path="$1"
       local target_abs current_dir target_dir target_name
-      local i path path_abs
+      local i path path_abs plain
 
       [[ -n "$target_path" ]] || return 1
 
@@ -6059,10 +6172,23 @@ delete_current_or_selected() {
         fi
       done
 
-      # Fallback: directory changed but exact row not found (e.g., renderer omitted it).
-      cursor=0
-      top=0
-      return 0
+      # Fallback when row->path resolution is unavailable for current renderer:
+      # match basename against the rendered plain row tail/classified forms.
+      for i in "${!ROWS_SELECT_PLAIN[@]}"; do
+        plain="${ROWS_SELECT_PLAIN[$i]-}"
+        [[ -n "$plain" ]] || continue
+        case "$plain" in
+          *"$target_name"|*"$target_name/"|*"$target_name@"|*"$target_name*"|*"$target_name="|*"$target_name|"|*"$target_name -> "*)
+            cursor=$i
+            top=$(( cursor - visible_rows / 2 ))
+            (( top < 0 )) && top=0
+            return 0
+            ;;
+        esac
+      done
+
+      # Keep current cursor when the target is not found.
+      return 1
     }
 
     rg_selection_to_abs_path() {
@@ -6386,7 +6512,7 @@ delete_current_or_selected() {
         printf "\033[1;36mNavigation\033[0m  \033[1;33mUp/Down\033[0m move  \033[1;33mPgUp/PgDn\033[0m page  \033[1;33mHome/End\033[0m top/bottom\n"
         printf "\033[1;36mDirectory\033[0m   \033[1;33mRight\033[0m enter/open zip  \033[1;33mLeft\033[0m parent dir\n"
         printf "\033[1;36mSelect\033[0m      \033[1;33m%s\033[0m toggle  \033[1;33m%s\033[0m all  \033[1;33mF5/%s\033[0m copy  \033[1;33m%s\033[0m fullpath  \033[1;33m%s\033[0m move  \033[1;33m%s\033[0m paste  \033[1;33m%s\033[0m delete\n" "$KEY_SELECT_TOGGLE_LABEL" "$KEY_SELECT_ALL" "$KEY_COPY" "$KEY_COPY_PATH_LABEL" "$KEY_MOVE" "$KEY_PASTE" "$KEY_DELETE"
-        printf "\033[1;36mFile\033[0m        \033[1;33mF2/%s\033[0m rename  \033[1;33mF3/%s\033[0m view  \033[1;33mF4/%s\033[0m edit  \033[1;33m%s\033[0m compare  \033[1;33m%s\033[0m search  \033[1;33m%s\033[0m find  \033[1;33m%s\033[0m zip\n" "$KEY_RENAME" "$KEY_OPEN_LESS" "$KEY_OPEN_EDITOR" "$KEY_COMPARE" "$KEY_SEARCH" "$KEY_FIND_FILE" "$KEY_EXTRACT_ZIP"
+        printf "\033[1;36mFile\033[0m        \033[1;33mF2/%s\033[0m rename  \033[1;33mF3/%s\033[0m view  \033[1;33mF4/%s\033[0m edit  \033[1;33m%s\033[0m compare  \033[1;33m%s\033[0m search  \033[1;33m%s/%s\033[0m find  \033[1;33m%s\033[0m zip\n" "$KEY_RENAME" "$KEY_OPEN_LESS" "$KEY_OPEN_EDITOR" "$KEY_COMPARE" "$KEY_SEARCH" "$KEY_FIND_FILE" "$KEY_FIND_FILE_ALT" "$KEY_EXTRACT_ZIP"
         printf "\033[1;36mView\033[0m        \033[1;33m%s\033[0m hidden  \033[1;33m%s\033[0m debug  \033[1;33m%s\033[0m renderer  \033[1;33m%s\033[0m dust  \033[1;33m%s\033[0m name-first  \033[1;33m%s\033[0m SSH\n" "$KEY_TOGGLE_HIDDEN" "$KEY_TOGGLE_DEBUG_LABEL" "$KEY_TOGGLE_SOURCE_LABEL" "$KEY_DUST_MODE" "$KEY_TOGGLE_NAME_FIRST_LABEL" "$KEY_SSH_PICKER"
         printf "\033[1;36mPanels\033[0m      \033[1;33m%s\033[0m bookmarks  \033[1;33m%s\033[0m integrations  \033[1;33m%s\033[0m help\n" "$KEY_BOOKMARKS" "$KEY_INTEGRATIONS" "$KEY_HELP"
         printf "\033[1;36mOther\033[0m       \033[1;33m%s\033[0m reload  \033[1;33m%s\033[0m help  \033[1;33m%s\033[0m command  \033[1;33m%s\033[0m quit\n" "$KEY_RELOAD_LABEL" "$KEY_HELP" "$KEY_RUN_COMMAND" "$KEY_QUIT"
@@ -6412,7 +6538,7 @@ delete_current_or_selected() {
         "${KEY_OPEN_EDITOR_F4_LABEL} / ${KEY_OPEN_EDITOR}   Edit selected file in terminal editor"
         "${KEY_COMPARE}            Compare 2 selected files with delta"
         "${KEY_SEARCH}            Search exact text in current directory with ripgrep"
-        "${KEY_FIND_FILE}            Fuzzy-find file names in the current list (fzf)"
+        "${KEY_FIND_FILE} / ${KEY_FIND_FILE_ALT}   Fuzzy-find file names in the current list (fzf)"
         "${KEY_DOWNLOAD}            Download file from URL (wget preferred, curl fallback)"
         "${KEY_AGE_TOGGLE}            Toggle age protection for current file (.age decrypt/encrypt)"
         "${KEY_EXTRACT_ZIP}            Extract archive or create archive"
@@ -6846,7 +6972,7 @@ delete_current_or_selected() {
           "$KEY_SEARCH")
             bulk_search_in_current_dir || true
             ;;
-          "$KEY_FIND_FILE")
+          "$KEY_FIND_FILE"|"$KEY_FIND_FILE_ALT")
             fuzzy_find_filename_in_current_dir || true
             ;;
           "$KEY_DOWNLOAD")
