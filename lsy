@@ -5016,8 +5016,12 @@ delete_current_or_selected() {
             printf '%s\n' "$out" | head -1
           fi
           ;;
+        pbcopy)
+          # pbcopy has no --version and can block waiting for stdin on macOS.
+          printf 'macOS clipboard'
+          ;;
         *)
-          "$tool" --version 2>&1 | head -1
+          "$tool" --version </dev/null 2>&1 | head -1
           ;;
       esac
     }
