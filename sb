@@ -740,24 +740,37 @@ EOF
       if [[ -n "$EXPORT_FILE" ]]; then
         pwd > "$EXPORT_FILE"
       fi
+      disable_mouse_tracking
       printf "\033[?25h"
       stty "$orig_stty" 2>/dev/null || true
       printf "\033[0m\033[2J\033[H"
     }
 
+    enable_mouse_tracking() {
+      # Enable click + SGR mouse reporting so wheel events arrive as CSI sequences.
+      printf "\033[?1000h\033[?1006h"
+    }
+
+    disable_mouse_tracking() {
+      printf "\033[?1000l\033[?1006l"
+    }
+
     run_interactive_command() {
+      disable_mouse_tracking
       printf "\033[?25h"
       stty "$orig_stty" 2>/dev/null || true
       clear
       "$@"
       stty -echo cbreak -ixon intr undef
       printf "\033[?25l"
+      enable_mouse_tracking
       on_resize
       return 0
     }
 
     run_interactive_command_with_status() {
       local rc=0
+      disable_mouse_tracking
       printf "\033[?25h"
       stty "$orig_stty" 2>/dev/null || true
       clear
@@ -765,12 +778,14 @@ EOF
       rc=$?
       stty -echo cbreak -ixon intr undef
       printf "\033[?25l"
+      enable_mouse_tracking
       on_resize
       return $rc
     }
 
     run_interactive_preview_command() {
       local rc=0
+      disable_mouse_tracking
       printf "\033[?25h"
       stty "$orig_stty" 2>/dev/null || true
       clear
@@ -782,6 +797,7 @@ EOF
       fi
       stty -echo cbreak -ixon intr undef
       printf "\033[?25l"
+      enable_mouse_tracking
       on_resize
       return $rc
     }
@@ -792,6 +808,7 @@ EOF
       local pid=0
       local paused=0
 
+      disable_mouse_tracking
       printf "\033[?25h"
       stty "$orig_stty" 2>/dev/null || true
       clear
@@ -828,6 +845,7 @@ EOF
 
       stty -echo cbreak -ixon intr undef
       printf "\033[?25l"
+      enable_mouse_tracking
       on_resize
       return $rc
     }
@@ -913,6 +931,7 @@ EOF
         return 1
       }
 
+      disable_mouse_tracking
       printf "\033[?25h"
       stty "$orig_stty" 2>/dev/null || true
       clear
@@ -929,6 +948,7 @@ EOF
 
       stty -echo cbreak -ixon intr undef
       printf "\033[?25l"
+      enable_mouse_tracking
       on_resize
       return $rc
     }
@@ -4438,6 +4458,7 @@ delete_current_or_selected() {
       local separator_row=$(( rows - 1 ))
       local separator_width
       local separator
+      local debug_line=""
       local hidden_state="off"
       local source_state="$LIST_SOURCE"
       local layout_state="meta-first"
@@ -4471,6 +4492,8 @@ delete_current_or_selected() {
             debug_state+=" err:${err_preview}"
           fi
         fi
+
+        debug_line="$debug_state"
       fi
 
       # Keep footer anchored regardless of current cursor location.
@@ -4479,15 +4502,19 @@ delete_current_or_selected() {
 
       separator_width=$cols
       (( separator_width < 1 )) && separator_width=1
-      printf -v separator '%*s' "$separator_width" ''
-      separator=${separator// /─}
-      printf "\033[%d;1H\033[K%s\033[K" "$separator_row" "$separator"
+      if (( SHOW_DEBUG_FOOTER )); then
+        printf "\033[%d;1H\033[K\033[2m%s\033[0m\033[K" "$separator_row" "$debug_line"
+      else
+        printf -v separator '%*s' "$separator_width" ''
+        separator=${separator// /─}
+        printf "\033[%d;1H\033[K%s\033[K" "$separator_row" "$separator"
+      fi
 
       printf "\033[%d;1H\033[K" "$status_row"
       printf "\033[2m[total:\033[22;97m%s\033[2m sel:\033[22;97m%s\033[2m clip:\033[22;97m%s\033[2m] F1:\033[22;97mhelp\033[2m %s:\033[22;97mrename\033[2m %s:\033[22;97mview\033[2m %s:\033[22;97medit\033[2m %s:\033[22;97mcopy\033[2m %s:\033[22;97mreload\033[2m%s\033[0m\033[K" \
         "$total" "$selection_state" "$clipboard_state" \
         "$KEY_RENAME_F2_LABEL" "$KEY_OPEN_LESS_F3_LABEL" "$KEY_OPEN_EDITOR_F4_LABEL" "$KEY_COPY_F5_LABEL" "$KEY_RELOAD_LABEL" \
-        "$debug_state"
+        ""
       printf "\033[?7h"
     }
 
@@ -4548,6 +4575,58 @@ delete_current_or_selected() {
       local seq="$1"
 
       case "$seq" in
+        # Alternate arrow-key sequences (application cursor mode).
+        $'\eOA')
+          printf '%s' "$KEY_UP"
+          return 0
+          ;;
+        $'\eOB')
+          printf '%s' "$KEY_DOWN"
+          return 0
+          ;;
+        $'\eOC')
+          printf '%s' "$KEY_RIGHT"
+          return 0
+          ;;
+        $'\eOD')
+          printf '%s' "$KEY_LEFT"
+          return 0
+          ;;
+        # CSI arrow-key variants (including modifier forms like Esc [ 1 ; n A/B/C/D).
+        $'\e[A'|$'\e['*'A')
+          printf '%s' "$KEY_UP"
+          return 0
+          ;;
+        $'\e[B'|$'\e['*'B')
+          printf '%s' "$KEY_DOWN"
+          return 0
+          ;;
+        $'\e[C'|$'\e['*'C')
+          printf '%s' "$KEY_RIGHT"
+          return 0
+          ;;
+        $'\e[D'|$'\e['*'D')
+          printf '%s' "$KEY_LEFT"
+          return 0
+          ;;
+        # Mouse clicks (SGR 1006 mode): left click opens/enters, right click goes parent.
+        $'\e[<0;'*'M')
+          printf '%s' "$KEY_RIGHT"
+          return 0
+          ;;
+        $'\e[<2;'*'M')
+          printf '%s' "$KEY_LEFT"
+          return 0
+          ;;
+        # Mouse wheel up/down (SGR 1006 mode) -> map to existing cursor keys.
+        $'\e[<64;'*'M'|$'\e[<64;'*'m')
+          printf '%s' "$KEY_UP"
+          return 0
+          ;;
+        $'\e[<65;'*'M'|$'\e[<65;'*'m')
+          printf '%s' "$KEY_DOWN"
+          return 0
+          ;;
         $'\eOP'|$'\e[11~'|$'\e[11;'*'~'|$'\e[1;'*P)
           printf '%s' "$KEY_HELP_F1"
           return 0
@@ -6313,13 +6392,6 @@ delete_current_or_selected() {
         "${KEY_NEW_FILE}            Create new file (touch)"
         "${KEY_NEW_DIR}            Create new folder"
         ""
-        "Selection"
-        "${KEY_SELECT_TOGGLE_LABEL}            Toggle current row selection"
-        "${KEY_SELECT_ALL}            Select/deselect all visible rows"
-        ""
-        "Other"
-        "${KEY_RUN_COMMAND}            Run a shell command (returns here after command exits)"
-        ""
         "View"
         "F1 / ${KEY_HELP}      Show this help screen"
         "${KEY_RELOAD_LABEL}            Reload current directory"
@@ -6340,6 +6412,13 @@ delete_current_or_selected() {
         "dust         Disk usage-first list view"
         "logo-ls      Logos and optional git status"
         "ls           Built-in POSIX fallback"
+        ""
+        "Selection"
+        "${KEY_SELECT_TOGGLE_LABEL}  Toggle current row selection"
+        "${KEY_SELECT_ALL}  Select/deselect all visible rows"
+        ""
+        "Other"
+        "${KEY_RUN_COMMAND}  Run a shell command (returns here after command exits)"
         ""
         "Env overrides"
         "SB_KEY_*    Override any key binding"
@@ -6407,19 +6486,54 @@ delete_current_or_selected() {
       }
 
       local max_lines left_line right_line
+      local content_rows top_line max_top line_idx needs_redraw
+      local -a help_lines=()
       max_lines=${#left_col[@]}
       (( ${#right_col[@]} > max_lines )) && max_lines=${#right_col[@]}
+
       for (( i=0; i<max_lines; i++ )); do
         left_line="${left_col[$i]-}"
         right_line="${right_col[$i]-}"
-        printf "%s%s%s\n" \
+        help_lines+=("$(printf "%s%s%s" \
           "$(_sb_fmt_help_cell "${left_line:0:$left_width}" "$left_width")" \
           "$divider" \
-          "$(_sb_fmt_help_cell "${right_line:0:$right_width}" "$right_width")"
+          "$(_sb_fmt_help_cell "${right_line:0:$right_width}" "$right_width")")")
       done
 
-      printf "\033[%s;1H\033[2mPress b bookmarks | S ssh | %s help | any other key to return...\033[0m\033[K" "$_rows" "$KEY_HELP_LABEL"
+      content_rows=$(( _rows - 3 ))
+      (( content_rows < 1 )) && content_rows=1
+      top_line=0
+      max_top=$(( max_lines - content_rows ))
+      (( max_top < 0 )) && max_top=0
+      needs_redraw=1
+
       while true; do
+        if (( needs_redraw )); then
+          printf "\033[H\033[2J"
+          printf "\033[1;36m%s\033[0m  keyboard shortcuts\n" "$(sb_name_with_version)"
+          junction=$(( left_width + 1 ))
+          for (( i=0; i<total_width; i++ )); do
+            if (( i == junction )); then printf "┬"; else printf "─"; fi
+          done
+          printf "\n"
+
+          for (( i=0; i<content_rows; i++ )); do
+            line_idx=$(( top_line + i ))
+            if (( line_idx < max_lines )); then
+              printf "%s\n" "${help_lines[$line_idx]}"
+            else
+              printf "\033[K\n"
+            fi
+          done
+
+          if (( max_top > 0 )); then
+            printf "\033[%s;1H\033[2m↑↓ scroll | PgUp/PgDn page | Home/End bounds | b bookmarks | S ssh | %s help | any other key return\033[0m\033[K" "$_rows" "$KEY_HELP_LABEL"
+          else
+            printf "\033[%s;1H\033[2mPress b bookmarks | S ssh | %s help | any other key to return...\033[0m\033[K" "$_rows" "$KEY_HELP_LABEL"
+          fi
+          needs_redraw=0
+        fi
+
         local help_key
         help_key="$(read_key || true)"
         [[ -n "$help_key" ]] || continue
@@ -6432,10 +6546,63 @@ delete_current_or_selected() {
             show_ssh_picker || true
             return
             ;;
-          "$KEY_HELP"|"$KEY_HELP_F1")
+          "$KEY_UP")
+            if (( top_line > 0 )); then
+              ((top_line--))
+              needs_redraw=1
+            fi
+            continue
+            ;;
+          "$KEY_DOWN")
+            if (( top_line < max_top )); then
+              ((top_line++))
+              needs_redraw=1
+            fi
+            continue
+            ;;
+          "$KEY_PGUP")
+            if (( top_line > 0 )); then
+              top_line=$(( top_line - content_rows ))
+              (( top_line < 0 )) && top_line=0
+              needs_redraw=1
+              continue
+            fi
+            ;;
+          "$KEY_PGDN")
+            if (( top_line < max_top )); then
+              top_line=$(( top_line + content_rows ))
+              (( top_line > max_top )) && top_line=$max_top
+              needs_redraw=1
+              continue
+            fi
+            ;;
+          "$KEY_HOME")
+            if (( top_line != 0 )); then
+              top_line=0
+              needs_redraw=1
+              continue
+            fi
+            ;;
+          "$KEY_END")
+            if (( top_line != max_top )); then
+              top_line=$max_top
+              needs_redraw=1
+              continue
+            fi
+            ;;
+          "$KEY_HELP"|"$KEY_HELP_F1"|"$KEY_LEFT"|"$KEY_QUIT")
+            break
+            ;;
+          $'\e')
+            if (( max_top > 0 )); then
+              continue
+            fi
             break
             ;;
           *)
+            if (( max_top > 0 )); then
+              continue
+            fi
             break
             ;;
         esac
@@ -6455,6 +6622,7 @@ delete_current_or_selected() {
 
       stty -echo cbreak -ixon intr undef
       printf "\033[?25l"
+      enable_mouse_tracking
 
       on_resize
       load_data
