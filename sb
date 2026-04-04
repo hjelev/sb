@@ -1230,6 +1230,7 @@ EOF
       local rc=0
       local tmp_log=""
       local confirm_reply=""
+      local has_untracked=0
 
       if integration_is_disabled git; then
         draw_status
@@ -1247,6 +1248,18 @@ EOF
         draw_status
         footer_message_auto "Git workflow unavailable: current directory is not a git repository."
         return 1
+      fi
+
+      # Stop early when there is nothing to commit.
+      if git diff --quiet && git diff --cached --quiet; then
+        if [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
+          has_untracked=1
+        fi
+        if (( !has_untracked )); then
+          draw_status
+          footer_message_auto "Git workflow cancelled: nothing to commit."
+          return 1
+        fi
       fi
 
       # Show git diff first
