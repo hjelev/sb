@@ -261,6 +261,7 @@
 
     self_update() {
       local script_path install_dir latest_tag latest_version reply
+      local tag_sha master_sha
 
       command -v curl >/dev/null 2>&1 || {
         echo "Error: curl is required for --update." >&2
@@ -288,8 +289,25 @@
 
       if [[ -n "$latest_tag" ]]; then
         latest_version="${latest_tag#v}"
+        tag_sha="$(curl -fsSL "https://api.github.com/repos/hjelev/sb/commits/$latest_tag" 2>/dev/null \
+          | awk -F '"' '/"sha":/ { print substr($4, 1, 7); exit }')"
+        master_sha="$(curl -fsSL "https://api.github.com/repos/hjelev/sb/commits/master" 2>/dev/null \
+          | awk -F '"' '/"sha":/ { print substr($4, 1, 7); exit }')"
+
         if [[ "$latest_version" == "$VERSION" ]]; then
           printf 'Already on the latest release (%s).\n' "$VERSION"
+          if [[ -n "$tag_sha" && -n "$master_sha" && "$tag_sha" != "$master_sha" ]]; then
+            printf 'Master has newer commits (%s vs %s).\n' "$master_sha" "$tag_sha"
+            printf 'Install latest development version from master branch? [y/N] '
+            read -r reply
+            if [[ "$reply" =~ ^[Yy]$ ]]; then
+              printf 'Installing from master branch...\n'
+              curl -fsSL "$SB_INSTALLER_URL" | bash -s -- --install-dir "$install_dir" --ref master
+            fi
+          else
+            printf 'Master is identical to latest release; no development update available.\n'
+          fi
+          return 0
         else
           printf 'Latest release: %s\n' "$latest_tag"
           printf 'Update to %s? [Y/n] ' "$latest_tag"
@@ -299,6 +317,8 @@
             curl -fsSL "$SB_INSTALLER_URL" | bash -s -- --install-dir "$install_dir" --version "$latest_tag"
             return 0
           fi
+        fi
+          return 0
         fi
       else
         printf 'No release found on GitHub.\n'
