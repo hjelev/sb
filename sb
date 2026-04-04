@@ -22,6 +22,8 @@
     KEY_TOGGLE_DEBUG_LABEL="${SB_KEY_TOGGLE_DEBUG_LABEL:-F8}"
     KEY_TOGGLE_NAME_FIRST="${SB_KEY_TOGGLE_NAME_FIRST:-$'\e[20~'}"
     KEY_TOGGLE_NAME_FIRST_LABEL="${SB_KEY_TOGGLE_NAME_FIRST_LABEL:-F9}"
+    KEY_TOGGLE_PREVIEW="${SB_KEY_TOGGLE_PREVIEW:-\\}"
+    KEY_TOGGLE_PREVIEW_LABEL="${SB_KEY_TOGGLE_PREVIEW_LABEL:-\\}"
     KEY_SELECT_TOGGLE="${SB_KEY_SELECT_TOGGLE:- }"
     KEY_SELECT_TOGGLE_LABEL="${SB_KEY_SELECT_TOGGLE_LABEL:-Space/Ins}"
     KEY_SELECT_ALL="${SB_KEY_SELECT_ALL:-*}"
@@ -93,6 +95,8 @@
     SB_NAMEFIRST_META_RESERVE_MIN="${SB_NAMEFIRST_META_RESERVE_MIN:-36}"
     SB_NAMEFIRST_NAME_MIN="${SB_NAMEFIRST_NAME_MIN:-12}"
     SB_NAMEFIRST_NAME_MAX="${SB_NAMEFIRST_NAME_MAX:-64}"
+    SB_PREVIEW_SPLIT_PCT="${SB_PREVIEW_SPLIT_PCT:-30}"
+    SB_PREVIEW_SEPARATOR_CHAR="${SB_PREVIEW_SEPARATOR_CHAR:-│}"
     SB_DEBUG_LOGO_NAMEFIRST="${SB_DEBUG_LOGO_NAMEFIRST:-0}"
     SB_DEBUG_LOGO_FILE="${SB_DEBUG_LOGO_FILE:-/tmp/sb-logo-namefirst.debug}"
     LIST_SOURCE="${SB_LIST_SOURCE:-}"   # empty = auto-select best available in detect_sources()
@@ -140,6 +144,7 @@
     declare -a CLIPBOARD_MULTI=()
     declare -a DIRECTORY_CAPTURE_ENTRIES=()
     declare -a DUST_ROW_PATHS=()
+    declare -a PREVIEW_LINES=()
     EXPORT_FILE=""
 
     if (( BASH_VERSINFO[0] >= 4 )); then
@@ -241,6 +246,12 @@
     PREVIEW_FOCUS_PATH=""
     LAST_KEY_RAW=""
     SB_ACTIVE_SLOGAN=""
+    PREVIEW_MODE=0
+    PREVIEW_SPLIT_PCT=30
+    PREVIEW_SEPARATOR_CHAR="│"
+    PREVIEW_CACHE_PATH=""
+    PREVIEW_CACHE_WIDTH=0
+    PREVIEW_CACHE_HEIGHT=0
 
     sb_name_with_version() {
       if [[ -n "$VERSION" ]]; then
@@ -441,10 +452,27 @@ EOF
     }
 
     init_runtime_config() {
+      local split_value
+
       if [[ "$SB_SHOW_DEBUG_FOOTER" == "1" ]]; then
         SHOW_DEBUG_FOOTER=1
       else
         SHOW_DEBUG_FOOTER=0
+      fi
+
+      if [[ "$SB_PREVIEW_SPLIT_PCT" =~ ^[0-9]+$ ]]; then
+        split_value=$SB_PREVIEW_SPLIT_PCT
+      else
+        split_value=30
+      fi
+      (( split_value < 20 )) && split_value=20
+      (( split_value > 70 )) && split_value=70
+      PREVIEW_SPLIT_PCT=$split_value
+
+      if [[ -n "$SB_PREVIEW_SEPARATOR_CHAR" ]]; then
+        PREVIEW_SEPARATOR_CHAR="${SB_PREVIEW_SEPARATOR_CHAR:0:1}"
+      else
+        PREVIEW_SEPARATOR_CHAR="│"
       fi
     }
 
@@ -2064,30 +2092,57 @@ EOF
       LAST_SOURCE_FALLBACK=0
       LAST_SOURCE_FALLBACK_TO="-"
 
+      if (( PREVIEW_MODE )) && [[ "$source" == "dust" ]]; then
+        source="$(best_non_dust_source)"
+        LIST_SOURCE="$source"
+        LAST_SOURCE_FALLBACK=1
+        LAST_SOURCE_FALLBACK_TO="$source"
+      fi
+
       while true; do
         case "$source" in
           ls)
             LAST_SOURCE_EXECUTED="ls"
             if (( HAS_GNU_LS )); then
               local -a ls_args=()
-              ls_args=(-lh --group-directories-first --time-style=long-iso --quoting-style=literal)
+              if (( PREVIEW_MODE )); then
+                ls_args=(-1 --group-directories-first --quoting-style=literal --color=always)
+              else
+                ls_args=(-lh --group-directories-first --time-style=long-iso --quoting-style=literal --color=always)
+              fi
               (( show_hidden )) && ls_args+=(-A)
-              LAST_SOURCE_ARGS="ls ${ls_args[*]} --color=always"
-              if output="$(LC_ALL=C ls "${ls_args[@]}" --color=always 2>/dev/null | sed '1{/^total /d;}')"; then
+              LAST_SOURCE_ARGS="ls ${ls_args[*]}"
+              if output="$(LC_ALL=C ls "${ls_args[@]}" 2>/dev/null | sed '1{/^total /d;}')"; then
                 LAST_SOURCE_RC=0
                 LIST_SOURCE="ls"
                 break
               fi
             elif (( IS_DARWIN )); then
-              LAST_SOURCE_ARGS="ls -ldh -D '%Y-%m-%d %H:%M' [-G] -- entries (fallback: stat -f '%Sp %Su %z %Sm %N' -t '%Y-%m-%d %H:%M')"
-              if capture_directory_rows_bsd_ls; then
-                LAST_SOURCE_RC=0
-                LIST_SOURCE="ls"
-                return 0
+              if (( PREVIEW_MODE )); then
+                local -a bsd_ls_args=()
+                bsd_ls_args=(-1 -G)
+                (( show_hidden )) && bsd_ls_args+=(-A)
+                LAST_SOURCE_ARGS="ls ${bsd_ls_args[*]}"
+                if output="$(LC_ALL=C ls "${bsd_ls_args[@]}" 2>/dev/null | sed '1{/^total /d;}')"; then
+                  LAST_SOURCE_RC=0
+                  LIST_SOURCE="ls"
+                  break
+                fi
+              else
+                LAST_SOURCE_ARGS="ls -ldh -D '%Y-%m-%d %H:%M' [-G] -- entries (fallback: stat -f '%Sp %Su %z %Sm %N' -t '%Y-%m-%d %H:%M')"
+                if capture_directory_rows_bsd_ls; then
+                  LAST_SOURCE_RC=0
+                  LIST_SOURCE="ls"
+                  return 0
+                fi
               fi
             else
               local -a ls_args=()
-              ls_args=(-lh)
+              if (( PREVIEW_MODE )); then
+                ls_args=(-1)
+              else
+                ls_args=(-lh)
+              fi
               (( show_hidden )) && ls_args+=(-A)
               LAST_SOURCE_ARGS="ls ${ls_args[*]}"
               if output="$(LC_ALL=C ls "${ls_args[@]}" 2>/dev/null | sed '1{/^total /d;}')"; then
@@ -2125,7 +2180,11 @@ EOF
             fi
 
             local -a eza_args=() eza_extra_args=()
-            eza_args=(--long --modified --group-directories-first --time-style=long-iso --icons="$SB_EZA_ICONS" --color="$SB_EZA_COLOR")
+            if (( PREVIEW_MODE )); then
+              eza_args=(-1 --group-directories-first --icons=never --color="$SB_EZA_COLOR")
+            else
+              eza_args=(--long --modified --group-directories-first --time-style=long-iso --icons="$SB_EZA_ICONS" --color="$SB_EZA_COLOR")
+            fi
             case "$SB_EZA_HYPERLINK" in
               1|on|true|yes|always|auto)
                 eza_args+=(--hyperlink)
@@ -2182,7 +2241,11 @@ EOF
             local -a lsd_args=() lsd_extra_args=()
             local lsd_blocks
             lsd_blocks="$(lsd_blocks_with_required_date "$SB_LSD_BLOCKS")"
-            lsd_args=(-lh --group-dirs first --date '+%F %R' --blocks "$lsd_blocks" --icon "$SB_LSD_ICONS" --icon-theme "$SB_LSD_ICON_THEME" --color "$SB_LSD_COLOR" --hyperlink "$SB_LSD_HYPERLINK")
+            if (( PREVIEW_MODE )); then
+              lsd_args=(-1 --group-dirs first --icon never --icon-theme "$SB_LSD_ICON_THEME" --color "$SB_LSD_COLOR" --hyperlink "$SB_LSD_HYPERLINK")
+            else
+              lsd_args=(-lh --group-dirs first --date '+%F %R' --blocks "$lsd_blocks" --icon "$SB_LSD_ICONS" --icon-theme "$SB_LSD_ICON_THEME" --color "$SB_LSD_COLOR" --hyperlink "$SB_LSD_HYPERLINK")
+            fi
             if [[ -n "$SB_LSD_EXTRA_ARGS" ]]; then
               read -r -a lsd_extra_args <<< "$SB_LSD_EXTRA_ARGS"
               lsd_args+=("${lsd_extra_args[@]}")
@@ -2208,6 +2271,15 @@ EOF
             LIST_SOURCE="$source"
             ;;
           dust)
+              if (( PREVIEW_MODE )); then
+                LAST_SOURCE_EXECUTED="dust"
+                LAST_SOURCE_FALLBACK=1
+                source="$(best_non_dust_source)"
+                LAST_SOURCE_FALLBACK_TO="$source"
+                LIST_SOURCE="$source"
+                continue
+              fi
+
             if (( !HAS_DUST )); then
               LAST_SOURCE_EXECUTED="dust"
               LAST_SOURCE_RC=127
@@ -2279,7 +2351,11 @@ EOF
 
             local -a logols_args=() logols_extra_args=()
             # -l long listing, -h human-readable sizes. Keep logo-ls native default time style.
-            logols_args=(-l -h)
+            if (( PREVIEW_MODE )); then
+              logols_args=(-i)
+            else
+              logols_args=(-l -h)
+            fi
             (( SB_LOGO_LS_ICONS == 0 )) && logols_args+=(-i)
             (( SB_LOGO_LS_COLOR == 0 )) && logols_args+=(-c)
             (( SB_LOGO_LS_GIT_STATUS == 1 )) && logols_args+=(-D)
@@ -4606,6 +4682,8 @@ delete_current_or_selected() {
     load_data() {
       local t0 t1 t2
 
+      invalidate_preview_cache
+
       ROWS_COLOR=()
       ROWS_PLAIN=()
       ROWS_PATH=()
@@ -4723,6 +4801,10 @@ delete_current_or_selected() {
       printf '%s\033[K\n' "$separator"
     }
 
+    ensure_cursor_hidden() {
+      printf "\033[?25l"
+    }
+
     draw_row() {
       local i="$1"
       local selected="$2"
@@ -4778,11 +4860,13 @@ delete_current_or_selected() {
       local hidden_state="off"
       local source_state="$LIST_SOURCE"
       local layout_state="meta-first"
+      local preview_state="off"
       local debug_state=""
       local selection_state="$SELECTED_COUNT"
       local clipboard_state="$CLIPBOARD_LABEL"
       (( show_hidden )) && hidden_state="on"
       (( NAME_FIRST_VIEW )) && layout_state="name-first"
+      (( PREVIEW_MODE )) && preview_state="on"
 
       if (( SHOW_DEBUG_FOOTER )); then
         debug_state=" renderer:${source_state} layout:${layout_state} hidden:${hidden_state} load:${LAST_LOAD_MS}ms (ls:${LAST_LS_MS} parse:${LAST_PARSE_MS})"
@@ -4827,9 +4911,10 @@ delete_current_or_selected() {
       fi
 
       printf "\033[%d;1H\033[K" "$status_row"
-      printf "\033[2m[total:\033[22;97m%s\033[2m sel:\033[22;97m%s\033[2m clip:\033[22;97m%s\033[2m] F1:\033[22;97mhelp\033[2m %s:\033[22;97mrename\033[2m %s:\033[22;97mview\033[2m %s:\033[22;97medit\033[2m %s:\033[22;97mcopy\033[2m %s:\033[22;97mreload\033[2m%s\033[0m\033[K" \
+      printf "\033[2m[total:\033[22;97m%s\033[2m sel:\033[22;97m%s\033[2m clip:\033[22;97m%s\033[2m preview:\033[22;97m%s\033[2m] F1:\033[22;97mhelp\033[2m %s:\033[22;97mrename\033[2m %s:\033[22;97mview\033[2m %s:\033[22;97medit\033[2m %s:\033[22;97mcopy\033[2m %s:\033[22;97mreload\033[2m %s:\033[22;97mpreview\033[2m%s\033[0m\033[K" \
         "$total" "$selection_state" "$clipboard_state" \
-        "$KEY_RENAME_F2_LABEL" "$KEY_OPEN_LESS_F3_LABEL" "$KEY_OPEN_EDITOR_F4_LABEL" "$KEY_COPY_F5_LABEL" "$KEY_RELOAD_LABEL" \
+        "$preview_state" \
+        "$KEY_RENAME_F2_LABEL" "$KEY_OPEN_LESS_F3_LABEL" "$KEY_OPEN_EDITOR_F4_LABEL" "$KEY_COPY_F5_LABEL" "$KEY_RELOAD_LABEL" "$KEY_TOGGLE_PREVIEW_LABEL" \
         ""
       printf "\033[?7h"
     }
@@ -4885,6 +4970,275 @@ delete_current_or_selected() {
       printf "\033[%d;1H\033[K\033[2m%s%s\033[0m" "$rows" "$icon" "$rendered"
     }
 
+    invalidate_preview_cache() {
+      PREVIEW_CACHE_PATH=""
+      PREVIEW_CACHE_WIDTH=0
+      PREVIEW_CACHE_HEIGHT=0
+      PREVIEW_LINES=()
+    }
+
+    fit_plain_cell() {
+      local text="$1"
+      local width="$2"
+      local ellipsis="..."
+
+      (( width < 1 )) && {
+        printf ''
+        return
+      }
+
+      if (( ${#text} > width )); then
+        if (( width <= ${#ellipsis} )); then
+          text="${text:0:width}"
+        else
+          text="${text:0:$((width - ${#ellipsis}))}${ellipsis}"
+        fi
+      fi
+
+      printf '%-*s' "$width" "$text"
+    }
+
+    preview_collect_lines() {
+      local height="$1"
+      local raw_text="$2"
+
+      if [[ -z "$raw_text" ]]; then
+        PREVIEW_LINES=("(no preview output)")
+        return 0
+      fi
+
+      read_stdin_into_array PREVIEW_LINES < <(
+        printf '%s\n' "$raw_text" \
+          | sed -E $'s/\x1B\[[0-9;:]*m//g' \
+          | sed 's/\t/  /g' \
+          | head -n "$height"
+      )
+
+      if (( ${#PREVIEW_LINES[@]} == 0 )); then
+        PREVIEW_LINES=("(no preview output)")
+      fi
+    }
+
+    build_inline_preview_for_path() {
+      local path="$1"
+      local width="$2"
+      local height="$3"
+      local output=""
+
+      PREVIEW_LINES=()
+
+      if [[ -z "$path" ]]; then
+        PREVIEW_LINES=("(no selection)")
+        return 0
+      fi
+
+      if [[ -d "$path" ]]; then
+        output="$(LC_ALL=C ls -1A -- "$path" 2>/dev/null | head -n "$height")"
+        if [[ -z "$output" ]]; then
+          PREVIEW_LINES=("(directory is empty)")
+          return 0
+        fi
+        preview_collect_lines "$height" "$output"
+        return 0
+      fi
+
+      if is_archive_file "$path"; then
+        local lower
+        lower="$(lowercase_string "$path")"
+        case "$lower" in
+          *.zip|*.jar|*.apk|*.war|*.ear|*.aar|*.cbz|*.epub|*.xpi|*.docx|*.xlsx|*.pptx|*.odt|*.ods|*.odp)
+            if command -v unzip >/dev/null 2>&1; then
+              output="$(unzip -l -- "$path" 2>/dev/null | head -n "$height")"
+            fi
+            ;;
+          *.tar|*.tar.gz|*.tgz|*.tar.bz2|*.tbz2|*.tar.xz|*.txz|*.tar.lz4|*.tar.zst|*.tzst|*.tar.lz)
+            if command -v tar >/dev/null 2>&1; then
+              output="$(tar tvf "$path" 2>/dev/null | head -n "$height")"
+            fi
+            ;;
+          *.7z)
+            if command -v 7z >/dev/null 2>&1; then
+              output="$(7z l -- "$path" 2>/dev/null | head -n "$height")"
+            fi
+            ;;
+          *.rar)
+            if command -v unrar >/dev/null 2>&1; then
+              output="$(unrar l -- "$path" 2>/dev/null | head -n "$height")"
+            elif command -v rar >/dev/null 2>&1; then
+              output="$(rar l -- "$path" 2>/dev/null | head -n "$height")"
+            fi
+            ;;
+        esac
+        preview_collect_lines "$height" "$output"
+        return 0
+      fi
+
+      if (( HAS_CHAFA )) && ! integration_is_disabled chafa && path_is_image_file "$path"; then
+        output="$(chafa --animate=off --symbols vhalf --size "${width}x${height}" -- "$path" 2>/dev/null)"
+        preview_collect_lines "$height" "$output"
+        return 0
+      fi
+
+      if (( HAS_PDFTOTEXT )) && ! integration_is_disabled pdftotext && is_pdf_file "$path"; then
+        output="$(pdftotext ${SB_PDFTOTEXT_ARGS:-} -- "$path" - 2>/dev/null | head -n "$height")"
+        preview_collect_lines "$height" "$output"
+        return 0
+      fi
+
+      if (( HAS_GLOW )) && ! integration_is_disabled glow && is_markdown_file "$path"; then
+        output="$(glow -w "$width" ${SB_GLOW_ARGS:-} -- "$path" 2>/dev/null | head -n "$height")"
+        preview_collect_lines "$height" "$output"
+        return 0
+      fi
+
+      if is_jnv_file "$path"; then
+        if (( HAS_JNV )) && ! integration_is_disabled jnv; then
+          if command -v jq >/dev/null 2>&1; then
+            output="$(jq -C . -- "$path" 2>/dev/null | head -n "$height")"
+          else
+            output="$(printf 'jnv integration available (interactive). Showing plain excerpt.\n\n'; head -n "$height" -- "$path" 2>/dev/null)"
+          fi
+        else
+          output="$(head -n "$height" -- "$path" 2>/dev/null)"
+        fi
+        preview_collect_lines "$height" "$output"
+        return 0
+      fi
+
+      if is_csvlens_file "$path"; then
+        if (( HAS_CSVLENS )) && ! integration_is_disabled csvlens; then
+          if command -v column >/dev/null 2>&1; then
+            output="$(head -n "$height" -- "$path" 2>/dev/null | column -s, -t 2>/dev/null)"
+          else
+            output="$(printf 'csvlens integration available (interactive). Showing plain excerpt.\n\n'; head -n "$height" -- "$path" 2>/dev/null)"
+          fi
+        else
+          output="$(head -n "$height" -- "$path" 2>/dev/null)"
+        fi
+        preview_collect_lines "$height" "$output"
+        return 0
+      fi
+
+      if (( HAS_HEXYL )) && ! integration_is_disabled hexyl && should_use_hex_fallback_file "$path"; then
+        output="$(hexyl ${SB_HEXYL_ARGS:-} -- "$path" 2>/dev/null | head -n "$height")"
+        preview_collect_lines "$height" "$output"
+        return 0
+      fi
+
+      if (( HAS_BAT )); then
+        output="$(bat --paging=never --terminal-width "$width" --line-range ":$height" -- "$path" 2>/dev/null)"
+      elif (( HAS_BATCAT )); then
+        output="$(batcat --paging=never --terminal-width "$width" --line-range ":$height" -- "$path" 2>/dev/null)"
+      else
+        output="$(head -n "$height" -- "$path" 2>/dev/null)"
+      fi
+      preview_collect_lines "$height" "$output"
+    }
+
+    ensure_preview_cache() {
+      local width="$1"
+      local height="$2"
+      local path=""
+
+      if (( cursor >= 0 && cursor < ${#ROWS_SELECT_PLAIN[@]} )); then
+        path="$(ensure_row_path "$cursor" 2>/dev/null || true)"
+      fi
+
+      if [[ "$PREVIEW_CACHE_PATH" == "$path" && "$PREVIEW_CACHE_WIDTH" == "$width" && "$PREVIEW_CACHE_HEIGHT" == "$height" ]]; then
+        return 0
+      fi
+
+      build_inline_preview_for_path "$path" "$width" "$height"
+      PREVIEW_CACHE_PATH="$path"
+      PREVIEW_CACHE_WIDTH=$width
+      PREVIEW_CACHE_HEIGHT=$height
+    }
+
+    draw_ui_preview_split() {
+      local split_pct left_width right_width line idx
+
+      split_pct=$PREVIEW_SPLIT_PCT
+      (( split_pct < 20 )) && split_pct=20
+      (( split_pct > 70 )) && split_pct=70
+
+      left_width=$(( (cols * split_pct) / 100 ))
+      (( left_width < 12 )) && left_width=12
+      (( left_width > cols - 10 )) && left_width=$(( cols - 10 ))
+      right_width=$(( cols - left_width - 1 ))
+      (( right_width < 8 )) && right_width=8
+
+      ensure_preview_cache "$right_width" "$visible_rows"
+
+      printf "\033[?7l"
+      for (( line=0; line<visible_rows; line++ )); do
+        idx=$(( top + line ))
+        draw_preview_split_row "$idx" "$line" "$left_width" "$right_width"
+      done
+      printf "\033[?7h"
+    }
+
+    draw_preview_split_row() {
+      local idx="$1"
+      local line="$2"
+      local left_width="$3"
+      local right_width="$4"
+      local row_plain=""
+      local left_cell right_cell preview_line separator_cell color_dim color_reset
+      local screen_line=$((3 + line))
+
+      printf "\033[%d;1H" "$screen_line"
+
+      if (( idx >= 0 && idx < ${#ROWS_COLOR[@]} )); then
+        row_plain="${ROWS_PLAIN[$idx]-}"
+        if [[ -z "$row_plain" ]]; then
+          row_plain="$(strip_ansi_for_display "${ROWS_COLOR[$idx]}")"
+          ROWS_PLAIN[$idx]="$row_plain"
+        fi
+      fi
+
+      left_cell="$(fit_plain_cell "$row_plain" "$left_width")"
+      preview_line="${PREVIEW_LINES[$line]-}"
+      right_cell="$(fit_plain_cell "$preview_line" "$right_width")"
+      color_dim=$'\033[2m'
+      color_reset=$'\033[0m'
+      separator_cell="${color_dim}${PREVIEW_SEPARATOR_CHAR}${color_reset}"
+
+      if (( idx == cursor )); then
+        printf "\033[7m%s\033[0m%s%s\033[K" "$left_cell" "$separator_cell" "$right_cell"
+      elif (( idx >= 0 && idx < ${#ROWS_SELECTED[@]} )) && [[ "${ROWS_SELECTED[$idx]-0}" == "1" ]]; then
+        printf "\033[48;5;24m%s\033[0m%s%s\033[K" "$left_cell" "$separator_cell" "$right_cell"
+      else
+        printf "%s%s%s\033[K" "$left_cell" "$separator_cell" "$right_cell"
+      fi
+    }
+
+    redraw_preview_rows_and_status() {
+      local split_pct left_width right_width line idx
+
+      ensure_cursor_hidden
+
+      split_pct=$PREVIEW_SPLIT_PCT
+      (( split_pct < 20 )) && split_pct=20
+      (( split_pct > 70 )) && split_pct=70
+
+      left_width=$(( (cols * split_pct) / 100 ))
+      (( left_width < 12 )) && left_width=12
+      (( left_width > cols - 10 )) && left_width=$(( cols - 10 ))
+      right_width=$(( cols - left_width - 1 ))
+      (( right_width < 8 )) && right_width=8
+
+      ensure_preview_cache "$right_width" "$visible_rows"
+
+      printf "\033[?7l"
+      for (( line=0; line<visible_rows; line++ )); do
+        idx=$(( top + line ))
+        draw_preview_split_row "$idx" "$line" "$left_width" "$right_width"
+      done
+      printf "\033[?7h"
+
+      draw_status
+    }
+
     scroll_list_once() {
       local direction="$1"
       local top_row=3
@@ -4915,6 +5269,7 @@ delete_current_or_selected() {
 
     redraw_visible_rows_and_status() {
       local i
+      ensure_cursor_hidden
       for (( i=top; i<top + visible_rows; i++ )); do
         redraw_row_at_index "$i"
       done
@@ -4922,8 +5277,15 @@ delete_current_or_selected() {
     }
 
     draw_ui() {
+      ensure_cursor_hidden
       printf "\033[H\033[2J"
       draw_header
+
+      if (( PREVIEW_MODE )); then
+        draw_ui_preview_split
+        draw_status
+        return
+      fi
 
       local line idx
       for (( line=0; line<visible_rows; line++ )); do
@@ -5281,6 +5643,25 @@ delete_current_or_selected() {
 
     resolve_row_path_from_plain() {
       local plain="$1" name candidate
+
+      if (( PREVIEW_MODE )); then
+        candidate="$(normalize_candidate_path "$plain")"
+        if path_exists "$candidate"; then
+          printf '%s' "$candidate"
+          return 0
+        fi
+        while [[ "$candidate" =~ ^[[:space:]]*[^[:space:]]+[[:space:]]+(.*)$ ]]; do
+          candidate="${BASH_REMATCH[1]}"
+          candidate="$(normalize_candidate_path "$candidate")"
+          [[ -n "$candidate" ]] || break
+          if path_exists "$candidate"; then
+            printf '%s' "$candidate"
+            return 0
+          fi
+        done
+        return 1
+      fi
+
       name="$(parse_name_from_plain_row "$plain" 2>/dev/null || true)"
 
       if [[ -n "$name" ]]; then
@@ -6801,7 +7182,7 @@ delete_current_or_selected() {
         printf "\033[1;36mDirectory\033[0m   \033[1;33mRight\033[0m enter/open zip  \033[1;33mLeft\033[0m parent dir\n"
         printf "\033[1;36mSelect\033[0m      \033[1;33m%s\033[0m toggle  \033[1;33m%s\033[0m all  \033[1;33mF5/%s\033[0m copy  \033[1;33m%s\033[0m fullpath  \033[1;33m%s\033[0m move  \033[1;33m%s\033[0m paste  \033[1;33m%s\033[0m delete\n" "$KEY_SELECT_TOGGLE_LABEL" "$KEY_SELECT_ALL" "$KEY_COPY" "$KEY_COPY_PATH_LABEL" "$KEY_MOVE" "$KEY_PASTE" "$KEY_DELETE"
         printf "\033[1;36mFile\033[0m        \033[1;33mF2/%s\033[0m rename  \033[1;33mF3/%s\033[0m view  \033[1;33mF4/%s\033[0m edit  \033[1;33m%s\033[0m compare  \033[1;33m%s\033[0m search  \033[1;33m%s/%s\033[0m find  \033[1;33m%s\033[0m zip\n" "$KEY_RENAME" "$KEY_OPEN_LESS" "$KEY_OPEN_EDITOR" "$KEY_COMPARE" "$KEY_SEARCH" "$KEY_FIND_FILE" "$KEY_FIND_FILE_ALT" "$KEY_EXTRACT_ZIP"
-        printf "\033[1;36mView\033[0m        \033[1;33m%s\033[0m hidden  \033[1;33m%s\033[0m debug  \033[1;33m%s\033[0m renderer  \033[1;33m%s\033[0m dust  \033[1;33m%s\033[0m name-first  \033[1;33m%s\033[0m SSH\n" "$KEY_TOGGLE_HIDDEN" "$KEY_TOGGLE_DEBUG_LABEL" "$KEY_TOGGLE_SOURCE_LABEL" "$KEY_DUST_MODE" "$KEY_TOGGLE_NAME_FIRST_LABEL" "$KEY_SSH_PICKER"
+        printf "\033[1;36mView\033[0m        \033[1;33m%s\033[0m hidden  \033[1;33m%s\033[0m debug  \033[1;33m%s\033[0m renderer  \033[1;33m%s\033[0m dust  \033[1;33m%s\033[0m name-first  \033[1;33m%s\033[0m preview  \033[1;33m%s\033[0m SSH\n" "$KEY_TOGGLE_HIDDEN" "$KEY_TOGGLE_DEBUG_LABEL" "$KEY_TOGGLE_SOURCE_LABEL" "$KEY_DUST_MODE" "$KEY_TOGGLE_NAME_FIRST_LABEL" "$KEY_TOGGLE_PREVIEW_LABEL" "$KEY_SSH_PICKER"
         printf "\033[1;36mPanels\033[0m      \033[1;33m%s\033[0m bookmarks  \033[1;33m%s\033[0m integrations  \033[1;33m%s\033[0m help\n" "$KEY_BOOKMARKS" "$KEY_INTEGRATIONS" "$KEY_HELP"
         printf "\033[1;36mOther\033[0m       \033[1;33m%s\033[0m reload  \033[1;33m%s\033[0m help  \033[1;33m%s\033[0m command  \033[1;33m%s\033[0m git add/commit/push  \033[1;33m%s\033[0m quit\n" "$KEY_RELOAD_LABEL" "$KEY_HELP" "$KEY_RUN_COMMAND" "$KEY_GIT_PUSH" "$KEY_QUIT"
         printf "\033[%s;1H\033[2mPress any key to return...\033[0m\033[K" "$_rows"
@@ -6849,6 +7230,7 @@ delete_current_or_selected() {
         "${KEY_TOGGLE_SOURCE_LABEL}            Cycle list renderer (eza/lsd/dust/logo-ls/ls)"
         "${KEY_TOGGLE_HIDDEN}            Toggle hidden files on/off"
         "${KEY_DUST_MODE}            Toggle dust mode (restore previous renderer on second press)"
+        "${KEY_TOGGLE_PREVIEW_LABEL}            Toggle split preview mode (name-only list + inline preview)"
         "${KEY_SSH_PICKER}            Open SSH connection picker"
         "${KEY_INTEGRATIONS}            Show integrations screen"
         "${KEY_QUIT}            Quit Shell Buddy"
@@ -6876,6 +7258,9 @@ delete_current_or_selected() {
         "SB_KEY_DUST_MODE  Toggle dust source mode (default s)"
         "SB_SHOW_DEBUG_FOOTER  Start with debug footer shown (1/0)"
         "SB_EDITOR   Optional override (else VISUAL, EDITOR, /etc/alternatives/editor, nano)"
+        "SB_KEY_TOGGLE_PREVIEW  Toggle split preview mode key (default \\)"
+        "SB_PREVIEW_SPLIT_PCT  Left pane percent in preview mode (default 30)"
+        "SB_PREVIEW_SEPARATOR_CHAR  Preview divider character (default │)"
         "SB_NAMEFIRST_WIDTH_PCT  Name-first width percent of terminal (default 35)"
         "SB_NAMEFIRST_NAME_MIN  Soft minimum name width in name-first mode (default 12)"
         "SB_NAMEFIRST_NAME_MAX  Maximum name width cap in name-first mode (default 64)"
@@ -7123,6 +7508,15 @@ delete_current_or_selected() {
             load_data
             draw_ui
             ;;
+          "$KEY_TOGGLE_PREVIEW")
+            if (( PREVIEW_MODE )); then
+              PREVIEW_MODE=0
+            else
+              PREVIEW_MODE=1
+            fi
+            load_data
+            draw_ui
+            ;;
           "$KEY_TOGGLE_DEBUG")
             if (( SHOW_DEBUG_FOOTER )); then
               SHOW_DEBUG_FOOTER=0
@@ -7132,6 +7526,18 @@ delete_current_or_selected() {
             draw_status
             ;;
           "$KEY_SELECT_TOGGLE"|$'\e[2~'|$'\e[L')
+            if (( PREVIEW_MODE )); then
+              toggle_selection_current || true
+              if (( cursor + 1 < ${#ROWS_COLOR[@]} )); then
+                ((cursor++))
+                if (( cursor >= top + visible_rows )); then
+                  top=$(( cursor - visible_rows + 1 ))
+                fi
+              fi
+              redraw_preview_rows_and_status
+              continue
+            fi
+
             old_cursor=$cursor
             old_top=$top
             toggle_selection_current || true
@@ -7158,7 +7564,11 @@ delete_current_or_selected() {
             ;;
           "$KEY_SELECT_ALL")
             toggle_select_all
-            redraw_visible_rows_and_status
+            if (( PREVIEW_MODE )); then
+              redraw_preview_rows_and_status
+            else
+              redraw_visible_rows_and_status
+            fi
             ;;
           "$KEY_COPY"|"$KEY_COPY_F5")
             if set_clipboard_from_current_or_selection copy; then
@@ -7198,6 +7608,12 @@ delete_current_or_selected() {
             run_git_add_commit_push || true
             ;;
           "$KEY_UP")
+            if (( PREVIEW_MODE )); then
+              move_up
+              redraw_preview_rows_and_status
+              continue
+            fi
+
             old_cursor=$cursor
             old_top=$top
             move_up
@@ -7216,6 +7632,12 @@ delete_current_or_selected() {
             fi
             ;;
           "$KEY_DOWN")
+            if (( PREVIEW_MODE )); then
+              move_down
+              redraw_preview_rows_and_status
+              continue
+            fi
+
             old_cursor=$cursor
             old_top=$top
             move_down
