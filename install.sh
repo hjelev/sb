@@ -9,6 +9,10 @@ REF=""
 LOCAL_PATH=""
 SETUP_SHELL="${SB_SETUP_SHELL:-1}"
 UNINSTALL="0"
+SB_SLOGAN="${SB_SLOGAN:-}"
+SB_SLOGANS="${SB_SLOGANS:-Bringing your tools together|One shell to rule them all.|The missing link in your terminal workflow.|Bash-powered. Tool-agnostic.}"
+SB_SLOGAN_ROTATE_RANDOM="${SB_SLOGAN_ROTATE_RANDOM:-1}"
+SB_ACTIVE_SLOGAN=""
 
 usage() {
     cat <<'EOF'
@@ -62,6 +66,94 @@ display_version_label() {
     else
         printf '%s' "$version"
     fi
+}
+
+current_slogan() {
+    local -a slogans=()
+    local idx=0
+
+    if [[ -n "$SB_SLOGAN" ]]; then
+        printf '%s' "$SB_SLOGAN"
+        return 0
+    fi
+
+    if [[ -n "$SB_ACTIVE_SLOGAN" ]]; then
+        printf '%s' "$SB_ACTIVE_SLOGAN"
+        return 0
+    fi
+
+    IFS='|' read -r -a slogans <<< "$SB_SLOGANS"
+    if ((${#slogans[@]} == 0)); then
+        SB_ACTIVE_SLOGAN="Bringing your tools together"
+        printf '%s' "$SB_ACTIVE_SLOGAN"
+        return 0
+    fi
+
+    if [[ "$SB_SLOGAN_ROTATE_RANDOM" == "1" && ${#slogans[@]} -gt 1 ]]; then
+        idx=$((RANDOM % ${#slogans[@]}))
+    fi
+
+    SB_ACTIVE_SLOGAN="${slogans[$idx]}"
+    printf '%s' "$SB_ACTIVE_SLOGAN"
+}
+
+render_sb_banner() {
+    local version_label="$1"
+    local c1 c2 c3 cr slogan
+
+    c1=""
+    c2=""
+    c3=""
+    cr=""
+    slogan="$(current_slogan)"
+
+    if command -v tput >/dev/null 2>&1 && [[ -n "${TERM:-}" && "${TERM}" != "dumb" ]]; then
+        c1="$(tput setaf 15 2>/dev/null || true)"
+        c2="$(tput setaf 250 2>/dev/null || true)"
+        c3="$(tput setaf 245 2>/dev/null || true)"
+        cr="$(tput sgr0 2>/dev/null || true)"
+    fi
+
+    printf '%s\n' "${c1} ┌─┐┬ ┬┌─┐┬  ┬    ┌┐ ┬ ┬┌┬┐┌┬┐┬ ┬${cr}"
+    printf '%s\n' "${c2} └─┐├─┤├┤ │  │    ├┴┐│ │ ││ ││└┬┘${cr}"
+    printf '%s\n' "${c3} └─┘┴ ┴└─┘┴─┘┴─┘  └─┘└─┘─┴┘─┴┘ ┴${cr}"
+    printf ' %s\n' "$slogan"
+    printf ' %sversion (%s)%s\n\n' "$c3" "$version_label" "$cr"
+}
+
+resolve_banner_version_label() {
+    local label="dev"
+    local normalized=""
+
+    if [[ "$UNINSTALL" == "1" ]]; then
+        printf 'uninstall'
+        return 0
+    fi
+
+    if [[ -n "$LOCAL_PATH" ]]; then
+        printf 'local'
+        return 0
+    fi
+
+    if [[ -n "$VERSION" ]]; then
+        if normalized="$(version_from_tag "$VERSION" 2>/dev/null)" && [[ -n "$normalized" ]]; then
+            printf '%s' "$normalized"
+            return 0
+        fi
+        printf '%s' "$VERSION"
+        return 0
+    fi
+
+    if [[ -n "$REF" ]]; then
+        if [[ "$REF" == "master" || "$REF" == "main" ]]; then
+            printf 'dev'
+        else
+            printf '%s' "$REF"
+        fi
+        return 0
+    fi
+
+    printf '%s' "$label"
 }
 
 stamp_script_version() {
@@ -433,6 +525,7 @@ if [[ "$UNINSTALL" == "1" ]]; then
         echo "Error: --uninstall cannot be combined with --version or --ref." >&2
         exit 1
     fi
+    render_sb_banner "$(resolve_banner_version_label)"
     uninstall_sb
     exit 0
 fi
@@ -509,6 +602,8 @@ elif [[ -z "$REF" ]]; then
         exit 1
     fi
 fi
+
+render_sb_banner "$(resolve_banner_version_label)"
 
 mkdir -p "$INSTALL_DIR"
 TMP_FILE="$(mktemp)"
