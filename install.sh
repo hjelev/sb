@@ -6,12 +6,13 @@ DEFAULT_FALLBACK_REFS=("master" "main")
 INSTALL_DIR="${SB_INSTALL_DIR:-}"
 VERSION=""
 REF=""
+LOCAL_PATH=""
 SETUP_SHELL="${SB_SETUP_SHELL:-1}"
 UNINSTALL="0"
 
 usage() {
     cat <<'EOF'
-Usage: install.sh [--version TAG] [--ref GIT_REF] [--install-dir DIR] [--no-shell-setup] [--uninstall]
+Usage: install.sh [--version TAG] [--ref GIT_REF] [--local-path FILE] [--install-dir DIR] [--no-shell-setup] [--uninstall]
 
 Installs Shell Buddy into a directory on your PATH.
 
@@ -20,6 +21,7 @@ Options:
   --ref GIT_REF      Install from a git ref such as master, main, or a commit SHA.
   --install-dir DIR  Install destination. Defaults to SB_INSTALL_DIR or first writable PATH dir.
   --no-shell-setup   Do not add the sb() shell function to your shell rc file.
+  --local-path FILE  Install from a local copy of the sb script (for development).
   --uninstall        Remove Shell Buddy from --install-dir and remove shell integration.
   --help             Show this help text and exit.
 
@@ -384,6 +386,14 @@ while (($# > 0)); do
             INSTALL_DIR="$2"
             shift 2
             ;;
+        --local-path)
+            if [[ -z "${2-}" ]]; then
+                echo "Error: --local-path requires a file path." >&2
+                exit 1
+            fi
+            LOCAL_PATH="$2"
+            shift 2
+            ;;
         --no-shell-setup)
             SETUP_SHELL="0"
             shift
@@ -413,6 +423,11 @@ if [[ -n "$VERSION" && -n "$REF" ]]; then
     exit 1
 fi
 
+if [[ -n "$LOCAL_PATH" && ( -n "$VERSION" || -n "$REF" ) ]]; then
+    echo "Error: --local-path cannot be combined with --version or --ref." >&2
+    exit 1
+fi
+
 if [[ "$UNINSTALL" == "1" ]]; then
     if [[ -n "$VERSION" || -n "$REF" ]]; then
         echo "Error: --uninstall cannot be combined with --version or --ref." >&2
@@ -422,10 +437,47 @@ if [[ "$UNINSTALL" == "1" ]]; then
     exit 0
 fi
 
-require_cmd curl
 require_cmd chmod
 require_cmd mkdir
 require_cmd mv
+
+# Local-path install: copy a local sb file directly without downloading.
+if [[ -n "$LOCAL_PATH" ]]; then
+    if [[ ! -f "$LOCAL_PATH" ]]; then
+        printf 'Error: --local-path file not found: %s\n' "$LOCAL_PATH" >&2
+        exit 1
+    fi
+    require_cmd mktemp
+    if ! bash -n "$LOCAL_PATH"; then
+        printf 'Error: local sb script at %s failed syntax validation; aborting.\n' "$LOCAL_PATH" >&2
+        exit 1
+    fi
+    mkdir -p "$INSTALL_DIR"
+    TMP_FILE="$(mktemp)"
+    trap 'rm -f "$TMP_FILE"' EXIT
+    cp "$LOCAL_PATH" "$TMP_FILE"
+    # Stamp with local git SHA if available.
+    if command -v git >/dev/null 2>&1; then
+        _local_dir="$(cd "$(dirname "$LOCAL_PATH")" && pwd)"
+        _sha="$(git -C "$_local_dir" rev-parse --short HEAD 2>/dev/null)" || _sha=""
+        _dirty=0
+        git -C "$_local_dir" diff --quiet HEAD 2>/dev/null || _dirty=1
+        if [[ -n "$_sha" ]]; then
+            _label="local@${_sha}"
+            (( _dirty )) && _label="local@${_sha}-dirty"
+            stamp_script_version "$TMP_FILE" "$_label"
+            printf 'Stamped version as %s\n' "$_label"
+        fi
+    fi
+    chmod 0755 "$TMP_FILE"
+    mv "$TMP_FILE" "$INSTALL_DIR/sb"
+    printf 'Installed Shell Buddy from local copy to %s/sb\n' "$INSTALL_DIR"
+    ensure_path_hint
+    setup_shell_integration "$INSTALL_DIR/sb"
+    exit 0
+fi
+
+require_cmd curl
 
 if [[ -n "$VERSION" ]]; then
     REF="$VERSION"

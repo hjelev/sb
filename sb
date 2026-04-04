@@ -377,16 +377,19 @@
 
         if [[ "$latest_version" == "$VERSION" ]]; then
           printf 'Already on the latest release (%s).\n' "$VERSION"
-          if [[ -n "$tag_sha" && -n "$master_sha" && "$tag_sha" != "$master_sha" ]]; then
-            printf 'Master has newer commits (%s vs %s).\n' "$master_sha" "$tag_sha"
-            printf 'Install latest development version from master branch? [y/N] '
-            read -r reply
-            if [[ "$reply" =~ ^[Yy]$ ]]; then
-              printf 'Installing from master branch...\n'
-              curl -fsSL "$SB_INSTALLER_URL" | bash -s -- --install-dir "$install_dir" --ref master
+          # Show master status if we could compare SHAs; do NOT gate the offer on it.
+          if [[ -n "$tag_sha" && -n "$master_sha" ]]; then
+            if [[ "$tag_sha" != "$master_sha" ]]; then
+              printf 'Master has newer commits (%s vs %s).\n' "$master_sha" "$tag_sha"
+            else
+              printf 'Master is at the same commit as the release.\n'
             fi
-          else
-            printf 'Master is identical to latest release; no development update available.\n'
+          fi
+          printf 'Install latest development version from master branch? [y/N] '
+          read -r reply
+          if [[ "$reply" =~ ^[Yy]$ ]]; then
+            printf 'Installing from master branch...\n'
+            curl -fsSL "$SB_INSTALLER_URL" | bash -s -- --install-dir "$install_dir" --ref master
           fi
           return 0
         else

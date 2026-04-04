@@ -1,6 +1,5 @@
 # SB Design Principles
 
-- if you don't fully understand a rule ask
 - always do the directory data capture in one pass
 - build both display and selection rows from that same capture pass; avoid full second-pass parsing over all rows
 - Integrations are external tools used by lsy.
