@@ -1215,7 +1215,8 @@ EOF
 
       if (( rc == 0 )); then
         rm -f -- "$tmp_log"
-        draw_status
+        load_data
+        draw_ui
         printf "\033[%d;1H\033[K\033[2mGit workflow complete: add, commit, push succeeded.\033[0m" "$rows"
         return 0
       fi
