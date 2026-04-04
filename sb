@@ -1116,7 +1116,7 @@ EOF
       user_cmd="$(trim_whitespace "$user_cmd")"
       [[ -n "$user_cmd" ]] || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mCommand cancelled.\033[0m" "$rows"
+        footer_message_auto "Command cancelled."
         return 1
       }
 
@@ -1167,19 +1167,19 @@ EOF
 
       if integration_is_disabled git; then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mGit workflow unavailable: git integration is disabled.\033[0m" "$rows"
+        footer_message_auto "Git workflow unavailable: git integration is disabled."
         return 1
       fi
 
       if ! command -v git >/dev/null 2>&1; then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mGit workflow unavailable: git is not installed.\033[0m" "$rows"
+        footer_message_auto "Git workflow unavailable: git is not installed."
         return 1
       fi
 
       if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mGit workflow unavailable: current directory is not a git repository.\033[0m" "$rows"
+        footer_message_auto "Git workflow unavailable: current directory is not a git repository."
         return 1
       fi
 
@@ -1187,7 +1187,7 @@ EOF
       commit_msg="$(trim_whitespace "$commit_msg")"
       if [[ -z "$commit_msg" ]]; then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mGit workflow cancelled: commit message is empty.\033[0m" "$rows"
+        footer_message_auto "Git workflow cancelled: commit message is empty."
         return 1
       fi
 
@@ -1207,7 +1207,7 @@ EOF
 
       tmp_log="$(mktemp "${TMPDIR:-/tmp}/sb-git-workflow.XXXXXX")" || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mGit workflow failed: unable to create temporary log file.\033[0m" "$rows"
+        footer_message_auto "Git workflow failed: unable to create temporary log file."
         return 1
       }
 
@@ -1236,7 +1236,7 @@ EOF
         GIT_HEADER_CACHE_SUFFIX=""
         load_data
         draw_ui
-        printf "\033[%d;1H\033[K\033[2mGit workflow complete: add, commit, push succeeded.\033[0m" "$rows"
+        footer_message_auto "Git workflow complete: add, commit, push succeeded."
         return 0
       fi
 
@@ -1255,7 +1255,7 @@ EOF
       enable_mouse_tracking
       on_resize
       draw_ui
-      printf "\033[%d;1H\033[K\033[2mGit workflow failed.\033[0m" "$rows"
+      footer_message_auto "Git workflow failed."
       return $rc
     }
 
@@ -1324,7 +1324,7 @@ EOF
 
       if (( !HAS_WGET && !HAS_CURL )); then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mDownload unavailable: install/enable wget or curl in integrations.\033[0m" "$rows"
+        footer_message_auto "Download unavailable: install/enable wget or curl in integrations."
         return 1
       fi
 
@@ -1332,7 +1332,7 @@ EOF
       url="$(trim_whitespace "$url")"
       [[ -n "$url" ]] || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mDownload cancelled.\033[0m" "$rows"
+        footer_message_auto "Download cancelled."
         return 1
       }
 
@@ -1348,13 +1348,13 @@ EOF
       target_name="$(trim_whitespace "$target_name")"
       [[ -n "$target_name" ]] || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mDownload cancelled.\033[0m" "$rows"
+        footer_message_auto "Download cancelled."
         return 1
       }
 
       if [[ "$target_name" == */* ]]; then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mDownload failed: use a file name only (no '/').\033[0m" "$rows"
+        footer_message_auto "Download failed: use a file name only (no '/')."
         return 1
       fi
 
@@ -1364,17 +1364,17 @@ EOF
         target_name="$(trim_whitespace "$target_name")"
         [[ -n "$target_name" ]] || {
           draw_status
-          printf "\033[%d;1H\033[K\033[2mDownload cancelled.\033[0m" "$rows"
+          footer_message_auto "Download cancelled."
           return 1
         }
         if [[ "$target_name" == */* ]]; then
           draw_status
-          printf "\033[%d;1H\033[K\033[2mDownload failed: use a file name only (no '/').\033[0m" "$rows"
+          footer_message_auto "Download failed: use a file name only (no '/')."
           return 1
         fi
         if [[ -e "$target_name" || -L "$target_name" ]]; then
           draw_status
-          printf "\033[%d;1H\033[K\033[2mDownload failed: target exists: %s\033[0m" "$rows" "$target_name"
+          footer_message_auto "Download failed: target exists: %s" "$target_name"
           return 1
         fi
       fi
@@ -1390,14 +1390,14 @@ EOF
       if (( rc != 0 )); then
         [[ -f "$target_name" && ! -s "$target_name" ]] && rm -f -- "$target_name"
         draw_status
-        printf "\033[%d;1H\033[K\033[2mDownload failed (exit %d).\033[0m" "$rows" "$rc"
+        footer_message_auto "Download failed (exit %d)." "$rc"
         return 1
       fi
 
       load_data
       position_cursor_for_name "$target_name" >/dev/null 2>&1 || true
       draw_ui
-      printf "\033[%d;1H\033[K\033[2mDownloaded: %s\033[0m" "$rows" "$target_name"
+      footer_message_auto "Downloaded: %s" "$target_name"
       return 0
     }
 
@@ -1445,19 +1445,19 @@ EOF
 
       if (( !HAS_AGE )); then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mAge unavailable: install/enable age in integrations.\033[0m" "$rows"
+        footer_message_auto "Age unavailable: install/enable age in integrations."
         return 1
       fi
 
       item="$(selected_path)" || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mAge action failed: no current file.\033[0m" "$rows"
+        footer_message_auto "Age action failed: no current file."
         return 1
       }
 
       if [[ ! -f "$item" ]]; then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mAge action requires a regular file.\033[0m" "$rows"
+        footer_message_auto "Age action requires a regular file."
         return 1
       fi
 
@@ -1471,17 +1471,17 @@ EOF
           output_name="$(trim_whitespace "$output_name")"
           [[ -n "$output_name" ]] || {
             draw_status
-            printf "\033[%d;1H\033[K\033[2mDecrypt cancelled.\033[0m" "$rows"
+            footer_message_auto "Decrypt cancelled."
             return 1
           }
           if [[ "$output_name" == */* ]]; then
             draw_status
-            printf "\033[%d;1H\033[K\033[2mDecrypt failed: use a name only (no '/').\033[0m" "$rows"
+            footer_message_auto "Decrypt failed: use a name only (no '/')."
             return 1
           fi
           if [[ -e "$output_name" || -L "$output_name" ]]; then
             draw_status
-            printf "\033[%d;1H\033[K\033[2mDecrypt failed: target exists: %s\033[0m" "$rows" "$output_name"
+            footer_message_auto "Decrypt failed: target exists: %s" "$output_name"
             return 1
           fi
         fi
@@ -1489,7 +1489,7 @@ EOF
         passphrase="$(read_secret_prompt "Age passphrase (decrypt): ")"
         [[ -n "$passphrase" ]] || {
           draw_status
-          printf "\033[%d;1H\033[K\033[2mDecrypt cancelled.\033[0m" "$rows"
+          footer_message_auto "Decrypt cancelled."
           return 1
         }
 
@@ -1500,7 +1500,7 @@ EOF
         if (( rc != 0 )); then
           [[ -f "$output_name" && ! -s "$output_name" ]] && rm -f -- "$output_name"
           draw_status
-          printf "\033[%d;1H\033[K\033[2mDecrypt failed (exit %d).\033[0m" "$rows" "$rc"
+          footer_message_auto "Decrypt failed (exit %d)." "$rc"
           return 1
         fi
 
@@ -1508,7 +1508,7 @@ EOF
         load_data
         position_cursor_for_name "$output_name" >/dev/null 2>&1 || true
         draw_ui
-        printf "\033[%d;1H\033[K\033[2mUnprotected with age: %s\033[0m" "$rows" "$output_name"
+        footer_message_auto "Unprotected with age: %s" "$output_name"
         return 0
       fi
 
@@ -1519,7 +1519,7 @@ EOF
         output_name="$(trim_whitespace "$output_name")"
         [[ -n "$output_name" ]] || {
           draw_status
-          printf "\033[%d;1H\033[K\033[2mEncrypt cancelled.\033[0m" "$rows"
+          footer_message_auto "Encrypt cancelled."
           return 1
         }
         if [[ "$output_name" != *.age ]]; then
@@ -1527,12 +1527,12 @@ EOF
         fi
         if [[ "$output_name" == */* ]]; then
           draw_status
-          printf "\033[%d;1H\033[K\033[2mEncrypt failed: use a name only (no '/').\033[0m" "$rows"
+          footer_message_auto "Encrypt failed: use a name only (no '/')."
           return 1
         fi
         if [[ -e "$output_name" || -L "$output_name" ]]; then
           draw_status
-          printf "\033[%d;1H\033[K\033[2mEncrypt failed: target exists: %s\033[0m" "$rows" "$output_name"
+          footer_message_auto "Encrypt failed: target exists: %s" "$output_name"
           return 1
         fi
       fi
@@ -1540,7 +1540,7 @@ EOF
       passphrase="$(read_secret_prompt "Age passphrase (encrypt): ")"
       [[ -n "$passphrase" ]] || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mEncrypt cancelled.\033[0m" "$rows"
+        footer_message_auto "Encrypt cancelled."
         return 1
       }
 
@@ -1549,7 +1549,7 @@ EOF
         passphrase=""
         passphrase_confirm=""
         draw_status
-        printf "\033[%d;1H\033[K\033[2mEncrypt cancelled: passphrases did not match.\033[0m" "$rows"
+        footer_message_auto "Encrypt cancelled: passphrases did not match."
         return 1
       fi
       passphrase_confirm=""
@@ -1561,7 +1561,7 @@ EOF
       if (( rc != 0 )); then
         [[ -f "$output_name" && ! -s "$output_name" ]] && rm -f -- "$output_name"
         draw_status
-        printf "\033[%d;1H\033[K\033[2mEncrypt failed (exit %d).\033[0m" "$rows" "$rc"
+        footer_message_auto "Encrypt failed (exit %d)." "$rc"
         return 1
       fi
 
@@ -1569,7 +1569,7 @@ EOF
       load_data
       position_cursor_for_name "$output_name" >/dev/null 2>&1 || true
       draw_ui
-      printf "\033[%d;1H\033[K\033[2mProtected with age: %s\033[0m" "$rows" "$output_name"
+      footer_message_auto "Protected with age: %s" "$output_name"
       return 0
     }
 
@@ -1579,7 +1579,7 @@ EOF
 
       if (( !HAS_AGE )); then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mOpen failed: age is not installed or disabled.\033[0m" "$rows"
+        footer_message_auto "Open failed: age is not installed or disabled."
         return 1
       fi
 
@@ -1591,7 +1591,7 @@ EOF
 
       tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/sb-age-open.XXXXXX")" || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mOpen failed: cannot create temporary file.\033[0m" "$rows"
+        footer_message_auto "Open failed: cannot create temporary file."
         return 1
       }
       tmp_file="$tmp_dir/$plain_name"
@@ -1600,7 +1600,7 @@ EOF
       [[ -n "$passphrase" ]] || {
         run_rm_rf "$tmp_dir" >/dev/null 2>&1 || true
         draw_status
-        printf "\033[%d;1H\033[K\033[2mOpen cancelled.\033[0m" "$rows"
+        footer_message_auto "Open cancelled."
         return 1
       }
 
@@ -1611,7 +1611,7 @@ EOF
       if (( rc != 0 )); then
         run_rm_rf "$tmp_dir" >/dev/null 2>&1 || true
         draw_status
-        printf "\033[%d;1H\033[K\033[2mOpen failed: age decrypt cancelled/failed (exit %d).\033[0m" "$rows" "$rc"
+        footer_message_auto "Open failed: age decrypt cancelled/failed (exit %d)." "$rc"
         return 1
       fi
 
@@ -3237,7 +3237,7 @@ NR>3 && !/^[-]/ && NF>=4 {
       mp="$(sshfs_get_mount_point "$spec" 2>/dev/null || true)"
       if [[ -z "$mp" ]]; then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mInvalid SSH spec: %s\033[0m" "$rows" "$spec"
+        footer_message_auto "Invalid SSH spec: %s" "$spec"
         return 1
       fi
 
@@ -3245,9 +3245,9 @@ NR>3 && !/^[-]/ && NF>=4 {
         if ! sshfs_do_mount "$spec"; then
           draw_status
           if [[ -n "$SSHFS_LAST_ERROR" ]]; then
-            printf "\033[%d;1H\033[K\033[2m%s\033[0m" "$rows" "$SSHFS_LAST_ERROR"
+            footer_message_auto "%s" "$SSHFS_LAST_ERROR"
           else
-            printf "\033[%d;1H\033[K\033[2mSSHFS mount failed: %s\033[0m" "$rows" "$spec"
+            footer_message_auto "SSHFS mount failed: %s" "$spec"
           fi
           return 1
         fi
@@ -3255,7 +3255,7 @@ NR>3 && !/^[-]/ && NF>=4 {
 
       cd -- "$mp" 2>/dev/null || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mCannot access mount: %s\033[0m" "$rows" "$mp"
+        footer_message_auto "Cannot access mount: %s" "$mp"
         return 1
       }
 
@@ -3336,7 +3336,7 @@ NR>3 && !/^[-]/ && NF>=4 {
 
       if (( !HAS_SSHFS )); then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mSSH picker unavailable: sshfs is not installed or is disabled in integrations.\033[0m" "$rows"
+        footer_message_auto "SSH picker unavailable: sshfs is not installed or is disabled in integrations."
         return 1
       fi
 
@@ -3492,7 +3492,7 @@ NR>3 && !/^[-]/ && NF>=4 {
 
       mount_root="$(ensure_fuse_zip_session_dir)" || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mFuse-zip failed: cannot prepare mount root.\033[0m" "$rows"
+        footer_message_auto "Fuse-zip failed: cannot prepare mount root."
         return 1
       }
 
@@ -3501,7 +3501,7 @@ NR>3 && !/^[-]/ && NF>=4 {
       mountpoint="$mount_root/${mount_name}.${FUSE_ZIP_MOUNT_COUNTER}"
       run_mkdir_p "$mountpoint" 2>/dev/null || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mFuse-zip failed: cannot create mountpoint '%s'.\033[0m" "$rows" "$mountpoint"
+        footer_message_auto "Fuse-zip failed: cannot create mountpoint '%s'." "$mountpoint"
         return 1
       }
 
@@ -3517,7 +3517,7 @@ NR>3 && !/^[-]/ && NF>=4 {
       else
         run_rmdir "$mountpoint" >/dev/null 2>&1 || true
         draw_status
-        printf "\033[%d;1H\033[K\033[2mFuse-zip mount failed: %s\033[0m" "$rows" "$(printf '%s' "$err" | head -1)"
+        footer_message_auto "Fuse-zip mount failed: %s" "$(printf '%s' "$err" | head -1)"
         return 1
       fi
 
@@ -3623,14 +3623,14 @@ NR>3 && !/^[-]/ && NF>=4 {
 
       (( HAS_ZIP )) || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mExtraction unavailable: no archive tool is enabled or installed.\033[0m" "$rows"
+        footer_message_auto "Extraction unavailable: no archive tool is enabled or installed."
         return 1
       }
 
       read_stdin_into_array items < <(collect_zip_paths_from_current_or_selection)
       (( ${#items[@]} > 0 )) || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mExtract failed: no valid source paths in current selection.\033[0m" "$rows"
+        footer_message_auto "Extract failed: no valid source paths in current selection."
         return 1
       }
 
@@ -3643,26 +3643,26 @@ NR>3 && !/^[-]/ && NF>=4 {
 
       if (( ${#archive_items[@]} == 0 )); then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mExtract failed: current row/selection has no supported archives.\033[0m" "$rows"
+        footer_message_auto "Extract failed: current row/selection has no supported archives."
         return 1
       fi
 
       if (( ${#archive_items[@]} != ${#items[@]} )); then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mExtract requires archive-only selection when multiple items are selected.\033[0m" "$rows"
+        footer_message_auto "Extract requires archive-only selection when multiple items are selected."
         return 1
       fi
 
       if ! read_yes_no_prompt "Extract ${#archive_items[@]} archive(s)? [y/N]: "; then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mExtract cancelled.\033[0m" "$rows"
+        footer_message_auto "Extract cancelled."
         return 1
       fi
 
       extract_root="$(read_line_prompt "Extract to: " "$(pwd -P)")"
       if [[ -z "$extract_root" ]]; then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mExtract cancelled.\033[0m" "$rows"
+        footer_message_auto "Extract cancelled."
         return 1
       fi
 
@@ -3673,7 +3673,7 @@ NR>3 && !/^[-]/ && NF>=4 {
 
       run_mkdir_p "$extract_root" 2>/dev/null || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mExtract failed: cannot create destination '%s'.\033[0m" "$rows" "$extract_root"
+        footer_message_auto "Extract failed: cannot create destination '%s'." "$extract_root"
         return 1
       }
 
@@ -3713,7 +3713,7 @@ NR>3 && !/^[-]/ && NF>=4 {
           ((ok_count++))
         elif (( rc == 2 )); then
           draw_status
-          printf "\033[%d;1H\033[K\033[2mExtract skipped '%s': no tool available for this format.\033[0m" "$rows" "$archive_name"
+          footer_message_auto "Extract skipped '%s': no tool available for this format." "$archive_name"
           ((skip_count++))
         else
           ((fail_count++))
@@ -3729,7 +3729,7 @@ NR>3 && !/^[-]/ && NF>=4 {
 
       load_data
       draw_ui
-      printf "\033[%d;1H\033[K\033[2mExtract: ok:%d fail:%d skip:%d\033[0m" "$rows" "$ok_count" "$fail_count" "$skip_count"
+      footer_message_auto "Extract: ok:%d fail:%d skip:%d" "$ok_count" "$fail_count" "$skip_count"
       return 0
     }
 
@@ -3742,14 +3742,14 @@ NR>3 && !/^[-]/ && NF>=4 {
 
       (( HAS_ZIPCMD )) || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mArchive creation unavailable: zip is disabled or not installed.\033[0m" "$rows"
+        footer_message_auto "Archive creation unavailable: zip is disabled or not installed."
         return 1
       }
 
       read_stdin_into_array items < <(collect_paths_from_current_or_selection)
       (( ${#items[@]} > 0 )) || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mArchive failed: no valid source paths in current selection.\033[0m" "$rows"
+        footer_message_auto "Archive failed: no valid source paths in current selection."
         return 1
       }
 
@@ -3760,7 +3760,7 @@ NR>3 && !/^[-]/ && NF>=4 {
 
       (( ${#zip_items[@]} > 0 )) || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mArchive failed: selected sources do not exist.\033[0m" "$rows"
+        footer_message_auto "Archive failed: selected sources do not exist."
         return 1
       }
 
@@ -3777,7 +3777,7 @@ NR>3 && !/^[-]/ && NF>=4 {
       out_path="$(sanitize_filename_input "$out_path")"
       if [[ -z "$out_path" ]]; then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mArchive cancelled.\033[0m" "$rows"
+        footer_message_auto "Archive cancelled."
         return 1
       fi
 
@@ -3789,19 +3789,19 @@ NR>3 && !/^[-]/ && NF>=4 {
       out_dir="$(path_dirname "$out_path")"
       run_mkdir_p "$out_dir" 2>/dev/null || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mArchive failed: cannot create destination directory '%s'.\033[0m" "$rows" "$out_dir"
+        footer_message_auto "Archive failed: cannot create destination directory '%s'." "$out_dir"
         return 1
       }
 
       if [[ -e "$out_path" ]]; then
         if ! read_yes_no_prompt "Archive exists. Overwrite '$out_path'? [y/N]: "; then
           draw_status
-          printf "\033[%d;1H\033[K\033[2mArchive cancelled.\033[0m" "$rows"
+          footer_message_auto "Archive cancelled."
           return 1
         fi
         rm -f "$(safe_command_path "$out_path")" 2>/dev/null || {
           draw_status
-          printf "\033[%d;1H\033[K\033[2mArchive failed: cannot overwrite '%s'.\033[0m" "$rows" "$out_path"
+          footer_message_auto "Archive failed: cannot overwrite '%s'." "$out_path"
           return 1
         }
       fi
@@ -3837,11 +3837,11 @@ NR>3 && !/^[-]/ && NF>=4 {
       load_data
       draw_ui
       if (( ok_count )); then
-        printf "\033[%d;1H\033[K\033[2mArchive created: %s\033[0m" "$rows" "$(path_basename "$out_path")"
+        footer_message_auto "Archive created: %s" "$(path_basename "$out_path")"
         return 0
       fi
 
-      printf "\033[%d;1H\033[K\033[2mArchive failed.\033[0m" "$rows"
+      footer_message_auto "Archive failed."
       return 1
     }
 
@@ -3852,7 +3852,7 @@ NR>3 && !/^[-]/ && NF>=4 {
       read_stdin_into_array items < <(collect_paths_from_current_or_selection)
       (( ${#items[@]} > 0 )) || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mZip action failed: no valid source paths in current selection.\033[0m" "$rows"
+        footer_message_auto "Zip action failed: no valid source paths in current selection."
         return 1
       }
 
@@ -3872,21 +3872,21 @@ NR>3 && !/^[-]/ && NF>=4 {
 
       if (( other_count == 0 )); then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mZip action failed: no existing files selected.\033[0m" "$rows"
+        footer_message_auto "Zip action failed: no existing files selected."
         return 1
       fi
 
       if (( ${#items[@]} > 1 )); then
         if ! read_yes_no_prompt "Create one archive from selected items? [y/N]: "; then
           draw_status
-          printf "\033[%d;1H\033[K\033[2mArchive cancelled.\033[0m" "$rows"
+          footer_message_auto "Archive cancelled."
           return 1
         fi
       else
         item="$(path_basename "${items[0]}")"
         if ! read_yes_no_prompt "Create archive for '$item'? [y/N]: "; then
           draw_status
-          printf "\033[%d;1H\033[K\033[2mArchive cancelled.\033[0m" "$rows"
+          footer_message_auto "Archive cancelled."
           return 1
         fi
       fi
@@ -3901,7 +3901,7 @@ toggle_executable() {
   read_stdin_into_array items < <(collect_paths_from_current_or_selection)
   (( ${#items[@]} > 0 )) || {
     draw_status
-    printf "\033[%d;1H\033[K\033[2mChmod +x failed: no valid source paths in current selection.\033[0m" "$rows"
+    footer_message_auto "Chmod +x failed: no valid source paths in current selection."
     return 1
   }
 
@@ -3925,11 +3925,11 @@ toggle_executable() {
   load_data
   draw_ui
   if (( fail_count > 0 )); then
-    printf "\033[%d;1H\033[K\033[2mChmod: %d changed, %d failed.\033[0m" "$rows" "$ok_count" "$fail_count"
+    footer_message_auto "Chmod: %d changed, %d failed." "$ok_count" "$fail_count"
   elif (( ok_count == 1 )); then
-    printf "\033[%d;1H\033[K\033[2mExecutable bit toggled.\033[0m" "$rows"
+    footer_message_auto "Executable bit toggled."
   else
-    printf "\033[%d;1H\033[K\033[2mExecutable bit toggled for %d items.\033[0m" "$rows" "$ok_count"
+    footer_message_auto "Executable bit toggled for %d items." "$ok_count"
   fi
 }
 
@@ -3942,7 +3942,7 @@ delete_current_or_selected() {
   read_stdin_into_array items < <(collect_paths_from_current_or_selection)
   (( ${#items[@]} > 0 )) || {
     draw_status
-    printf "\033[%d;1H\033[K\033[2mDelete failed: no valid source paths in current selection.\033[0m" "$rows"
+    footer_message_auto "Delete failed: no valid source paths in current selection."
     return 1
   }
 
@@ -3954,7 +3954,7 @@ delete_current_or_selected() {
 
   (( ${#existing_items[@]} > 0 )) || {
     draw_status
-    printf "\033[%d;1H\033[K\033[2mDelete failed: selected sources do not exist.\033[0m" "$rows"
+    footer_message_auto "Delete failed: selected sources do not exist."
     return 1
   }
 
@@ -3966,7 +3966,7 @@ delete_current_or_selected() {
 
   if ! read_yes_no_prompt "$label"; then
     draw_status
-    printf "\033[%d;1H\033[K\033[2mDelete cancelled.\033[0m" "$rows"
+    footer_message_auto "Delete cancelled."
     return 1
   fi
 
@@ -4005,7 +4005,7 @@ delete_current_or_selected() {
   fi
 
   draw_ui
-  printf "\033[%d;1H\033[K\033[2mDelete: ok:%d fail:%d skip:%d\033[0m" "$rows" "$ok_count" "$fail_count" "$skip_count"
+  footer_message_auto "Delete: ok:%d fail:%d skip:%d" "$ok_count" "$fail_count" "$skip_count"
   return 0
 }
 
@@ -4024,20 +4024,20 @@ delete_current_or_selected() {
 
       if (( !HAS_VIDIR )); then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mBulk rename unavailable: vidir is not installed or disabled in integrations.\033[0m" "$rows"
+        footer_message_auto "Bulk rename unavailable: vidir is not installed or disabled in integrations."
         return 1
       fi
 
       if (( SELECTED_COUNT < 2 )); then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mBulk rename needs at least 2 selected items.\033[0m" "$rows"
+        footer_message_auto "Bulk rename needs at least 2 selected items."
         return 1
       fi
 
       read_stdin_into_array items < <(collect_selected_paths_in_row_order)
       (( ${#items[@]} > 0 )) || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mBulk rename failed: no valid selected paths.\033[0m" "$rows"
+        footer_message_auto "Bulk rename failed: no valid selected paths."
         return 1
       }
 
@@ -4050,7 +4050,7 @@ delete_current_or_selected() {
 
       (( ${#existing_items[@]} > 1 )) || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mBulk rename needs at least 2 existing selected items.\033[0m" "$rows"
+        footer_message_auto "Bulk rename needs at least 2 existing selected items."
         return 1
       }
 
@@ -4062,7 +4062,7 @@ delete_current_or_selected() {
 
       tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/sb-vidir-rename.XXXXXX")" || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mBulk rename failed: cannot create temporary workspace.\033[0m" "$rows"
+        footer_message_auto "Bulk rename failed: cannot create temporary workspace."
         return 1
       }
 
@@ -4070,7 +4070,7 @@ delete_current_or_selected() {
         if ! ln -s -- "$(pwd -P)/$old_name" "$tmpdir/$old_name" 2>/dev/null; then
           run_rm_rf "$tmpdir" >/dev/null 2>&1 || true
           draw_status
-          printf "\033[%d;1H\033[K\033[2mBulk rename failed: cannot prepare temp entries for vidir.\033[0m" "$rows"
+          footer_message_auto "Bulk rename failed: cannot prepare temp entries for vidir."
           return 1
         fi
       done
@@ -4099,14 +4099,14 @@ delete_current_or_selected() {
 
       if (( new_count != old_count )); then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mBulk rename cancelled: all selected items must remain listed in vidir.\033[0m" "$rows"
+        footer_message_auto "Bulk rename cancelled: all selected items must remain listed in vidir."
         return 1
       fi
 
       for i in "${!mapped[@]}"; do
         if (( mapped[$i] == 0 )); then
           draw_status
-          printf "\033[%d;1H\033[K\033[2mBulk rename cancelled: selection mapping became invalid.\033[0m" "$rows"
+          footer_message_auto "Bulk rename cancelled: selection mapping became invalid."
           return 1
         fi
       done
@@ -4116,7 +4116,7 @@ delete_current_or_selected() {
         new_for_old[$i]="$new_name"
         if [[ -z "$new_name" || "$new_name" == */* ]]; then
           draw_status
-          printf "\033[%d;1H\033[K\033[2mBulk rename failed: names must be non-empty and cannot contain '/'.\033[0m" "$rows"
+          footer_message_auto "Bulk rename failed: names must be non-empty and cannot contain '/'."
           return 1
         fi
       done
@@ -4126,7 +4126,7 @@ delete_current_or_selected() {
           (( i == j )) && continue
           if [[ "${new_for_old[$i]}" == "${new_for_old[$j]}" ]]; then
             draw_status
-            printf "\033[%d;1H\033[K\033[2mBulk rename failed: duplicate target name '%s'.\033[0m" "$rows" "${new_for_old[$i]}"
+            footer_message_auto "Bulk rename failed: duplicate target name '%s'." "${new_for_old[$i]}"
             return 1
           fi
         done
@@ -4147,7 +4147,7 @@ delete_current_or_selected() {
           done
           if (( !in_selected )); then
             draw_status
-            printf "\033[%d;1H\033[K\033[2mBulk rename failed: target exists: %s\033[0m" "$rows" "$new_name"
+            footer_message_auto "Bulk rename failed: target exists: %s" "$new_name"
             return 1
           fi
         fi
@@ -4155,7 +4155,7 @@ delete_current_or_selected() {
 
       if (( changed_count == 0 )); then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mBulk rename cancelled: no name changes.\033[0m" "$rows"
+        footer_message_auto "Bulk rename cancelled: no name changes."
         return 1
       fi
 
@@ -4172,7 +4172,7 @@ delete_current_or_selected() {
             run_mv_path "${phase_tmp[$idx]}" "${phase_old[$idx]}" >/dev/null 2>&1 || true
           done
           draw_status
-          printf "\033[%d;1H\033[K\033[2mBulk rename failed during staging: %s\033[0m" "$rows" "$err"
+          footer_message_auto "Bulk rename failed during staging: %s" "$err"
           return 1
         fi
         phase_old+=("$old_name")
@@ -4193,7 +4193,7 @@ delete_current_or_selected() {
             fi
           done
           draw_status
-          printf "\033[%d;1H\033[K\033[2mBulk rename failed during apply: %s\033[0m" "$rows" "$err"
+          footer_message_auto "Bulk rename failed during apply: %s" "$err"
           return 1
         fi
       done
@@ -4202,7 +4202,7 @@ delete_current_or_selected() {
       load_data
       position_cursor_for_name "${new_for_old[0]}" >/dev/null 2>&1 || true
       draw_ui
-      printf "\033[%d;1H\033[K\033[2mBulk rename complete (vidir): renamed %d selected item(s).\033[0m" "$rows" "$changed_count"
+      footer_message_auto "Bulk rename complete (vidir): renamed %d selected item(s)." "$changed_count"
       return 0
     }
 
@@ -4221,13 +4221,13 @@ delete_current_or_selected() {
 
       src="$(current_row_path)" || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mRename failed: no valid item on current row.\033[0m" "$rows"
+        footer_message_auto "Rename failed: no valid item on current row."
         return 1
       }
 
       if [[ ! -e "$src" && ! -L "$src" ]]; then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mRename failed: selected item no longer exists.\033[0m" "$rows"
+        footer_message_auto "Rename failed: selected item no longer exists."
         return 1
       fi
 
@@ -4236,19 +4236,19 @@ delete_current_or_selected() {
       new_name="$(sanitize_filename_input "$new_name")"
       [[ -n "$new_name" ]] || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mRename cancelled.\033[0m" "$rows"
+        footer_message_auto "Rename cancelled."
         return 1
       }
 
       if [[ "$new_name" == "$src_name" ]]; then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mRename unchanged: %s\033[0m" "$rows" "$src_name"
+        footer_message_auto "Rename unchanged: %s" "$src_name"
         return 0
       fi
 
       if [[ "$new_name" == */* ]]; then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mRename failed: use a name only (no '/').\033[0m" "$rows"
+        footer_message_auto "Rename failed: use a name only (no '/')."
         return 1
       fi
 
@@ -4256,16 +4256,16 @@ delete_current_or_selected() {
       dest="$parent_dir/$new_name"
       if [[ -e "$dest" || -L "$dest" ]]; then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mRename failed: target exists: %s\033[0m" "$rows" "$new_name"
+        footer_message_auto "Rename failed: target exists: %s" "$new_name"
         return 1
       fi
 
       if ! err="$(run_mv_path "$src" "$dest" 2>&1)"; then
         draw_status
         if [[ -n "$err" ]]; then
-          printf "\033[%d;1H\033[K\033[2mRename failed: %s\033[0m" "$rows" "$err"
+          footer_message_auto "Rename failed: %s" "$err"
         else
-          printf "\033[%d;1H\033[K\033[2mRename failed: %s\033[0m" "$rows" "$src_name"
+          footer_message_auto "Rename failed: %s" "$src_name"
         fi
         return 1
       fi
@@ -4273,7 +4273,7 @@ delete_current_or_selected() {
       load_data
       position_cursor_for_name "$new_name" >/dev/null 2>&1 || true
       draw_ui
-      printf "\033[%d;1H\033[K\033[2mRenamed: %s -> %s\033[0m" "$rows" "$src_name" "$new_name"
+      footer_message_auto "Renamed: %s -> %s" "$src_name" "$new_name"
       return 0
     }
 
@@ -4293,7 +4293,7 @@ delete_current_or_selected() {
       name="$(sanitize_filename_input "$name")"
       [[ -n "$name" ]] || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2m%s creation cancelled.\033[0m" "$rows" "$label"
+        footer_message_auto "%s creation cancelled." "$label"
         return 1
       }
 
@@ -4304,7 +4304,7 @@ delete_current_or_selected() {
 
       if [[ -e "$target" || -L "$target" ]]; then
         draw_status
-        printf "\033[%d;1H\033[K\033[2m%s exists: %s\033[0m" "$rows" "$label" "$name"
+        footer_message_auto "%s exists: %s" "$label" "$name"
         return 1
       fi
 
@@ -4312,9 +4312,9 @@ delete_current_or_selected() {
         if ! err="$(run_mkdir "$target" 2>&1)"; then
           draw_status
           if [[ -n "$err" ]]; then
-            printf "\033[%d;1H\033[K\033[2mCreate folder failed: %s\033[0m" "$rows" "$err"
+            footer_message_auto "Create folder failed: %s" "$err"
           else
-            printf "\033[%d;1H\033[K\033[2mCreate folder failed: %s\033[0m" "$rows" "$name"
+            footer_message_auto "Create folder failed: %s" "$name"
           fi
           return 1
         fi
@@ -4322,9 +4322,9 @@ delete_current_or_selected() {
         if ! err="$(run_touch_path "$target" 2>&1)"; then
           draw_status
           if [[ -n "$err" ]]; then
-            printf "\033[%d;1H\033[K\033[2mCreate file failed: %s\033[0m" "$rows" "$err"
+            footer_message_auto "Create file failed: %s" "$err"
           else
-            printf "\033[%d;1H\033[K\033[2mCreate file failed: %s\033[0m" "$rows" "$name"
+            footer_message_auto "Create file failed: %s" "$name"
           fi
           return 1
         fi
@@ -4334,7 +4334,7 @@ delete_current_or_selected() {
       load_data
       position_cursor_for_name "$display_name" >/dev/null 2>&1 || true
       draw_ui
-      printf "\033[%d;1H\033[K\033[2m%s created: %s\033[0m" "$rows" "$label" "$display_name"
+      footer_message_auto "%s created: %s" "$label" "$display_name"
       return 0
     }
 
@@ -4833,6 +4833,43 @@ delete_current_or_selected() {
         "$KEY_RENAME_F2_LABEL" "$KEY_OPEN_LESS_F3_LABEL" "$KEY_OPEN_EDITOR_F4_LABEL" "$KEY_COPY_F5_LABEL" "$KEY_RELOAD_LABEL" \
         ""
       printf "\033[?7h"
+    }
+
+    footer_message_auto() {
+      local fmt="$1"
+      shift
+      local rendered=""
+      local category="info"
+      local icon=""
+      local lower_msg=""
+      local git_prefix=""
+
+      printf -v rendered "$fmt" "$@"
+      lower_msg="$(printf '%s' "$rendered" | tr '[:upper:]' '[:lower:]')"
+
+      if [[ "$lower_msg" == *"cancel"* ]]; then
+        category="info"
+      elif [[ "$lower_msg" == *"failed"* || "$lower_msg" == *"error"* || "$lower_msg" == *"cannot"* || "$lower_msg" == *"unavailable"* ]]; then
+        category="error"
+      elif [[ "$lower_msg" == *"warn"* || "$lower_msg" == *"requires"* || "$lower_msg" == *"unchanged"* || "$lower_msg" == *"skipped"* ]]; then
+        category="warning"
+      elif [[ "$lower_msg" == *" complete"* || "$lower_msg" == *" completed"* || "$lower_msg" == *" created"* || "$lower_msg" == *" downloaded"* || "$lower_msg" == *" copied"* || "$lower_msg" == *" renamed"* || "$lower_msg" == *" protected"* || "$lower_msg" == *" unprotected"* || "$lower_msg" == *" ok:"* ]]; then
+        category="success"
+      fi
+
+      if [[ "${NERD_FONT_ACTIVE:-0}" == "1" ]]; then
+        if [[ "$lower_msg" == *"git workflow"* ]]; then
+          git_prefix=" "
+        fi
+        case "$category" in
+          success) icon="${git_prefix}󰄬 " ;;
+          warning) icon="${git_prefix}󰀪 " ;;
+          error) icon="${git_prefix}󰄶 " ;;
+          *) icon="${git_prefix}󰋽 " ;;
+        esac
+      fi
+
+      printf "\033[%d;1H\033[K\033[2m%s%s\033[0m" "$rows" "$icon" "$rendered"
     }
 
     scroll_list_once() {
@@ -5488,7 +5525,7 @@ delete_current_or_selected() {
       read_stdin_into_array items < <(collect_paths_from_current_or_selection)
       (( ${#items[@]} > 0 )) || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mCopy full path failed: no valid source paths in current selection.\033[0m" "$rows"
+        footer_message_auto "Copy full path failed: no valid source paths in current selection."
         return 1
       }
 
@@ -5506,7 +5543,7 @@ delete_current_or_selected() {
 
       (( ${#abs_items[@]} > 0 )) || {
         draw_status
-        printf "\033[%d;1H\033[K\033[2mCopy full path failed: selected sources do not exist.\033[0m" "$rows"
+        footer_message_auto "Copy full path failed: selected sources do not exist."
         return 1
       }
 
@@ -5522,15 +5559,15 @@ delete_current_or_selected() {
         printf '%s' "$payload" | pbcopy
       else
         draw_status
-        printf "\033[%d;1H\033[K\033[2mCopy full path failed: no enabled clipboard tool found (wl-copy/xclip/xsel/pbcopy).\033[0m" "$rows"
+        footer_message_auto "Copy full path failed: no enabled clipboard tool found (wl-copy/xclip/xsel/pbcopy)."
         return 1
       fi
 
       draw_status
       if (( ${#abs_items[@]} == 1 )); then
-        printf "\033[%d;1H\033[K\033[2mCopied full path to clipboard.\033[0m" "$rows"
+        footer_message_auto "Copied full path to clipboard."
       else
-        printf "\033[%d;1H\033[K\033[2mCopied %d full paths to clipboard.\033[0m" "$rows" "${#abs_items[@]}"
+        footer_message_auto "Copied %d full paths to clipboard." "${#abs_items[@]}"
       fi
       return 0
     }
@@ -5617,7 +5654,7 @@ delete_current_or_selected() {
           update_clipboard_label
           load_data
           draw_ui
-          printf "\033[%d;1H\033[K\033[2mPaste: ok:%d fail:%d skip:%d\033[0m" "$rows" "$ok_count" "$fail_count" "$skip_count"
+          footer_message_auto "Paste: ok:%d fail:%d skip:%d" "$ok_count" "$fail_count" "$skip_count"
         else
           LAST_PASTE_OP="cancel"
           draw_ui
@@ -5642,7 +5679,7 @@ delete_current_or_selected() {
             LAST_PASTE_SKIP=0
             load_data
             draw_ui
-            printf "\033[%d;1H\033[K\033[2mPaste: ok:1 fail:0 skip:0\033[0m" "$rows"
+            footer_message_auto "Paste: ok:1 fail:0 skip:0"
           else
             LAST_PASTE_RC=$?
             LAST_PASTE_ERR="$err"
@@ -5650,7 +5687,7 @@ delete_current_or_selected() {
             LAST_PASTE_FAIL=1
             LAST_PASTE_SKIP=0
             draw_ui
-            printf "\033[%d;1H\033[K\033[2mPaste failed for: %s\033[0m" "$rows" "$dest"
+            footer_message_auto "Paste failed for: %s" "$dest"
           fi
           return 0
         fi
@@ -5662,20 +5699,20 @@ delete_current_or_selected() {
           LAST_PASTE_SKIP=0
           load_data
           draw_ui
-          printf "\033[%d;1H\033[K\033[2mPaste: ok:1 fail:0 skip:0\033[0m" "$rows"
+          footer_message_auto "Paste: ok:1 fail:0 skip:0"
         else
           LAST_PASTE_RC=$?
           LAST_PASTE_OK=0
           LAST_PASTE_FAIL=1
           LAST_PASTE_SKIP=0
           draw_ui
-          printf "\033[%d;1H\033[K\033[2mPaste failed for: %s\033[0m" "$rows" "$dest"
+          footer_message_auto "Paste failed for: %s" "$dest"
         fi
         return 0
       fi
 
       draw_ui
-      printf "\033[%d;1H\033[K\033[2mClipboard is empty. Copy or move items first.\033[0m" "$rows"
+      footer_message_auto "Clipboard is empty. Copy or move items first."
       return 1
     }
 
@@ -6456,7 +6493,7 @@ delete_current_or_selected() {
 
       if (( !HAS_FZF )); then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mFile search unavailable: fzf is not installed or disabled.\033[0m" "$rows"
+        footer_message_auto "File search unavailable: fzf is not installed or disabled."
         return 1
       fi
 
@@ -6480,7 +6517,7 @@ delete_current_or_selected() {
       if [[ ! -s "$tmp_candidates" ]]; then
         rm -f -- "$tmp_candidates" "$tmp_selection"
         draw_status
-        printf "\033[%d;1H\033[K\033[2mNo files available to search in this directory tree.\033[0m" "$rows"
+        footer_message_auto "No files available to search in this directory tree."
         return 1
       fi
 
@@ -6496,7 +6533,7 @@ delete_current_or_selected() {
 
       if [[ -z "$selection" ]]; then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mFile search cancelled.\033[0m" "$rows"
+        footer_message_auto "File search cancelled."
         return 1
       fi
 
@@ -6578,14 +6615,14 @@ delete_current_or_selected() {
 
       if (( !HAS_RG )); then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mSearch unavailable: rg is not installed or disabled.\033[0m" "$rows"
+        footer_message_auto "Search unavailable: rg is not installed or disabled."
         return 1
       fi
 
       query="$(read_line_prompt "Search exact text: " "")"
       if [[ -z "$query" ]]; then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mSearch cancelled.\033[0m" "$rows"
+        footer_message_auto "Search cancelled."
         return 1
       fi
 
@@ -6612,20 +6649,20 @@ delete_current_or_selected() {
 
       if ! command -v delta >/dev/null 2>&1 || integration_is_disabled delta; then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mCompare unavailable: delta is not installed or disabled.\033[0m" "$rows"
+        footer_message_auto "Compare unavailable: delta is not installed or disabled."
         return 1
       fi
 
       read_stdin_into_array paths < <(collect_selected_paths_in_row_order)
       if (( ${#paths[@]} != 2 )); then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mCompare requires exactly 2 selected files.\033[0m" "$rows"
+        footer_message_auto "Compare requires exactly 2 selected files."
         return 1
       fi
 
       if [[ ! -f "${paths[0]}" || ! -f "${paths[1]}" ]]; then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mCompare requires 2 regular files.\033[0m" "$rows"
+        footer_message_auto "Compare requires 2 regular files."
         return 1
       fi
 
@@ -6716,7 +6753,7 @@ delete_current_or_selected() {
 
       if (( !HAS_DUST )); then
         draw_status
-        printf "\033[%d;1H\033[K\033[2mDust source unavailable: install/enable dust in integrations.\033[0m" "$rows"
+        footer_message_auto "Dust source unavailable: install/enable dust in integrations."
         return 1
       fi
 
@@ -6822,6 +6859,7 @@ delete_current_or_selected() {
         "Env overrides"
         "SB_KEY_*    Override any key binding"
         "SB_KEY_GIT_PUSH  Trigger git add/commit/push workflow (default G)"
+        "NERD_FONT_ACTIVE  Show footer status icons when set to 1"
         "SB_KEY_DUST_MODE  Toggle dust source mode (default s)"
         "SB_SHOW_DEBUG_FOOTER  Start with debug footer shown (1/0)"
         "SB_EDITOR   Optional override (else VISUAL, EDITOR, /etc/alternatives/editor, nano)"
@@ -7114,7 +7152,7 @@ delete_current_or_selected() {
               draw_status
             else
               draw_status
-              printf "\033[%d;1H\033[K\033[2mCopy failed: no valid source paths in current selection.\033[0m" "$rows"
+              footer_message_auto "Copy failed: no valid source paths in current selection."
             fi
             ;;
           "$KEY_COPY_PATH")
@@ -7125,7 +7163,7 @@ delete_current_or_selected() {
               draw_status
             else
               draw_status
-              printf "\033[%d;1H\033[K\033[2mMove failed: no valid source paths in current selection.\033[0m" "$rows"
+              footer_message_auto "Move failed: no valid source paths in current selection."
             fi
             ;;
           "$KEY_DELETE")
