@@ -1159,6 +1159,8 @@ EOF
 
     run_git_add_commit_push() {
       local commit_msg=""
+      local branch_name=""
+      local branch_second_part=""
       local rc=0
       local tmp_log=""
 
@@ -1188,6 +1190,14 @@ EOF
         return 1
       fi
 
+      branch_name="$(git branch --show-current 2>/dev/null || true)"
+      if [[ "$branch_name" == */* ]]; then
+        branch_second_part="${branch_name#*/}"
+        if [[ "$branch_second_part" == *-* && "$commit_msg" != "$branch_second_part:"* ]]; then
+          commit_msg="${branch_second_part}: $commit_msg"
+        fi
+      fi
+
       tmp_log="$(mktemp "${TMPDIR:-/tmp}/sb-git-workflow.XXXXXX")" || {
         draw_status
         printf "\033[%d;1H\033[K\033[2mGit workflow failed: unable to create temporary log file.\033[0m" "$rows"
@@ -1215,6 +1225,8 @@ EOF
 
       if (( rc == 0 )); then
         rm -f -- "$tmp_log"
+        GIT_HEADER_CACHE_PWD=""
+        GIT_HEADER_CACHE_SUFFIX=""
         load_data
         draw_ui
         printf "\033[%d;1H\033[K\033[2mGit workflow complete: add, commit, push succeeded.\033[0m" "$rows"
