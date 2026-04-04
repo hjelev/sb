@@ -51,22 +51,17 @@ version_from_tag() {
     return 1
 }
 
-stamp_script_version_from_tag() {
+stamp_script_version() {
     local script_path="$1"
-    local tag="$2"
-    local normalized_version
+    local version="$2"
     local tmp_file
 
-    if ! normalized_version="$(version_from_tag "$tag")"; then
-        printf 'Warning: could not derive script version from tag %s, leaving script VERSION unchanged.\n' "$tag" >&2
-        return 0
-    fi
-
     tmp_file="$(mktemp)"
-    if ! awk -v version="$normalized_version" '
+    if ! awk -v version="$version" '
         BEGIN { updated = 0 }
-        /^VERSION="/ && !updated {
-            print "VERSION=\"" version "\""
+        /^[[:space:]]*VERSION="/ && !updated {
+            match($0, /^[[:space:]]*/)
+            print substr($0, RSTART, RLENGTH) "VERSION=\"" version "\""
             updated = 1
             next
         }
@@ -85,6 +80,19 @@ stamp_script_version_from_tag() {
     mv "$tmp_file" "$script_path"
 }
 
+stamp_script_version_from_tag() {
+    local script_path="$1"
+    local tag="$2"
+    local normalized_version
+
+    if ! normalized_version="$(version_from_tag "$tag")"; then
+        printf 'Warning: could not derive script version from tag %s, leaving script VERSION unchanged.\n' "$tag" >&2
+        return 0
+    fi
+
+    stamp_script_version "$script_path" "$normalized_version"
+}
+
 ref_has_script() {
     local ref="$1"
     local url="https://raw.githubusercontent.com/$REPO/$ref/sb"
@@ -100,6 +108,12 @@ resolve_default_ref() {
         fi
     done
     return 1
+}
+
+resolve_ref_short_sha() {
+    local ref="$1"
+    curl -fsSL "https://api.github.com/repos/$REPO/commits/$ref" 2>/dev/null \
+        | awk -F '"' '/"sha":/ { print substr($4, 1, 7); exit }'
 }
 
 path_contains_dir() {
@@ -406,6 +420,14 @@ curl -fsSL "$DOWNLOAD_URL" -o "$TMP_FILE"
 
 if [[ -n "$VERSION" ]]; then
     stamp_script_version_from_tag "$TMP_FILE" "$VERSION"
+elif [[ -n "$REF" ]]; then
+    REF_SHORT_SHA="$(resolve_ref_short_sha "$REF")"
+    if [[ -n "$REF_SHORT_SHA" ]]; then
+        stamp_script_version "$TMP_FILE" "${REF}@${REF_SHORT_SHA}"
+        printf 'Stamped version as %s@%s\n' "$REF" "$REF_SHORT_SHA"
+    else
+        printf 'Warning: unable to resolve commit SHA for ref %s, leaving VERSION unchanged.\n' "$REF" >&2
+    fi
 fi
 
 chmod 0755 "$TMP_FILE"
