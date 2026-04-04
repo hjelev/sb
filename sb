@@ -97,6 +97,9 @@
     SB_NAMEFIRST_NAME_MAX="${SB_NAMEFIRST_NAME_MAX:-64}"
     SB_PREVIEW_SPLIT_PCT="${SB_PREVIEW_SPLIT_PCT:-30}"
     SB_PREVIEW_SEPARATOR_CHAR="${SB_PREVIEW_SEPARATOR_CHAR:-│}"
+    SB_PREVIEW_COLORS="${SB_PREVIEW_COLORS:-1}"
+    SB_PREVIEW_RELEASE_IDLE_MS="${SB_PREVIEW_RELEASE_IDLE_MS:-}"
+    SB_PREVIEW_IDLE_MS="${SB_PREVIEW_IDLE_MS:-}"
     SB_DEBUG_LOGO_NAMEFIRST="${SB_DEBUG_LOGO_NAMEFIRST:-0}"
     SB_DEBUG_LOGO_FILE="${SB_DEBUG_LOGO_FILE:-/tmp/sb-logo-namefirst.debug}"
     LIST_SOURCE="${SB_LIST_SOURCE:-}"   # empty = auto-select best available in detect_sources()
@@ -249,9 +252,15 @@
     PREVIEW_MODE=0
     PREVIEW_SPLIT_PCT=30
     PREVIEW_SEPARATOR_CHAR="│"
+    PREVIEW_COLORS=1
+    PREVIEW_PANE_COLOR=$'\033[0;37m'
     PREVIEW_CACHE_PATH=""
     PREVIEW_CACHE_WIDTH=0
     PREVIEW_CACHE_HEIGHT=0
+    PREVIEW_LINES_HAS_ANSI=0
+    PREVIEW_RENDER_DEFERRED=0
+    PREVIEW_RELEASE_IDLE_MS=500
+    PREVIEW_LAST_NAV_NS=0
 
     sb_name_with_version() {
       if [[ -n "$VERSION" ]]; then
@@ -453,6 +462,7 @@ EOF
 
     init_runtime_config() {
       local split_value
+      local idle_ms
 
       if [[ "$SB_SHOW_DEBUG_FOOTER" == "1" ]]; then
         SHOW_DEBUG_FOOTER=1
@@ -474,6 +484,23 @@ EOF
       else
         PREVIEW_SEPARATOR_CHAR="│"
       fi
+
+      if [[ "$SB_PREVIEW_COLORS" == "0" ]]; then
+        PREVIEW_COLORS=0
+      else
+        PREVIEW_COLORS=1
+      fi
+
+      if [[ "$SB_PREVIEW_RELEASE_IDLE_MS" =~ ^[0-9]+$ ]]; then
+        idle_ms=$SB_PREVIEW_RELEASE_IDLE_MS
+      elif [[ "$SB_PREVIEW_IDLE_MS" =~ ^[0-9]+$ ]]; then
+        idle_ms=$SB_PREVIEW_IDLE_MS
+      else
+        idle_ms=700
+      fi
+      (( idle_ms < 100 )) && idle_ms=100
+      (( idle_ms > 5000 )) && idle_ms=5000
+      PREVIEW_RELEASE_IDLE_MS=$idle_ms
     }
 
     detect_runtime_capabilities() {
@@ -4682,6 +4709,8 @@ delete_current_or_selected() {
     load_data() {
       local t0 t1 t2
 
+      PREVIEW_RENDER_DEFERRED=0
+      PREVIEW_LAST_NAV_NS=0
       invalidate_preview_cache
 
       ROWS_COLOR=()
@@ -4974,6 +5003,7 @@ delete_current_or_selected() {
       PREVIEW_CACHE_PATH=""
       PREVIEW_CACHE_WIDTH=0
       PREVIEW_CACHE_HEIGHT=0
+      PREVIEW_LINES_HAS_ANSI=0
       PREVIEW_LINES=()
     }
 
@@ -5001,22 +5031,66 @@ delete_current_or_selected() {
     preview_collect_lines() {
       local height="$1"
       local raw_text="$2"
+      local preserve_ansi="${3:-0}"
 
       if [[ -z "$raw_text" ]]; then
+        PREVIEW_LINES_HAS_ANSI=0
         PREVIEW_LINES=("(no preview output)")
         return 0
       fi
 
-      read_stdin_into_array PREVIEW_LINES < <(
-        printf '%s\n' "$raw_text" \
-          | sed -E $'s/\x1B\[[0-9;:]*m//g' \
-          | sed 's/\t/  /g' \
-          | head -n "$height"
-      )
+      if [[ "$preserve_ansi" == "1" ]]; then
+        PREVIEW_LINES_HAS_ANSI=1
+        read_stdin_into_array PREVIEW_LINES < <(
+          printf '%s\n' "$raw_text" \
+            | sed 's/\t/  /g' \
+            | head -n "$height"
+        )
+      else
+        PREVIEW_LINES_HAS_ANSI=0
+        read_stdin_into_array PREVIEW_LINES < <(
+          printf '%s\n' "$raw_text" \
+            | sed -E $'s/\x1B\[[0-9;:]*m//g' \
+            | sed 's/\t/  /g' \
+            | head -n "$height"
+        )
+      fi
 
       if (( ${#PREVIEW_LINES[@]} == 0 )); then
+        PREVIEW_LINES_HAS_ANSI=0
         PREVIEW_LINES=("(no preview output)")
       fi
+    }
+
+    set_preview_pane_color_kind() {
+      local kind="$1"
+
+      case "$kind" in
+        directory)
+          PREVIEW_PANE_COLOR=$'\033[0;36m'
+          ;;
+        archive)
+          PREVIEW_PANE_COLOR=$'\033[0;33m'
+          ;;
+        image)
+          PREVIEW_PANE_COLOR=$'\033[0;35m'
+          ;;
+        pdf)
+          PREVIEW_PANE_COLOR=$'\033[0;32m'
+          ;;
+        markdown)
+          PREVIEW_PANE_COLOR=$'\033[1;36m'
+          ;;
+        data)
+          PREVIEW_PANE_COLOR=$'\033[0;96m'
+          ;;
+        binary)
+          PREVIEW_PANE_COLOR=$'\033[0;31m'
+          ;;
+        *)
+          PREVIEW_PANE_COLOR=$'\033[0;37m'
+          ;;
+      esac
     }
 
     build_inline_preview_for_path() {
@@ -5028,11 +5102,13 @@ delete_current_or_selected() {
       PREVIEW_LINES=()
 
       if [[ -z "$path" ]]; then
+        set_preview_pane_color_kind text
         PREVIEW_LINES=("(no selection)")
         return 0
       fi
 
       if [[ -d "$path" ]]; then
+        set_preview_pane_color_kind directory
         output="$(LC_ALL=C ls -1A -- "$path" 2>/dev/null | head -n "$height")"
         if [[ -z "$output" ]]; then
           PREVIEW_LINES=("(directory is empty)")
@@ -5043,6 +5119,7 @@ delete_current_or_selected() {
       fi
 
       if is_archive_file "$path"; then
+        set_preview_pane_color_kind archive
         local lower
         lower="$(lowercase_string "$path")"
         case "$lower" in
@@ -5074,24 +5151,28 @@ delete_current_or_selected() {
       fi
 
       if (( HAS_CHAFA )) && ! integration_is_disabled chafa && path_is_image_file "$path"; then
+        set_preview_pane_color_kind image
         output="$(chafa --animate=off --symbols vhalf --size "${width}x${height}" -- "$path" 2>/dev/null)"
-        preview_collect_lines "$height" "$output"
+        preview_collect_lines "$height" "$output" 1
         return 0
       fi
 
       if (( HAS_PDFTOTEXT )) && ! integration_is_disabled pdftotext && is_pdf_file "$path"; then
+        set_preview_pane_color_kind pdf
         output="$(pdftotext ${SB_PDFTOTEXT_ARGS:-} -- "$path" - 2>/dev/null | head -n "$height")"
         preview_collect_lines "$height" "$output"
         return 0
       fi
 
       if (( HAS_GLOW )) && ! integration_is_disabled glow && is_markdown_file "$path"; then
+        set_preview_pane_color_kind markdown
         output="$(glow -w "$width" ${SB_GLOW_ARGS:-} -- "$path" 2>/dev/null | head -n "$height")"
         preview_collect_lines "$height" "$output"
         return 0
       fi
 
       if is_jnv_file "$path"; then
+        set_preview_pane_color_kind data
         if (( HAS_JNV )) && ! integration_is_disabled jnv; then
           if command -v jq >/dev/null 2>&1; then
             output="$(jq -C . -- "$path" 2>/dev/null | head -n "$height")"
@@ -5106,6 +5187,7 @@ delete_current_or_selected() {
       fi
 
       if is_csvlens_file "$path"; then
+        set_preview_pane_color_kind data
         if (( HAS_CSVLENS )) && ! integration_is_disabled csvlens; then
           if command -v column >/dev/null 2>&1; then
             output="$(head -n "$height" -- "$path" 2>/dev/null | column -s, -t 2>/dev/null)"
@@ -5120,11 +5202,13 @@ delete_current_or_selected() {
       fi
 
       if (( HAS_HEXYL )) && ! integration_is_disabled hexyl && should_use_hex_fallback_file "$path"; then
+        set_preview_pane_color_kind binary
         output="$(hexyl ${SB_HEXYL_ARGS:-} -- "$path" 2>/dev/null | head -n "$height")"
         preview_collect_lines "$height" "$output"
         return 0
       fi
 
+      set_preview_pane_color_kind text
       if (( HAS_BAT )); then
         output="$(bat --paging=never --terminal-width "$width" --line-range ":$height" -- "$path" 2>/dev/null)"
       elif (( HAS_BATCAT )); then
@@ -5183,7 +5267,7 @@ delete_current_or_selected() {
       local left_width="$3"
       local right_width="$4"
       local row_plain=""
-      local left_cell right_cell preview_line separator_cell color_dim color_reset
+      local left_cell right_cell preview_line separator_cell color_dim color_reset preview_color preview_reset
       local screen_line=$((3 + line))
 
       printf "\033[%d;1H" "$screen_line"
@@ -5198,21 +5282,32 @@ delete_current_or_selected() {
 
       left_cell="$(fit_plain_cell "$row_plain" "$left_width")"
       preview_line="${PREVIEW_LINES[$line]-}"
-      right_cell="$(fit_plain_cell "$preview_line" "$right_width")"
+      if (( PREVIEW_LINES_HAS_ANSI )); then
+        right_cell="$preview_line"
+      else
+        right_cell="$(fit_plain_cell "$preview_line" "$right_width")"
+      fi
       color_dim=$'\033[2m'
       color_reset=$'\033[0m'
       separator_cell="${color_dim}${PREVIEW_SEPARATOR_CHAR}${color_reset}"
+      preview_color=""
+      preview_reset=""
+      if (( PREVIEW_COLORS )) && (( !PREVIEW_LINES_HAS_ANSI )); then
+        preview_color="$PREVIEW_PANE_COLOR"
+        preview_reset=$'\033[0m'
+      fi
 
       if (( idx == cursor )); then
-        printf "\033[7m%s\033[0m%s%s\033[K" "$left_cell" "$separator_cell" "$right_cell"
+        printf "\033[7m%s\033[0m%s%s%s\033[K" "$left_cell" "$separator_cell" "$preview_color" "$right_cell$preview_reset"
       elif (( idx >= 0 && idx < ${#ROWS_SELECTED[@]} )) && [[ "${ROWS_SELECTED[$idx]-0}" == "1" ]]; then
-        printf "\033[48;5;24m%s\033[0m%s%s\033[K" "$left_cell" "$separator_cell" "$right_cell"
+        printf "\033[48;5;24m%s\033[0m%s%s%s\033[K" "$left_cell" "$separator_cell" "$preview_color" "$right_cell$preview_reset"
       else
-        printf "%s%s%s\033[K" "$left_cell" "$separator_cell" "$right_cell"
+        printf "%s%s%s%s\033[K" "$left_cell" "$separator_cell" "$preview_color" "$right_cell$preview_reset"
       fi
     }
 
     redraw_preview_rows_and_status() {
+      local refresh_preview="${1:-1}"
       local split_pct left_width right_width line idx
 
       ensure_cursor_hidden
@@ -5227,12 +5322,62 @@ delete_current_or_selected() {
       right_width=$(( cols - left_width - 1 ))
       (( right_width < 8 )) && right_width=8
 
-      ensure_preview_cache "$right_width" "$visible_rows"
+      if [[ "$refresh_preview" == "1" ]]; then
+        ensure_preview_cache "$right_width" "$visible_rows"
+      fi
 
       printf "\033[?7l"
       for (( line=0; line<visible_rows; line++ )); do
         idx=$(( top + line ))
         draw_preview_split_row "$idx" "$line" "$left_width" "$right_width"
+      done
+      printf "\033[?7h"
+
+      draw_status
+    }
+
+    # Fast navigation redraw: updates ONLY the left file-list pane and separator.
+    # The right preview pane is left completely untouched, keeping it visually
+    # stable while the user holds Up/Down.  The deferred-idle timer handles the
+    # single preview rebuild once the user stops navigating.
+    redraw_preview_left_and_status() {
+      local split_pct left_width line idx row_plain left_cell screen_line
+      local color_dim color_reset sep
+
+      ensure_cursor_hidden
+
+      split_pct=$PREVIEW_SPLIT_PCT
+      (( split_pct < 20 )) && split_pct=20
+      (( split_pct > 70 )) && split_pct=70
+      left_width=$(( (cols * split_pct) / 100 ))
+      (( left_width < 12 )) && left_width=12
+      (( left_width > cols - 10 )) && left_width=$(( cols - 10 ))
+
+      color_dim=$'\033[2m'
+      color_reset=$'\033[0m'
+      sep="${color_dim}${PREVIEW_SEPARATOR_CHAR}${color_reset}"
+
+      printf "\033[?7l"
+      for (( line=0; line<visible_rows; line++ )); do
+        idx=$(( top + line ))
+        screen_line=$((3 + line))
+        row_plain=""
+        if (( idx >= 0 && idx < ${#ROWS_COLOR[@]} )); then
+          row_plain="${ROWS_PLAIN[$idx]-}"
+          if [[ -z "$row_plain" ]]; then
+            row_plain="$(strip_ansi_for_display "${ROWS_COLOR[$idx]}")"
+            ROWS_PLAIN[$idx]="$row_plain"
+          fi
+        fi
+        left_cell="$(fit_plain_cell "$row_plain" "$left_width")"
+        printf "\033[%d;1H" "$screen_line"
+        if (( idx == cursor )); then
+          printf "\033[7m%s\033[0m%s" "$left_cell" "$sep"
+        elif (( idx >= 0 && idx < ${#ROWS_SELECTED[@]} )) && [[ "${ROWS_SELECTED[$idx]-0}" == "1" ]]; then
+          printf "\033[48;5;24m%s\033[0m%s" "$left_cell" "$sep"
+        else
+          printf "%s%s" "$left_cell" "$sep"
+        fi
       done
       printf "\033[?7h"
 
@@ -5416,9 +5561,14 @@ delete_current_or_selected() {
     }
 
     read_key() {
+      local timeout="${1:-}"
       local k k2 ch seq normalized
       local mouse_complete=0
-      IFS= read -rsn1 k || return 1
+      if [[ -n "$timeout" ]]; then
+        IFS= read -rsn1 -t "$timeout" k || return 1
+      else
+        IFS= read -rsn1 k || return 1
+      fi
       # In some terminal modes, Enter may arrive as an empty read token.
       # Canonicalize it so dispatch paths consistently receive KEY_ENTER.
       if [[ -z "$k" ]]; then
@@ -7261,6 +7411,8 @@ delete_current_or_selected() {
         "SB_KEY_TOGGLE_PREVIEW  Toggle split preview mode key (default \\)"
         "SB_PREVIEW_SPLIT_PCT  Left pane percent in preview mode (default 30)"
         "SB_PREVIEW_SEPARATOR_CHAR  Preview divider character (default │)"
+        "SB_PREVIEW_COLORS  Enable preview pane colors by content type (1/0, default 1)"
+        "SB_PREVIEW_RELEASE_IDLE_MS  Refresh preview after nav key release/idle (default 500ms)"
         "SB_NAMEFIRST_WIDTH_PCT  Name-first width percent of terminal (default 35)"
         "SB_NAMEFIRST_NAME_MIN  Soft minimum name width in name-first mode (default 12)"
         "SB_NAMEFIRST_NAME_MAX  Maximum name width cap in name-first mode (default 64)"
@@ -7467,8 +7619,29 @@ delete_current_or_selected() {
       while true; do
         local key
         local old_cursor old_top
-        key="$(read_key || true)"
+        local now_ns elapsed_ms
+        if (( PREVIEW_MODE && PREVIEW_RENDER_DEFERRED )); then
+          key="$(read_key 0.03 || true)"
+          if [[ -z "$key" ]]; then
+            now_ns=$(now_epoch_ns)
+            elapsed_ms=$(( (now_ns - PREVIEW_LAST_NAV_NS) / 1000000 ))
+            if (( elapsed_ms >= PREVIEW_RELEASE_IDLE_MS )); then
+              redraw_preview_rows_and_status 1
+              PREVIEW_RENDER_DEFERRED=0
+            fi
+            continue
+          fi
+        else
+          key="$(read_key || true)"
+        fi
         [[ -z "$key" ]] && continue
+
+        if (( PREVIEW_MODE && PREVIEW_RENDER_DEFERRED )); then
+          if [[ "$key" != "$KEY_UP" && "$key" != "$KEY_DOWN" ]]; then
+            redraw_preview_rows_and_status 1
+            PREVIEW_RENDER_DEFERRED=0
+          fi
+        fi
 
         case "$key" in
           "$KEY_QUIT")
@@ -7514,6 +7687,8 @@ delete_current_or_selected() {
             else
               PREVIEW_MODE=1
             fi
+            PREVIEW_RENDER_DEFERRED=0
+            PREVIEW_LAST_NAV_NS=0
             load_data
             draw_ui
             ;;
@@ -7610,7 +7785,9 @@ delete_current_or_selected() {
           "$KEY_UP")
             if (( PREVIEW_MODE )); then
               move_up
-              redraw_preview_rows_and_status
+              redraw_preview_left_and_status
+              PREVIEW_RENDER_DEFERRED=1
+              PREVIEW_LAST_NAV_NS=$(now_epoch_ns)
               continue
             fi
 
@@ -7634,7 +7811,9 @@ delete_current_or_selected() {
           "$KEY_DOWN")
             if (( PREVIEW_MODE )); then
               move_down
-              redraw_preview_rows_and_status
+              redraw_preview_left_and_status
+              PREVIEW_RENDER_DEFERRED=1
+              PREVIEW_LAST_NAV_NS=$(now_epoch_ns)
               continue
             fi
 
