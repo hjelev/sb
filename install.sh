@@ -217,8 +217,26 @@ resolve_default_ref() {
 
 resolve_ref_short_sha() {
     local ref="$1"
-    curl -fsSL "https://api.github.com/repos/$REPO/commits/$ref" 2>/dev/null \
-        | awk -F '"' '/"sha":/ { print substr($4, 1, 7); exit }'
+    local sha=""
+
+    # Primary: GitHub API commit endpoint.
+    sha="$(curl -fsSL "https://api.github.com/repos/$REPO/commits/$ref" 2>/dev/null \
+        | awk -F '"' '/"sha":/ { print substr($4, 1, 7); exit }')"
+    if [[ -n "$sha" ]]; then
+        printf '%s\n' "$sha"
+        return 0
+    fi
+
+    # Fallback: git ls-remote avoids API rate limits and still resolves branch/tag refs.
+    if command -v git >/dev/null 2>&1; then
+        sha="$(git ls-remote "https://github.com/$REPO.git" "$ref" 2>/dev/null | awk 'NR==1 {print substr($1,1,7)}')"
+        if [[ -n "$sha" ]]; then
+            printf '%s\n' "$sha"
+            return 0
+        fi
+    fi
+
+    return 1
 }
 
 prompt_yes_no() {

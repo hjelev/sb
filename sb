@@ -389,7 +389,11 @@
           read -r reply
           if [[ "$reply" =~ ^[Yy]$ ]]; then
             printf 'Installing from master branch...\n'
-            curl -fsSL "$SB_INSTALLER_URL" | bash -s -- --install-dir "$install_dir" --ref master
+            if ! curl -fsSL "$SB_INSTALLER_URL" | bash -s -- --install-dir "$install_dir" --ref master; then
+              draw_status
+              footer_message_auto "GitHub update failed while installing from master."
+              return 1
+            fi
           fi
           return 0
         else
@@ -410,7 +414,11 @@
       read -r reply
       if [[ "$reply" =~ ^[Yy]$ ]]; then
         printf 'Installing from master branch...\n'
-        curl -fsSL "$SB_INSTALLER_URL" | bash -s -- --install-dir "$install_dir" --ref master
+        if ! curl -fsSL "$SB_INSTALLER_URL" | bash -s -- --install-dir "$install_dir" --ref master; then
+          draw_status
+          footer_message_auto "GitHub update failed while installing from master."
+          return 1
+        fi
       fi
     }
 
