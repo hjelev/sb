@@ -1170,7 +1170,7 @@ EOF
     }
 
     detect_sources() {
-      # Detect list source tools (prefer eza > lsd > dust > logo-ls > ls); respect user-disabled integrations.
+      # Detect list source tools (prefer eza > lsd > logo-ls > ls > dust); respect user-disabled integrations.
       if command -v eza >/dev/null 2>&1 && ! integration_is_disabled eza; then
         HAS_EZA=1
       else
@@ -1200,10 +1200,11 @@ EOF
           LIST_SOURCE=eza
         elif (( HAS_LSD )); then
           LIST_SOURCE=lsd
-        elif (( HAS_DUST )); then
-          LIST_SOURCE=dust
         elif (( HAS_LOGO_LS )); then
           LIST_SOURCE=logo-ls
+        elif (( HAS_DUST )) && integration_is_disabled ls; then
+          # ls is built-in and preferred over dust; only use dust by default if ls is explicitly disabled.
+          LIST_SOURCE=dust
         else
           LIST_SOURCE=ls
         fi
@@ -1215,10 +1216,10 @@ EOF
         if [[ "$LIST_SOURCE" == "eza" ]] && (( !HAS_EZA )); then
           if (( HAS_LSD )); then
             LIST_SOURCE=lsd
-          elif (( HAS_DUST )); then
-            LIST_SOURCE=dust
           elif (( HAS_LOGO_LS )); then
             LIST_SOURCE=logo-ls
+          elif (( HAS_DUST )) && integration_is_disabled ls; then
+            LIST_SOURCE=dust
           else
             LIST_SOURCE=ls
           fi
@@ -1226,10 +1227,10 @@ EOF
         if [[ "$LIST_SOURCE" == "lsd" ]] && (( !HAS_LSD )); then
           if (( HAS_EZA )); then
             LIST_SOURCE=eza
-          elif (( HAS_DUST )); then
-            LIST_SOURCE=dust
           elif (( HAS_LOGO_LS )); then
             LIST_SOURCE=logo-ls
+          elif (( HAS_DUST )) && integration_is_disabled ls; then
+            LIST_SOURCE=dust
           else
             LIST_SOURCE=ls
           fi
@@ -1250,7 +1251,7 @@ EOF
             LIST_SOURCE=eza
           elif (( HAS_LSD )); then
             LIST_SOURCE=lsd
-          elif (( HAS_DUST )); then
+          elif (( HAS_DUST )) && integration_is_disabled ls; then
             LIST_SOURCE=dust
           else
             LIST_SOURCE=ls
