@@ -1161,6 +1161,7 @@ EOF
       local commit_msg=""
       local branch_name=""
       local branch_second_part=""
+      local branch_prefix=""
       local rc=0
       local tmp_log=""
 
@@ -1193,8 +1194,14 @@ EOF
       branch_name="$(git branch --show-current 2>/dev/null || true)"
       if [[ "$branch_name" == */* ]]; then
         branch_second_part="${branch_name#*/}"
-        if [[ "$branch_second_part" == *-* && "$commit_msg" != "$branch_second_part:"* ]]; then
-          commit_msg="${branch_second_part}: $commit_msg"
+        if [[ "$branch_second_part" == *-* ]]; then
+          branch_prefix="$branch_second_part"
+          if [[ "$branch_second_part" =~ ^([[:alpha:]][[:alnum:]]*-[0-9]+)([-_].*)?$ ]]; then
+            branch_prefix="${BASH_REMATCH[1]}"
+          fi
+          if [[ "$commit_msg" != "$branch_prefix:"* ]]; then
+            commit_msg="${branch_prefix}: $commit_msg"
+          fi
         fi
       fi
 
