@@ -4400,24 +4400,103 @@ delete_current_or_selected() {
       draw_status
     }
 
+    normalize_function_key_sequence() {
+      local seq="$1"
+
+      case "$seq" in
+        $'\eOP'|$'\e[11~'|$'\e[11;'*'~'|$'\e[1;'*P)
+          printf '%s' "$KEY_HELP_F1"
+          return 0
+          ;;
+        $'\eOQ'|$'\e[12~'|$'\e[12;'*'~'|$'\e[1;'*Q)
+          printf '%s' $'\eOQ'
+          return 0
+          ;;
+        $'\eOR'|$'\e[13~'|$'\e[13;'*'~'|$'\e[1;'*R)
+          printf '%s' $'\eOR'
+          return 0
+          ;;
+        $'\eOS'|$'\e[14~'|$'\e[14;'*'~'|$'\e[1;'*S)
+          printf '%s' $'\eOS'
+          return 0
+          ;;
+        $'\e[15~'|$'\e[15;'*'~')
+          printf '%s' "$KEY_RELOAD"
+          return 0
+          ;;
+        $'\e[17~'|$'\e[17;'*'~')
+          printf '%s' $'\e[17~'
+          return 0
+          ;;
+        $'\e[18~'|$'\e[18;'*'~')
+          printf '%s' $'\e[18~'
+          return 0
+          ;;
+        $'\e[19~'|$'\e[19;'*'~')
+          printf '%s' "$KEY_TOGGLE_DEBUG"
+          return 0
+          ;;
+        $'\e[20~'|$'\e[20;'*'~')
+          printf '%s' "$KEY_TOGGLE_NAME_FIRST"
+          return 0
+          ;;
+        $'\e[21~'|$'\e[21;'*'~')
+          printf '%s' $'\e[21~'
+          return 0
+          ;;
+        $'\e[23~'|$'\e[23;'*'~')
+          printf '%s' $'\e[23~'
+          return 0
+          ;;
+        $'\e[24~'|$'\e[24;'*'~')
+          printf '%s' "$KEY_TOGGLE_SOURCE"
+          return 0
+          ;;
+      esac
+
+      printf '%s' "$seq"
+      return 0
+    }
+
     read_key() {
-      local k
+      local k k2 ch seq
       IFS= read -rsn1 k || return 1
-      if [[ "$k" == $'\e' ]]; then
-        local k2 k3 k4 k5
-        IFS= read -rsn1 -t 0.005 k2 || true
-        IFS= read -rsn1 -t 0.005 k3 || true
-        # Extended sequences like \e[24~ (F12) or \e[5~ (PgUp) carry extra bytes
-        if [[ "$k2" == '[' && "$k3" =~ [0-9] ]]; then
-          IFS= read -rsn1 -t 0.005 k4 || true
-          if [[ "$k4" =~ [0-9] ]]; then
-            IFS= read -rsn1 -t 0.005 k5 || true
-          fi
-        fi
-        printf '%s' "$k$k2$k3${k4-}${k5-}"
-      else
+      if [[ "$k" != $'\e' ]]; then
         printf '%s' "$k"
+        return 0
       fi
+
+      seq="$k"
+      IFS= read -rsn1 -t 0.005 k2 || {
+        printf '%s' "$seq"
+        return 0
+      }
+      seq+="$k2"
+
+      # SS3 sequence (e.g. F1..F4 as Esc O P/Q/R/S) is exactly one more byte.
+      if [[ "$k2" == 'O' ]]; then
+        IFS= read -rsn1 -t 0.005 ch || {
+          printf '%s' "$seq"
+          return 0
+        }
+        seq+="$ch"
+        normalize_function_key_sequence "$seq"
+        return 0
+      fi
+
+      # CSI sequence: read until final byte in 0x40..0x7E range.
+      if [[ "$k2" == '[' ]]; then
+        while IFS= read -rsn1 -t 0.005 ch; do
+          seq+="$ch"
+          [[ "$ch" =~ [@-~] ]] && break
+          (( ${#seq} >= 16 )) && break
+        done
+        normalize_function_key_sequence "$seq"
+        return 0
+      fi
+
+      # Non-CSI escape combinations (e.g. Alt+key): return as-is.
+      printf '%s' "$seq"
       return 0
     }
 
