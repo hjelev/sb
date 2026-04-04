@@ -107,6 +107,7 @@
     SB_LOGO_LS_EXTRA_ARGS="${SB_LOGO_LS_EXTRA_ARGS:-}"
     SB_BSD_LS_COLOR="${SB_BSD_LS_COLOR:-auto}"
     SB_BSD_LS_EXTRA_ARGS="${SB_BSD_LS_EXTRA_ARGS:-}"
+    SB_INSTALLER_URL="${SB_INSTALLER_URL:-https://raw.githubusercontent.com/hjelev/sb/master/install.sh}"
 
     IS_DARWIN=0
     HAS_ASSOC_ARRAYS=0
@@ -230,16 +231,56 @@
       fi
     }
 
+    resolve_self_path() {
+      local source_path="${BASH_SOURCE[0]}"
+      local source_dir=""
+
+      while [[ -L "$source_path" ]]; do
+        source_dir="$(cd -P "$(dirname "$source_path")" 2>/dev/null && pwd)" || return 1
+        source_path="$(readlink "$source_path")" || return 1
+        [[ "$source_path" == /* ]] || source_path="$source_dir/$source_path"
+      done
+
+      source_dir="$(cd -P "$(dirname "$source_path")" 2>/dev/null && pwd)" || return 1
+      printf '%s/%s' "$source_dir" "$(basename "$source_path")"
+    }
+
+    self_update() {
+      local script_path install_dir
+
+      command -v curl >/dev/null 2>&1 || {
+        echo "Error: curl is required for --update." >&2
+        exit 1
+      }
+      command -v bash >/dev/null 2>&1 || {
+        echo "Error: bash is required for --update." >&2
+        exit 1
+      }
+
+      script_path="$(resolve_self_path)" || {
+        echo "Error: unable to resolve the current sb path for --update." >&2
+        exit 1
+      }
+      install_dir="$(cd -P "$(dirname "$script_path")" 2>/dev/null && pwd)" || {
+        echo "Error: unable to resolve the install directory for --update." >&2
+        exit 1
+      }
+
+      printf 'Updating %s in %s\n' "$(sb_name_with_version)" "$install_dir"
+      curl -fsSL "$SB_INSTALLER_URL" | bash -s -- --install-dir "$install_dir"
+    }
+
     usage() {
       local sb_label
       sb_label="$(sb_name_with_version)"
       cat <<EOF
 $sb_label
 
-Usage: sb [--export-path FILE] [--version] [--help]
+Usage: sb [--export-path FILE] [--update] [--version] [--help]
 
 Options:
   --export-path FILE  Write final working directory to FILE on exit.
+  --update            Update sb in its current install directory using install.sh.
   --version           Show script version and exit.
   --help              Show this help text and exit.
 EOF
@@ -258,6 +299,10 @@ EOF
             ;;
           --help)
             usage
+            exit 0
+            ;;
+          --update)
+            self_update
             exit 0
             ;;
           --version)
