@@ -53,6 +53,7 @@
     LSY_GLOW_ARGS="${LSY_GLOW_ARGS:-}"
     LSY_CSVLENS_ARGS="${LSY_CSVLENS_ARGS:-}"
     LSY_JNV_ARGS="${LSY_JNV_ARGS:-}"
+    LSY_PDFTOTEXT_ARGS="${LSY_PDFTOTEXT_ARGS:-}"
     LSY_HEXYL_ARGS="${LSY_HEXYL_ARGS:-}"
     LSY_HEXEDIT_ARGS="${LSY_HEXEDIT_ARGS:-}"
     LSY_RG_ARGS="${LSY_RG_ARGS:-}"
@@ -149,6 +150,7 @@
     HAS_GLOW=0
     HAS_CSVLENS=0
     HAS_JNV=0
+    HAS_PDFTOTEXT=0
     HAS_HEXYL=0
     HAS_HEXEDIT=0
     HAS_RG=0
@@ -1246,6 +1248,12 @@ EOF
         HAS_JNV=0
       fi
 
+      if command -v pdftotext >/dev/null 2>&1 && ! integration_is_disabled pdftotext; then
+        HAS_PDFTOTEXT=1
+      else
+        HAS_PDFTOTEXT=0
+      fi
+
       if command -v hexyl >/dev/null 2>&1 && ! integration_is_disabled hexyl; then
         HAS_HEXYL=1
       else
@@ -1661,6 +1669,11 @@ EOF
         fi
       fi
 
+      if (( HAS_PDFTOTEXT )) && is_pdf_file "$item"; then
+        preview_pdf_with_pdftotext "$item"
+        return $?
+      fi
+
       # Only fall back to hexyl when no richer typed integration claimed the file.
       if (( HAS_HEXYL )) && should_use_hex_fallback_file "$item"; then
         open_file_with_hexyl "$item"
@@ -1772,6 +1785,59 @@ EOF
       fi
 
       return 1
+    }
+
+    is_pdf_file() {
+      local item="$1"
+      local lower mime
+
+      lower="$(lowercase_string "$item")"
+      case "$lower" in
+        *.pdf)
+          return 0
+          ;;
+      esac
+
+      if command -v file >/dev/null 2>&1; then
+        mime="$(file --brief --mime-type -- "$item" 2>/dev/null || true)"
+        [[ "$mime" == application/pdf ]] && return 0
+      fi
+
+      return 1
+    }
+
+    preview_pdf_with_pdftotext() {
+      local item="$1"
+      local -a pdftotext_args=()
+
+      (( HAS_PDFTOTEXT )) || return 1
+      if [[ -n "$LSY_PDFTOTEXT_ARGS" ]]; then
+        read -r -a pdftotext_args <<< "$LSY_PDFTOTEXT_ARGS"
+      fi
+
+      if (( HAS_BAT )); then
+        run_interactive_command bash -c '
+          file="$1"
+          shift
+          pdftotext "$@" -- "$file" - 2>/dev/null | bat --paging=always --language=txt --style=plain
+        ' _ "$item" "${pdftotext_args[@]}"
+      elif (( HAS_BATCAT )); then
+        run_interactive_command bash -c '
+          file="$1"
+          shift
+          pdftotext "$@" -- "$file" - 2>/dev/null | batcat --paging=always --language=txt --style=plain
+        ' _ "$item" "${pdftotext_args[@]}"
+      elif command -v less >/dev/null 2>&1; then
+        run_interactive_command bash -c '
+          file="$1"
+          shift
+          pdftotext "$@" -- "$file" - 2>/dev/null | less -R
+        ' _ "$item" "${pdftotext_args[@]}"
+      else
+        return 1
+      fi
+
+      return 0
     }
 
     is_binary_file_quick() {
@@ -4594,6 +4660,10 @@ delete_current_or_selected() {
           (( HAS_JNV ))
           return
           ;;
+        pdftotext)
+          (( HAS_PDFTOTEXT ))
+          return
+          ;;
         hexyl)
           (( HAS_HEXYL ))
           return
@@ -4679,6 +4749,7 @@ delete_current_or_selected() {
         "archive|rar|RAR: extract .rar archives (unrar or rar)|1"
         "compare|delta|Side-by-side file diff for exactly 2 selected files|1"
         "preview|jnv|Terminal JSON preview for .json .jsonl .ndjson .geojson|1"
+        "preview|pdftotext|PDF text preview (uses 'bat' when available, otherwise 'less')|1"
         "preview|hexyl|Hex viewer used for binary files detected on open|1"
         "editor|hexedit|Hex editor used on e for binary files detected on open|1"
         "search|rg|Bulk recursive exact-text search in current folder|1"
@@ -5172,7 +5243,6 @@ delete_current_or_selected() {
     fuzzy_find_filename_in_current_dir() {
       local tmp_candidates tmp_selection selection
       local -a fzf_args=()
-      local i path
 
       if (( !HAS_FZF )); then
         draw_status
@@ -5191,16 +5261,16 @@ delete_current_or_selected() {
         return 1
       }
 
-      for i in "${!ROWS_SELECT_PLAIN[@]}"; do
-        path="${ROWS_PATH[$i]-}"
-        [[ -n "$path" ]] || continue
-        printf '%s\n' "$path" >> "$tmp_candidates"
-      done
+      if (( show_hidden )); then
+        find . \( -type f -o -type l \) -print 2>/dev/null | sed 's#^\./##' > "$tmp_candidates"
+      else
+        find . \( -path './.*' -o -path '*/.*' \) -prune -o \( -type f -o -type l \) -print 2>/dev/null | sed 's#^\./##' > "$tmp_candidates"
+      fi
 
       if [[ ! -s "$tmp_candidates" ]]; then
         rm -f -- "$tmp_candidates" "$tmp_selection"
         draw_status
-        printf "\033[%d;1H\033[K\033[2mNo files available to search in the current list.\033[0m" "$rows"
+        printf "\033[%d;1H\033[K\033[2mNo files available to search in this directory tree.\033[0m" "$rows"
         return 1
       fi
 
@@ -5504,6 +5574,7 @@ delete_current_or_selected() {
         "LSY_FZF_ARGS  Extra args passed to fzf"
         "LSY_DELTA_ARGS  Extra args passed to delta compare"
         "LSY_JNV_ARGS  Extra args passed to jnv JSON preview"
+        "LSY_PDFTOTEXT_ARGS  Extra args passed to pdftotext PDF preview"
         "LSY_HEXYL_ARGS  Extra args passed to hexyl binary preview"
         "LSY_HEXEDIT_ARGS  Extra args passed to hexedit binary editor"
         "LSY_CSVLENS_ARGS  Extra args passed to csvlens preview"
