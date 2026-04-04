@@ -121,13 +121,17 @@ resolve_ref_short_sha() {
 prompt_yes_no() {
     local prompt="$1"
     local response
-    
+
     while true; do
         printf '%s' "$prompt"
-        read -r response
+        if ! read -r response; then
+            # Non-interactive stdin/EOF: default to "no".
+            printf '\n'
+            return 1
+        fi
         case "$response" in
             [yY]) return 0 ;;
-            [nN]) return 1 ;;
+            [nN]|"") return 1 ;;
             *) printf 'Please answer y or n: ' >&2 ;;
         esac
     done
@@ -426,7 +430,7 @@ elif [[ -z "$REF" ]]; then
             # SHAs differ: offer user choice
             printf 'Release v%s found.\n' "$VERSION"
             printf 'Master branch has newer commits (%s vs %s).\n' "$master_sha" "$tag_sha"
-            if prompt_yes_no 'Install from master (dev) instead? (y/n) '; then
+            if prompt_yes_no 'Install from master (dev) instead? [y/N] '; then
                 REF="master"
                 VERSION=""  # Will be stamped as dev
             else
