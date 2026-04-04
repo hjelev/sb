@@ -124,6 +124,7 @@ render_sb_banner() {
 resolve_banner_version_label() {
     local label="dev"
     local normalized=""
+    local ref_sha=""
 
     if [[ "$UNINSTALL" == "1" ]]; then
         printf 'uninstall'
@@ -146,7 +147,12 @@ resolve_banner_version_label() {
 
     if [[ -n "$REF" ]]; then
         if [[ "$REF" == "master" || "$REF" == "main" ]]; then
-            printf 'dev'
+            ref_sha="$(resolve_ref_short_sha "$REF" 2>/dev/null || true)"
+            if [[ -n "$ref_sha" ]]; then
+                printf '%s' "$ref_sha"
+            else
+                printf '%s' "$REF"
+            fi
         else
             printf '%s' "$REF"
         fi
@@ -640,11 +646,9 @@ if [[ -n "$VERSION" ]]; then
 elif [[ -n "$REF" ]]; then
     REF_SHORT_SHA="$(resolve_ref_short_sha "$REF")"
     if [[ -n "$REF_SHORT_SHA" ]]; then
-        # Use "dev" for master/main, otherwise use ref name
-        version_name="$REF"
-        [[ "$REF" == "master" || "$REF" == "main" ]] && version_name="dev"
-        stamp_script_version "$TMP_FILE" "${version_name}@${REF_SHORT_SHA}"
-        printf 'Stamped version as %s@%s\n' "$version_name" "$REF_SHORT_SHA"
+        # For branch/ref installs, stamp with the exact commit short SHA.
+        stamp_script_version "$TMP_FILE" "$REF_SHORT_SHA"
+        printf 'Stamped version as %s\n' "$REF_SHORT_SHA"
     else
         printf 'Warning: unable to resolve commit SHA for ref %s, leaving VERSION unchanged.\n' "$REF" >&2
     fi
