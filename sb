@@ -4843,6 +4843,12 @@ delete_current_or_selected() {
       local icon=""
       local lower_msg=""
       local git_prefix=""
+      local color_success=""
+      local color_warning=""
+      local color_error=""
+      local color_info=""
+      local color_reset=""
+      local color_dim=$'\033[2m'
 
       printf -v rendered "$fmt" "$@"
       lower_msg="$(printf '%s' "$rendered" | tr '[:upper:]' '[:lower:]')"
@@ -4851,21 +4857,29 @@ delete_current_or_selected() {
         category="info"
       elif [[ "$lower_msg" == *"failed"* || "$lower_msg" == *"error"* || "$lower_msg" == *"cannot"* || "$lower_msg" == *"unavailable"* ]]; then
         category="error"
-      elif [[ "$lower_msg" == *"warn"* || "$lower_msg" == *"requires"* || "$lower_msg" == *"unchanged"* || "$lower_msg" == *"skipped"* ]]; then
+      elif [[ "$lower_msg" == *"warn"* || "$lower_msg" == *"requires"* || "$lower_msg" == *"needs at least"* || "$lower_msg" == *"unchanged"* || "$lower_msg" == *"skipped"* ]]; then
         category="warning"
       elif [[ "$lower_msg" == *" complete"* || "$lower_msg" == *" completed"* || "$lower_msg" == *" created"* || "$lower_msg" == *" downloaded"* || "$lower_msg" == *" copied"* || "$lower_msg" == *" renamed"* || "$lower_msg" == *" protected"* || "$lower_msg" == *" unprotected"* || "$lower_msg" == *" ok:"* ]]; then
         category="success"
       fi
 
       if [[ "${NERD_FONT_ACTIVE:-0}" == "1" ]]; then
+        if command -v tput >/dev/null 2>&1 && [[ -n "${TERM:-}" && "${TERM}" != "dumb" ]]; then
+          color_success="$(tput setaf 2 2>/dev/null || true)"
+          color_warning="$(tput setaf 3 2>/dev/null || true)"
+          color_error="$(tput setaf 1 2>/dev/null || true)"
+          color_info="$(tput setaf 6 2>/dev/null || true)"
+          color_reset="$(tput sgr0 2>/dev/null || true)"
+          color_dim="$(tput dim 2>/dev/null || printf $'\033[2m')"
+        fi
         if [[ "$lower_msg" == *"git workflow"* ]]; then
           git_prefix=" "
         fi
         case "$category" in
-          success) icon="${git_prefix}󰄬 " ;;
-          warning) icon="${git_prefix}󰀪 " ;;
-          error) icon="${git_prefix}󰄶 " ;;
-          *) icon="${git_prefix}󰋽 " ;;
+          success) icon="${color_success}${git_prefix}󰄬 ${color_reset}${color_dim}" ;;
+          warning) icon="${color_warning}${git_prefix}󰀪 ${color_reset}${color_dim}" ;;
+          error) icon="${color_error}${git_prefix}󰄶 ${color_reset}${color_dim}" ;;
+          *) icon="${color_info}${git_prefix}󰋽 ${color_reset}${color_dim}" ;;
         esac
       fi
 
