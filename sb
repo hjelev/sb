@@ -860,7 +860,6 @@ EOF
       clear
       "$@"
       rc=$?
-      PREVIEW_FOCUS_PATH="${images[$cursor_idx]}"
 
       stty -echo cbreak -ixon intr undef
       printf "\033[?25l"
