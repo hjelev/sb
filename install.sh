@@ -452,6 +452,11 @@ trap 'rm -f "$TMP_FILE"' EXIT
 DOWNLOAD_URL="https://raw.githubusercontent.com/$REPO/$REF/sb"
 curl -fsSL "$DOWNLOAD_URL" -o "$TMP_FILE"
 
+if ! bash -n "$TMP_FILE"; then
+    printf 'Error: downloaded sb script from %s failed syntax validation; aborting install.\n' "$DOWNLOAD_URL" >&2
+    exit 1
+fi
+
 if [[ -n "$VERSION" ]]; then
     stamp_script_version_from_tag "$TMP_FILE" "$VERSION"
 elif [[ -n "$REF" ]]; then
