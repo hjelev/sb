@@ -36,6 +36,7 @@
     KEY_FIND_FILE="${LSY_KEY_FIND_FILE:-f}"
     KEY_SEARCH="${LSY_KEY_SEARCH:-g}"
     KEY_COMPARE="${LSY_KEY_COMPARE:-C}"
+    KEY_DUST_MODE="${LSY_KEY_DUST_MODE:-s}"
     KEY_DOWNLOAD="${LSY_KEY_DOWNLOAD:-w}"
     KEY_AGE_TOGGLE="${LSY_KEY_AGE_TOGGLE:-p}"
     KEY_EXTRACT_ZIP="${LSY_KEY_EXTRACT_ZIP:-z}"
@@ -114,6 +115,7 @@
     declare -a CLIPBOARD_ITEMS=()
     declare -a CLIPBOARD_MULTI=()
     declare -a DIRECTORY_CAPTURE_ENTRIES=()
+    declare -a DUST_ROW_PATHS=()
     EXPORT_FILE=""
 
     if (( BASH_VERSINFO[0] >= 4 )); then
@@ -143,6 +145,7 @@
     SHOW_DEBUG_FOOTER=0
     HAS_EZA=0
     HAS_LSD=0
+    HAS_DUST=0
     HAS_LOGO_LS=0
     HAS_BAT=0
     HAS_BATCAT=0
@@ -179,6 +182,8 @@
     LAST_SOURCE_FALLBACK=0
     LAST_SOURCE_FALLBACK_TO="-"
     LAST_SOURCE_ARGS="-"
+    DUST_TOTAL=""
+    LAST_NON_DUST_SOURCE="ls"
     SELECTED_COUNT=0
     CLIPBOARD_MODE="copy"
     CLIPBOARD_LABEL="none"
@@ -1160,7 +1165,7 @@ EOF
     }
 
     detect_sources() {
-      # Detect list source tools (prefer eza > lsd > logo-ls > ls); respect user-disabled integrations.
+      # Detect list source tools (prefer eza > lsd > dust > logo-ls > ls); respect user-disabled integrations.
       if command -v eza >/dev/null 2>&1 && ! integration_is_disabled eza; then
         HAS_EZA=1
       else
@@ -1171,6 +1176,12 @@ EOF
         HAS_LSD=1
       else
         HAS_LSD=0
+      fi
+
+      if command -v dust >/dev/null 2>&1 && ! integration_is_disabled dust; then
+        HAS_DUST=1
+      else
+        HAS_DUST=0
       fi
 
       if command -v logo-ls >/dev/null 2>&1 && ! integration_is_disabled logo-ls; then
@@ -1184,6 +1195,8 @@ EOF
           LIST_SOURCE=eza
         elif (( HAS_LSD )); then
           LIST_SOURCE=lsd
+        elif (( HAS_DUST )); then
+          LIST_SOURCE=dust
         elif (( HAS_LOGO_LS )); then
           LIST_SOURCE=logo-ls
         else
@@ -1191,12 +1204,14 @@ EOF
         fi
       else
         case "$LIST_SOURCE" in
-          ls|lsd|eza|logo-ls) ;;
+          ls|lsd|eza|dust|logo-ls) ;;
           *) LIST_SOURCE=ls ;;
         esac
         if [[ "$LIST_SOURCE" == "eza" ]] && (( !HAS_EZA )); then
           if (( HAS_LSD )); then
             LIST_SOURCE=lsd
+          elif (( HAS_DUST )); then
+            LIST_SOURCE=dust
           elif (( HAS_LOGO_LS )); then
             LIST_SOURCE=logo-ls
           else
@@ -1204,10 +1219,37 @@ EOF
           fi
         fi
         if [[ "$LIST_SOURCE" == "lsd" ]] && (( !HAS_LSD )); then
-          (( HAS_LOGO_LS )) && LIST_SOURCE=logo-ls || LIST_SOURCE=ls
+          if (( HAS_EZA )); then
+            LIST_SOURCE=eza
+          elif (( HAS_DUST )); then
+            LIST_SOURCE=dust
+          elif (( HAS_LOGO_LS )); then
+            LIST_SOURCE=logo-ls
+          else
+            LIST_SOURCE=ls
+          fi
+        fi
+        if [[ "$LIST_SOURCE" == "dust" ]] && (( !HAS_DUST )); then
+          if (( HAS_EZA )); then
+            LIST_SOURCE=eza
+          elif (( HAS_LSD )); then
+            LIST_SOURCE=lsd
+          elif (( HAS_LOGO_LS )); then
+            LIST_SOURCE=logo-ls
+          else
+            LIST_SOURCE=ls
+          fi
         fi
         if [[ "$LIST_SOURCE" == "logo-ls" ]] && (( !HAS_LOGO_LS )); then
-          LIST_SOURCE=ls
+          if (( HAS_EZA )); then
+            LIST_SOURCE=eza
+          elif (( HAS_LSD )); then
+            LIST_SOURCE=lsd
+          elif (( HAS_DUST )); then
+            LIST_SOURCE=dust
+          else
+            LIST_SOURCE=ls
+          fi
         fi
       fi
 
@@ -1423,10 +1465,97 @@ EOF
       '
     }
 
+    parse_dust_output_rows() {
+      local input="$1"
+      local line plain size depth path cwd_abs
+      local -a parsed_rows=()
+      local -a parsed_paths=()
+      local -a fields=()
+      local i token next_token
+
+      DUST_TOTAL=""
+      ROWS_COLOR=()
+      DUST_ROW_PATHS=()
+      cwd_abs="$(pwd -P 2>/dev/null || pwd)"
+
+      while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        plain="$(strip_ansi_for_display "$line")"
+        size=""
+        depth=""
+        path=""
+
+        fields=()
+        read -r -a fields <<< "$plain"
+
+        # Extract depth (first small integer token).
+        for token in "${fields[@]}"; do
+          if [[ "$token" =~ ^[0-9]+$ ]] && (( token <= 64 )); then
+            depth="$token"
+            break
+          fi
+        done
+
+        # Extract size token (human unit like 14G, 4.0K, 123M, 12KiB, etc.).
+        for token in "${fields[@]}"; do
+          if [[ "$token" =~ ^[0-9]+([.][0-9]+)?([KMGTPE]i?B?|B|[KMGTPE])$ ]]; then
+            size="$token"
+            break
+          fi
+        done
+
+        # Extract path token from any supported dust text layout.
+        for (( i=0; i<${#fields[@]}; i++ )); do
+          token="${fields[$i]}"
+          next_token="${fields[$((i + 1))]-}"
+          case "$token" in
+            .)
+              if [[ "$next_token" == /* ]]; then
+                path=".${next_token}"
+                break
+              fi
+              ;;
+            ./*|../*|/*|~/*)
+              path="$token"
+              break
+              ;;
+          esac
+        done
+
+        # Normalize a discovered path for later open/enter operations.
+        if [[ -n "$path" ]]; then
+          path="${path/#\~/$HOME}"
+        fi
+
+        # Root aggregate row should not be listed; show its size in header instead.
+        if [[ -n "$path" ]] && [[ "$path" == "." || "$path" == "./" || "$path" == "$cwd_abs" ]] && [[ "$depth" == "0" || -z "$depth" ]]; then
+          [[ -n "$size" ]] && DUST_TOTAL="$size"
+          continue
+        fi
+
+        # Extra compatibility for variants that print an explicit "total" line.
+        if [[ "$plain" =~ ^[[:space:]]*([^[:space:]]+)[[:space:]]+total([[:space:]]|$) ]]; then
+          DUST_TOTAL="${BASH_REMATCH[1]}"
+          continue
+        fi
+
+        parsed_rows+=("$line")
+        parsed_paths+=("$path")
+      done <<< "$input"
+
+      if (( ${#parsed_rows[@]} > 0 )); then
+        ROWS_COLOR=("${parsed_rows[@]}")
+        DUST_ROW_PATHS=("${parsed_paths[@]}")
+      fi
+    }
+
     capture_directory_rows() {
       local requested_source="${1:-$LIST_SOURCE}"
       local source="$LIST_SOURCE"
       local output=""
+
+      DUST_TOTAL=""
+      DUST_ROW_PATHS=()
 
       LAST_SOURCE_REQUESTED="$requested_source"
       LAST_SOURCE_FALLBACK=0
@@ -1478,7 +1607,15 @@ EOF
               LAST_SOURCE_EXECUTED="eza"
               LAST_SOURCE_RC=127
               LAST_SOURCE_FALLBACK=1
-              (( HAS_LSD )) && LAST_SOURCE_FALLBACK_TO=lsd || LAST_SOURCE_FALLBACK_TO=ls
+              if (( HAS_LSD )); then
+                LAST_SOURCE_FALLBACK_TO=lsd
+              elif (( HAS_DUST )); then
+                LAST_SOURCE_FALLBACK_TO=dust
+              elif (( HAS_LOGO_LS )); then
+                LAST_SOURCE_FALLBACK_TO=logo-ls
+              else
+                LAST_SOURCE_FALLBACK_TO=ls
+              fi
               source="$LAST_SOURCE_FALLBACK_TO"
               LIST_SOURCE="$source"
               continue
@@ -1510,7 +1647,15 @@ EOF
             fi
             LAST_SOURCE_RC=$?
             LAST_SOURCE_FALLBACK=1
-            (( HAS_LSD )) && LAST_SOURCE_FALLBACK_TO=lsd || LAST_SOURCE_FALLBACK_TO=ls
+            if (( HAS_LSD )); then
+              LAST_SOURCE_FALLBACK_TO=lsd
+            elif (( HAS_DUST )); then
+              LAST_SOURCE_FALLBACK_TO=dust
+            elif (( HAS_LOGO_LS )); then
+              LAST_SOURCE_FALLBACK_TO=logo-ls
+            else
+              LAST_SOURCE_FALLBACK_TO=ls
+            fi
             source="$LAST_SOURCE_FALLBACK_TO"
             LIST_SOURCE="$source"
             ;;
@@ -1519,7 +1664,13 @@ EOF
               LAST_SOURCE_EXECUTED="lsd"
               LAST_SOURCE_RC=127
               LAST_SOURCE_FALLBACK=1
-              (( HAS_EZA )) && LAST_SOURCE_FALLBACK_TO=eza || LAST_SOURCE_FALLBACK_TO=ls
+              if (( HAS_EZA )); then
+                LAST_SOURCE_FALLBACK_TO=eza
+              elif (( HAS_DUST )); then
+                LAST_SOURCE_FALLBACK_TO=dust
+              else
+                LAST_SOURCE_FALLBACK_TO=ls
+              fi
               source="$LAST_SOURCE_FALLBACK_TO"
               LIST_SOURCE="$source"
               continue
@@ -1543,7 +1694,64 @@ EOF
             fi
             LAST_SOURCE_RC=$?
             LAST_SOURCE_FALLBACK=1
-            (( HAS_EZA )) && LAST_SOURCE_FALLBACK_TO=eza || LAST_SOURCE_FALLBACK_TO=ls
+            if (( HAS_EZA )); then
+              LAST_SOURCE_FALLBACK_TO=eza
+            elif (( HAS_DUST )); then
+              LAST_SOURCE_FALLBACK_TO=dust
+            else
+              LAST_SOURCE_FALLBACK_TO=ls
+            fi
+            source="$LAST_SOURCE_FALLBACK_TO"
+            LIST_SOURCE="$source"
+            ;;
+          dust)
+            if (( !HAS_DUST )); then
+              LAST_SOURCE_EXECUTED="dust"
+              LAST_SOURCE_RC=127
+              LAST_SOURCE_FALLBACK=1
+              if (( HAS_EZA )); then
+                LAST_SOURCE_FALLBACK_TO=eza
+              elif (( HAS_LSD )); then
+                LAST_SOURCE_FALLBACK_TO=lsd
+              elif (( HAS_LOGO_LS )); then
+                LAST_SOURCE_FALLBACK_TO=logo-ls
+              else
+                LAST_SOURCE_FALLBACK_TO=ls
+              fi
+              source="$LAST_SOURCE_FALLBACK_TO"
+              LIST_SOURCE="$source"
+              continue
+            fi
+
+            local -a dust_args=() dust_compat_args=()
+            dust_args=(--depth 1 --number-of-lines 100000 --reverse -R -p -C)
+            (( !show_hidden )) && dust_args+=(--ignore-hidden)
+            LAST_SOURCE_EXECUTED="dust"
+            LAST_SOURCE_ARGS="dust ${dust_args[*]}"
+            if output="$(dust "${dust_args[@]}" 2>/dev/null)"; then
+              LAST_SOURCE_RC=0
+              LIST_SOURCE="dust"
+              break
+            fi
+            dust_compat_args=(-d 1 -n 100000 -r -R -p -C)
+            (( !show_hidden )) && dust_compat_args+=(-i)
+            LAST_SOURCE_ARGS="dust ${dust_compat_args[*]}"
+            if output="$(dust "${dust_compat_args[@]}" 2>/dev/null)"; then
+              LAST_SOURCE_RC=0
+              LIST_SOURCE="dust"
+              break
+            fi
+            LAST_SOURCE_RC=$?
+            LAST_SOURCE_FALLBACK=1
+            if (( HAS_EZA )); then
+              LAST_SOURCE_FALLBACK_TO=eza
+            elif (( HAS_LSD )); then
+              LAST_SOURCE_FALLBACK_TO=lsd
+            elif (( HAS_LOGO_LS )); then
+              LAST_SOURCE_FALLBACK_TO=logo-ls
+            else
+              LAST_SOURCE_FALLBACK_TO=ls
+            fi
             source="$LAST_SOURCE_FALLBACK_TO"
             LIST_SOURCE="$source"
             ;;
@@ -1552,9 +1760,17 @@ EOF
               LAST_SOURCE_EXECUTED="logo-ls"
               LAST_SOURCE_RC=127
               LAST_SOURCE_FALLBACK=1
-              LAST_SOURCE_FALLBACK_TO=ls
-              source=ls
-              LIST_SOURCE=ls
+              if (( HAS_EZA )); then
+                LAST_SOURCE_FALLBACK_TO=eza
+              elif (( HAS_LSD )); then
+                LAST_SOURCE_FALLBACK_TO=lsd
+              elif (( HAS_DUST )); then
+                LAST_SOURCE_FALLBACK_TO=dust
+              else
+                LAST_SOURCE_FALLBACK_TO=ls
+              fi
+              source="$LAST_SOURCE_FALLBACK_TO"
+              LIST_SOURCE="$source"
               continue
             fi
 
@@ -1583,9 +1799,17 @@ EOF
             fi
             LAST_SOURCE_RC=$?
             LAST_SOURCE_FALLBACK=1
-            LAST_SOURCE_FALLBACK_TO=ls
-            source=ls
-            LIST_SOURCE=ls
+            if (( HAS_EZA )); then
+              LAST_SOURCE_FALLBACK_TO=eza
+            elif (( HAS_LSD )); then
+              LAST_SOURCE_FALLBACK_TO=lsd
+            elif (( HAS_DUST )); then
+              LAST_SOURCE_FALLBACK_TO=dust
+            else
+              LAST_SOURCE_FALLBACK_TO=ls
+            fi
+            source="$LAST_SOURCE_FALLBACK_TO"
+            LIST_SOURCE="$source"
             ;;
           *)
             LAST_SOURCE_EXECUTED="$source"
@@ -1597,7 +1821,11 @@ EOF
       done
 
       if [[ -n "$output" ]]; then
-        read_stdin_into_array ROWS_COLOR <<< "$output"
+        if [[ "$LIST_SOURCE" == "dust" ]]; then
+          parse_dust_output_rows "$output"
+        else
+          read_stdin_into_array ROWS_COLOR <<< "$output"
+        fi
       else
         ROWS_COLOR=()
       fi
@@ -3803,6 +4031,7 @@ delete_current_or_selected() {
       ROWS_PLAIN=()
       ROWS_PATH=()
       ROWS_SELECTED=()
+      DUST_ROW_PATHS=()
 
       t0=$(now_epoch_ns)
       capture_directory_rows || true
@@ -3890,17 +4119,20 @@ delete_current_or_selected() {
     }
 
     draw_header() {
-      local user host cwd
+      local user host cwd dust_segment=""
       local separator_width
       local separator
       user="${USER:-$(id -un 2>/dev/null || printf 'user')}"
       host="${HOSTNAME:-$(hostname -s 2>/dev/null || hostname 2>/dev/null || printf 'host')}"
       cwd="$(pwd -P 2>/dev/null || pwd)"
+      if [[ "$LIST_SOURCE" == "dust" && -n "$DUST_TOTAL" ]]; then
+        dust_segment=" [dust:${DUST_TOTAL}]"
+      fi
       separator_width=$cols
       (( separator_width < 1 )) && separator_width=1
 
       printf "\033[1;36m"
-      printf "%s\n" "${user}@${host} » ${cwd}${GIT_HEADER_SUFFIX}"
+      printf "%s\n" "${user}@${host} » ${cwd}${GIT_HEADER_SUFFIX}${dust_segment}"
       printf "\033[0m"
       printf -v separator '%*s' "$separator_width" ''
       separator=${separator// /─}
@@ -4122,6 +4354,11 @@ delete_current_or_selected() {
           fi
           name="$(strip_symlink_target "$plain" "$name")"
           ;;
+        dust)
+          # Dust output prefixes rows with size and tree glyphs; resolve_row_path_from_plain
+          # token-peeling logic will reduce this to an existing path candidate.
+          name="$plain"
+          ;;
         logo-ls)
           if [[ "$plain" =~ [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([+-][0-9:]+|Z)[[:space:]]+(.*)$ ]]; then
             name="${BASH_REMATCH[2]}"
@@ -4239,6 +4476,10 @@ delete_current_or_selected() {
           ROWS_PATH+=("")
           continue
         fi
+        if [[ "$LIST_SOURCE" == "dust" && -n "${DUST_ROW_PATHS[$i]-}" ]]; then
+          ROWS_PATH+=("${DUST_ROW_PATHS[$i]}")
+          continue
+        fi
         path="$(resolve_row_path_from_plain "$plain" 2>/dev/null || true)"
         ROWS_PATH+=("$path")
       done
@@ -4259,6 +4500,12 @@ delete_current_or_selected() {
 
       plain="${ROWS_SELECT_PLAIN[$idx]}"
       [[ "$plain" == "(empty directory)" ]] && return 1
+
+      if [[ "$LIST_SOURCE" == "dust" && -n "${DUST_ROW_PATHS[$idx]-}" ]]; then
+        ROWS_PATH[$idx]="${DUST_ROW_PATHS[$idx]}"
+        printf '%s' "${ROWS_PATH[$idx]}"
+        return 0
+      fi
 
       path="$(resolve_row_path_from_plain "$plain" 2>/dev/null || true)"
       [[ -n "$path" ]] || return 1
@@ -4739,6 +4986,7 @@ delete_current_or_selected() {
         "list source|ls|Built-in GNU/BSD ls: directory listing|0"
         "list source|eza|A modern ls replacement with rich metadata and icons|1"
         "list source|lsd|LSDeluxe: modern ls replacement with icons and colors|1"
+        "list source|dust|Disk usage tree/list source (size-first rows)|1"
         "list source|logo-ls|logo-ls: directory listing with file-type logos and git status|1"
         "vcs|git|Version control integration for repo-aware workflows|1"
         "network|sshfs|SSH filesystem: browse remote hosts via sshfs (press S for picker)|1"
@@ -5113,6 +5361,27 @@ delete_current_or_selected() {
       return 0
     }
 
+    dust_row_is_root_total() {
+      local idx="${1:-$cursor}"
+      local plain path cwd_abs
+
+      [[ "$LIST_SOURCE" == "dust" ]] || return 1
+      (( idx >= 0 && idx < ${#ROWS_SELECT_PLAIN[@]} )) || return 1
+
+      cwd_abs="$(pwd -P 2>/dev/null || pwd)"
+      path="$(ensure_row_path "$idx" 2>/dev/null || true)"
+      if [[ "$path" == "." || "$path" == "./" || "$path" == "$cwd_abs" ]]; then
+        return 0
+      fi
+
+      plain="${ROWS_SELECT_PLAIN[$idx]-}"
+      if (( idx == 0 )) && [[ "$plain" =~ ^[[:space:]]*\.([[:space:]]|$) ]]; then
+        return 0
+      fi
+
+      return 1
+    }
+
     enter_or_open_selected() {
       local item archive_abs
       item="$(selected_path)" || return 1
@@ -5448,6 +5717,7 @@ delete_current_or_selected() {
 
       (( HAS_LSD )) && sources+=(lsd)
       (( HAS_EZA )) && sources+=(eza)
+      (( HAS_DUST )) && sources+=(dust)
       (( HAS_LOGO_LS )) && sources+=(logo-ls)
 
       for i in "${!sources[@]}"; do
@@ -5464,6 +5734,54 @@ delete_current_or_selected() {
 
       current_index=$(( (current_index + 1) % ${#sources[@]} ))
       LIST_SOURCE="${sources[$current_index]}"
+    }
+
+    list_source_available() {
+      local source="$1"
+      case "$source" in
+        ls) return 0 ;;
+        eza) (( HAS_EZA )) ;;
+        lsd) (( HAS_LSD )) ;;
+        dust) (( HAS_DUST )) ;;
+        logo-ls) (( HAS_LOGO_LS )) ;;
+        *) return 1 ;;
+      esac
+    }
+
+    best_non_dust_source() {
+      if (( HAS_EZA )); then
+        printf 'eza'
+      elif (( HAS_LSD )); then
+        printf 'lsd'
+      elif (( HAS_LOGO_LS )); then
+        printf 'logo-ls'
+      else
+        printf 'ls'
+      fi
+    }
+
+    toggle_dust_source_mode() {
+      local target
+
+      if [[ "$LIST_SOURCE" == "dust" ]]; then
+        target="$LAST_NON_DUST_SOURCE"
+        [[ -n "$target" ]] || target="$(best_non_dust_source)"
+        if [[ "$target" == "dust" ]] || ! list_source_available "$target"; then
+          target="$(best_non_dust_source)"
+        fi
+        LIST_SOURCE="$target"
+        return 0
+      fi
+
+      if (( !HAS_DUST )); then
+        draw_status
+        printf "\033[%d;1H\033[K\033[2mDust source unavailable: install/enable dust in integrations.\033[0m" "$rows"
+        return 1
+      fi
+
+      LAST_NON_DUST_SOURCE="$LIST_SOURCE"
+      LIST_SOURCE="dust"
+      return 0
     }
 
     show_help() {
@@ -5491,7 +5809,7 @@ delete_current_or_selected() {
         printf "\033[1;36mDirectory\033[0m   \033[1;33mRight\033[0m enter/open zip  \033[1;33mLeft\033[0m parent dir\n"
         printf "\033[1;36mSelect\033[0m      \033[1;33m%s\033[0m toggle  \033[1;33m%s\033[0m all  \033[1;33m%s\033[0m copy  \033[1;33m%s\033[0m move  \033[1;33m%s\033[0m paste  \033[1;33m%s\033[0m delete\n" "$KEY_SELECT_TOGGLE_LABEL" "$KEY_SELECT_ALL" "$KEY_COPY" "$KEY_MOVE" "$KEY_PASTE" "$KEY_DELETE"
         printf "\033[1;36mFile\033[0m        \033[1;33m%s\033[0m less viewer  \033[1;33m%s\033[0m GUI opener  \033[1;33m%s\033[0m edit  \033[1;33m%s\033[0m compare  \033[1;33m%s\033[0m search  \033[1;33m%s\033[0m find  \033[1;33m%s\033[0m download  \033[1;33m%s\033[0m age  \033[1;33m%s\033[0m zip\n" "$KEY_OPEN_LESS" "$KEY_OPEN_GUI" "$KEY_OPEN_EDITOR" "$KEY_COMPARE" "$KEY_SEARCH" "$KEY_FIND_FILE" "$KEY_DOWNLOAD" "$KEY_AGE_TOGGLE" "$KEY_EXTRACT_ZIP"
-        printf "\033[1;36mView\033[0m        \033[1;33m%s\033[0m hidden  \033[1;33m%s\033[0m debug  \033[1;33m%s\033[0m renderer  \033[1;33m%s\033[0m name-first  \033[1;33m%s\033[0m SSH\n" "$KEY_TOGGLE_HIDDEN" "$KEY_TOGGLE_DEBUG_LABEL" "$KEY_TOGGLE_SOURCE_LABEL" "$KEY_TOGGLE_NAME_FIRST_LABEL" "$KEY_SSH_PICKER"
+        printf "\033[1;36mView\033[0m        \033[1;33m%s\033[0m hidden  \033[1;33m%s\033[0m debug  \033[1;33m%s\033[0m renderer  \033[1;33m%s\033[0m dust  \033[1;33m%s\033[0m name-first  \033[1;33m%s\033[0m SSH\n" "$KEY_TOGGLE_HIDDEN" "$KEY_TOGGLE_DEBUG_LABEL" "$KEY_TOGGLE_SOURCE_LABEL" "$KEY_DUST_MODE" "$KEY_TOGGLE_NAME_FIRST_LABEL" "$KEY_SSH_PICKER"
         printf "\033[1;36mPanels\033[0m      \033[1;33m%s\033[0m bookmarks  \033[1;33m%s\033[0m integrations  \033[1;33m%s\033[0m help\n" "$KEY_BOOKMARKS" "$KEY_INTEGRATIONS" "$KEY_HELP"
         printf "\033[1;36mOther\033[0m       \033[1;33m%s\033[0m reload  \033[1;33m%s\033[0m help  \033[1;33m%s\033[0m quit\n" "$KEY_RELOAD_LABEL" "$KEY_HELP" "$KEY_QUIT"
         printf "\033[%s;1H\033[2mPress any key to return...\033[0m\033[K" "$_rows"
@@ -5537,7 +5855,8 @@ delete_current_or_selected() {
         "View"
         "${KEY_TOGGLE_HIDDEN}            Toggle hidden files on/off"
         "${KEY_TOGGLE_DEBUG_LABEL}            Toggle debug details in footer"
-        "${KEY_TOGGLE_SOURCE_LABEL}            Cycle list renderer (eza/lsd/logo-ls/ls)"
+        "${KEY_TOGGLE_SOURCE_LABEL}            Cycle list renderer (eza/lsd/dust/logo-ls/ls)"
+        "${KEY_DUST_MODE}            Toggle dust mode (restore previous renderer on second press)"
         "${KEY_TOGGLE_NAME_FIRST_LABEL}            Toggle name-first layout"
         "${KEY_SSH_PICKER}            Open SSH connection picker"
         "${KEY_INTEGRATIONS}            Show integrations screen"
@@ -5552,6 +5871,8 @@ delete_current_or_selected() {
         "Renderers"
         "eza          Rich metadata, icons, colors"
         "lsd          Modern ls with icons"
+        "dust         Disk usage-first list view"
+        "logo-ls      Logos and optional git status"
         "ls           Built-in POSIX fallback"
         ""
         "Layout"
@@ -5559,6 +5880,7 @@ delete_current_or_selected() {
         ""
         "Env overrides"
         "LSY_KEY_*    Override any key binding"
+        "LSY_KEY_DUST_MODE  Toggle dust source mode (default s)"
         "LSY_SHOW_DEBUG_FOOTER  Start with debug footer shown (1/0)"
         "LSY_EDITOR   Optional override (else VISUAL, EDITOR, /etc/alternatives/editor, nano)"
         "LSY_NAMEFIRST_WIDTH_PCT  Name-first width percent of terminal (default 35)"
@@ -5689,8 +6011,15 @@ delete_current_or_selected() {
             ;;
           "$KEY_TOGGLE_SOURCE")
             cycle_list_source
+            [[ "$LIST_SOURCE" != "dust" ]] && LAST_NON_DUST_SOURCE="$LIST_SOURCE"
             load_data
             draw_ui
+            ;;
+          "$KEY_DUST_MODE")
+            if toggle_dust_source_mode; then
+              load_data
+              draw_ui
+            fi
             ;;
           "$KEY_TOGGLE_NAME_FIRST")
             if (( NAME_FIRST_VIEW )); then
@@ -5811,7 +6140,11 @@ delete_current_or_selected() {
             go_parent_dir || true
             ;;
           "$KEY_RIGHT")
-            enter_or_open_selected || true
+            if dust_row_is_root_total "$cursor"; then
+              go_parent_dir || true
+            else
+              enter_or_open_selected || true
+            fi
             ;;
           "$KEY_OPEN_LESS")
             open_selected_with_less || true
