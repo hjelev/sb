@@ -6,7 +6,7 @@ A lightweight terminal file browser written in Bash.
 
 ## Screenshot
 
-![Shell Buddy screenshot](shell_buddy_sceen_shot.png)
+![Shell Buddy screenshot](shell_buddy_screen_shot.png)
 
 ## Features
 
