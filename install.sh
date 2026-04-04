@@ -18,13 +18,15 @@ Installs Shell Buddy into a directory on your PATH.
 Options:
   --version TAG      Install a tagged version, for example v0.1.0.
   --ref GIT_REF      Install from a git ref such as master, main, or a commit SHA.
-    --install-dir DIR  Install destination. Defaults to SB_INSTALL_DIR or first writable PATH dir.
+  --install-dir DIR  Install destination. Defaults to SB_INSTALL_DIR or first writable PATH dir.
   --no-shell-setup   Do not add the sb() shell function to your shell rc file.
-        --uninstall        Remove Shell Buddy from --install-dir and remove shell integration.
+  --uninstall        Remove Shell Buddy from --install-dir and remove shell integration.
   --help             Show this help text and exit.
 
 If neither --version nor --ref is provided, the installer tries the latest GitHub
-release first and falls back to the default branch when no release exists yet.
+release first. If a release exists and master branch has newer commits, you will be
+offered the choice to install from master (dev version) instead. If no release exists,
+master or main will be used as fallback.
 
 For uninstalling, pass --uninstall. If Shell Buddy was installed into a custom location,
 provide the same location with --install-dir or SB_INSTALL_DIR.
@@ -114,6 +116,21 @@ resolve_ref_short_sha() {
     local ref="$1"
     curl -fsSL "https://api.github.com/repos/$REPO/commits/$ref" 2>/dev/null \
         | awk -F '"' '/"sha":/ { print substr($4, 1, 7); exit }'
+}
+
+prompt_yes_no() {
+    local prompt="$1"
+    local response
+    
+    while true; do
+        printf '%s' "$prompt"
+        read -r response
+        case "$response" in
+            [yY]) return 0 ;;
+            [nN]) return 1 ;;
+            *) printf 'Please answer y or n: ' >&2 ;;
+        esac
+    done
 }
 
 path_contains_dir() {
@@ -401,10 +418,28 @@ if [[ -n "$VERSION" ]]; then
     REF="$VERSION"
 elif [[ -z "$REF" ]]; then
     if VERSION="$(latest_release_tag 2>/dev/null)" && [[ -n "$VERSION" ]]; then
-        REF="$VERSION"
-        printf 'Installing Shell Buddy v%s\n' "$VERSION"
+        # Release tag found; check if master has different commits
+        local tag_sha master_sha
+        tag_sha="$(resolve_ref_short_sha "$VERSION" 2>/dev/null)" || tag_sha=""
+        master_sha="$(resolve_ref_short_sha master 2>/dev/null)" || master_sha=""
+        
+        if [[ -n "$tag_sha" && -n "$master_sha" && "$tag_sha" != "$master_sha" ]]; then
+            # SHAs differ: offer user choice
+            printf 'Release v%s found.\n' "$VERSION"
+            printf 'Master branch has newer commits (%s vs %s).\n' "$master_sha" "$tag_sha"
+            if prompt_yes_no 'Install from master (dev) instead? (y/n) '; then
+                REF="master"
+                VERSION=""  # Will be stamped as dev
+            else
+                REF="$VERSION"
+            fi
+        else
+            # SHAs match or could not compare; install release
+            REF="$VERSION"
+            printf 'Installing Shell Buddy v%s\n' "$VERSION"
+        fi
     elif REF="$(resolve_default_ref)"; then
-        printf 'No GitHub release found yet, installing from %s\n' "$REF"
+        printf 'No GitHub release found, installing from %s\n' "$REF"
     else
         echo "Error: no release found and no fallback branch with the Shell Buddy script is accessible." >&2
         exit 1
@@ -423,8 +458,11 @@ if [[ -n "$VERSION" ]]; then
 elif [[ -n "$REF" ]]; then
     REF_SHORT_SHA="$(resolve_ref_short_sha "$REF")"
     if [[ -n "$REF_SHORT_SHA" ]]; then
-        stamp_script_version "$TMP_FILE" "${REF}@${REF_SHORT_SHA}"
-        printf 'Stamped version as %s@%s\n' "$REF" "$REF_SHORT_SHA"
+        # Use "dev" for master/main, otherwise use ref name
+        local version_name="$REF"
+        [[ "$REF" == "master" || "$REF" == "main" ]] && version_name="dev"
+        stamp_script_version "$TMP_FILE" "${version_name}@${REF_SHORT_SHA}"
+        printf 'Stamped version as %s@%s\n' "$version_name" "$REF_SHORT_SHA"
     else
         printf 'Warning: unable to resolve commit SHA for ref %s, leaving VERSION unchanged.\n' "$REF" >&2
     fi
