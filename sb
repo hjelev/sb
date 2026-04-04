@@ -1316,7 +1316,12 @@ EOF
       [[ -r "$tty" && -w "$tty" ]] || tty="/proc/self/fd/2"
       printf '\033[1;36mCommit message: \033[0m' >"$tty"
       stty echo <"$tty"
-      IFS= read -r commit_msg <"$tty"
+      # Use readline editing on a real TTY so backspace/arrows work naturally.
+      if [[ "$tty" == "/dev/tty" ]]; then
+        IFS= read -er commit_msg <"$tty"
+      else
+        IFS= read -r commit_msg <"$tty"
+      fi
       commit_msg="$(trim_whitespace "$commit_msg")"
       if [[ -z "$commit_msg" ]]; then
         printf '\033[2mGit workflow cancelled: commit message is empty.\033[0m\n'
