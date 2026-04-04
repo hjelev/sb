@@ -22,6 +22,10 @@
     KEY_TOGGLE_DEBUG_LABEL="${SB_KEY_TOGGLE_DEBUG_LABEL:-F8}"
     KEY_TOGGLE_NAME_FIRST="${SB_KEY_TOGGLE_NAME_FIRST:-$'\e[20~'}"
     KEY_TOGGLE_NAME_FIRST_LABEL="${SB_KEY_TOGGLE_NAME_FIRST_LABEL:-F9}"
+    KEY_NAMEFIRST_DECREASE="${SB_KEY_NAMEFIRST_DECREASE:-[}"
+    KEY_NAMEFIRST_DECREASE_LABEL="${SB_KEY_NAMEFIRST_DECREASE_LABEL:-[}"
+    KEY_NAMEFIRST_INCREASE="${SB_KEY_NAMEFIRST_INCREASE:-]}"
+    KEY_NAMEFIRST_INCREASE_LABEL="${SB_KEY_NAMEFIRST_INCREASE_LABEL:-]}"
     KEY_TOGGLE_PREVIEW="${SB_KEY_TOGGLE_PREVIEW:-\\}"
     KEY_TOGGLE_PREVIEW_LABEL="${SB_KEY_TOGGLE_PREVIEW_LABEL:-\\}"
     KEY_SELECT_TOGGLE="${SB_KEY_SELECT_TOGGLE:- }"
@@ -94,7 +98,7 @@
     SB_NAMEFIRST_META_RESERVE="${SB_NAMEFIRST_META_RESERVE:-50}"
     SB_NAMEFIRST_META_RESERVE_MIN="${SB_NAMEFIRST_META_RESERVE_MIN:-36}"
     SB_NAMEFIRST_NAME_MIN="${SB_NAMEFIRST_NAME_MIN:-12}"
-    SB_NAMEFIRST_NAME_MAX="${SB_NAMEFIRST_NAME_MAX:-64}"
+    SB_NAMEFIRST_NAME_MAX="${SB_NAMEFIRST_NAME_MAX:-}"
     SB_PREVIEW_SPLIT_PCT="${SB_PREVIEW_SPLIT_PCT:-30}"
     SB_PREVIEW_SEPARATOR_CHAR="${SB_PREVIEW_SEPARATOR_CHAR:-│}"
     SB_PREVIEW_COLORS="${SB_PREVIEW_COLORS:-1}"
@@ -141,6 +145,7 @@
     declare -a ROWS_COLOR=()
     declare -a ROWS_PLAIN=()
     declare -a ROWS_SELECT_PLAIN=()
+    declare -a ROWS_NAMEFIRST_BASE=()
     declare -a ROWS_PATH=()
     declare -a ROWS_SELECTED=()
     declare -a CLIPBOARD_ITEMS=()
@@ -261,6 +266,7 @@
     PREVIEW_RENDER_DEFERRED=0
     PREVIEW_RELEASE_IDLE_MS=500
     PREVIEW_LAST_NAV_NS=0
+    NAMEFIRST_WIDTH_PCT_RUNTIME=35
 
     sb_name_with_version() {
       if [[ -n "$VERSION" ]]; then
@@ -474,6 +480,7 @@ EOF
     init_runtime_config() {
       local split_value
       local idle_ms
+      local namefirst_pct
 
       if [[ "$SB_SHOW_DEBUG_FOOTER" == "1" ]]; then
         SHOW_DEBUG_FOOTER=1
@@ -512,6 +519,15 @@ EOF
       (( idle_ms < 100 )) && idle_ms=100
       (( idle_ms > 5000 )) && idle_ms=5000
       PREVIEW_RELEASE_IDLE_MS=$idle_ms
+
+      if [[ "$SB_NAMEFIRST_WIDTH_PCT" =~ ^[0-9]+$ ]]; then
+        namefirst_pct=$SB_NAMEFIRST_WIDTH_PCT
+      else
+        namefirst_pct=35
+      fi
+      (( namefirst_pct < 1 )) && namefirst_pct=1
+      (( namefirst_pct > 100 )) && namefirst_pct=100
+      NAMEFIRST_WIDTH_PCT_RUNTIME=$namefirst_pct
     }
 
     detect_runtime_capabilities() {
@@ -4518,10 +4534,13 @@ delete_current_or_selected() {
     # Minimal modification: split on date-time anchor, reorder, let column handle alignment.
     format_name_first_aligned() {
       local term_cols width_pct name_limit name_min_soft name_max_cap
+      local meta_reserve meta_reserve_min
       term_cols=$cols
       (( term_cols < 1 )) && term_cols=1
 
-      if [[ "$SB_NAMEFIRST_WIDTH_PCT" =~ ^[0-9]+$ ]]; then
+      if [[ "$NAMEFIRST_WIDTH_PCT_RUNTIME" =~ ^[0-9]+$ ]]; then
+        width_pct=$NAMEFIRST_WIDTH_PCT_RUNTIME
+      elif [[ "$SB_NAMEFIRST_WIDTH_PCT" =~ ^[0-9]+$ ]]; then
         width_pct=$SB_NAMEFIRST_WIDTH_PCT
       else
         width_pct=35
@@ -4533,16 +4552,32 @@ delete_current_or_selected() {
         name_min_soft=12
       fi
 
-      if [[ "$SB_NAMEFIRST_NAME_MAX" =~ ^[0-9]+$ ]]; then
+      if [[ "$SB_NAMEFIRST_NAME_MAX" =~ ^[0-9]+$ ]] && (( SB_NAMEFIRST_NAME_MAX > 0 )); then
         name_max_cap=$SB_NAMEFIRST_NAME_MAX
       else
-        name_max_cap=64
+        if [[ "$SB_NAMEFIRST_META_RESERVE" =~ ^[0-9]+$ ]]; then
+          meta_reserve=$SB_NAMEFIRST_META_RESERVE
+        else
+          meta_reserve=50
+        fi
+
+        if [[ "$SB_NAMEFIRST_META_RESERVE_MIN" =~ ^[0-9]+$ ]]; then
+          meta_reserve_min=$SB_NAMEFIRST_META_RESERVE_MIN
+        else
+          meta_reserve_min=36
+        fi
+
+        (( meta_reserve_min < 0 )) && meta_reserve_min=0
+        (( meta_reserve < meta_reserve_min )) && meta_reserve=$meta_reserve_min
+        name_max_cap=$(( term_cols - meta_reserve ))
       fi
 
       (( width_pct < 1 )) && width_pct=1
       (( width_pct > 100 )) && width_pct=100
       (( name_min_soft < 1 )) && name_min_soft=1
+      (( name_min_soft > term_cols )) && name_min_soft=$term_cols
       (( name_max_cap < 1 )) && name_max_cap=1
+      (( name_max_cap > term_cols )) && name_max_cap=$term_cols
       (( name_max_cap < name_min_soft )) && name_max_cap=$name_min_soft
 
       name_limit=$(( (term_cols * width_pct) / 100 ))
@@ -4780,6 +4815,93 @@ delete_current_or_selected() {
     '
     }
 
+    adjust_namefirst_width_pct() {
+      local delta="$1"
+      local new_pct min_pct max_pct
+      local term_cols name_min_soft name_max_cap
+      local meta_reserve meta_reserve_min
+      local current_name_limit new_name_limit
+      local range_span range_pct
+
+      (( NAME_FIRST_VIEW )) || return 0
+      (( ${#ROWS_NAMEFIRST_BASE[@]} > 0 )) || return 0
+
+      # Determine terminal width
+      term_cols=$cols
+      (( term_cols < 1 )) && term_cols=80
+
+      # Read constraints (same as format_name_first_aligned)
+      if [[ "$SB_NAMEFIRST_NAME_MIN" =~ ^[0-9]+$ ]]; then
+        name_min_soft=$SB_NAMEFIRST_NAME_MIN
+      else
+        name_min_soft=12
+      fi
+
+      if [[ "$SB_NAMEFIRST_NAME_MAX" =~ ^[0-9]+$ ]] && (( SB_NAMEFIRST_NAME_MAX > 0 )); then
+        name_max_cap=$SB_NAMEFIRST_NAME_MAX
+      else
+        if [[ "$SB_NAMEFIRST_META_RESERVE" =~ ^[0-9]+$ ]]; then
+          meta_reserve=$SB_NAMEFIRST_META_RESERVE
+        else
+          meta_reserve=50
+        fi
+
+        if [[ "$SB_NAMEFIRST_META_RESERVE_MIN" =~ ^[0-9]+$ ]]; then
+          meta_reserve_min=$SB_NAMEFIRST_META_RESERVE_MIN
+        else
+          meta_reserve_min=36
+        fi
+
+        (( meta_reserve_min < 0 )) && meta_reserve_min=0
+        (( meta_reserve < meta_reserve_min )) && meta_reserve=$meta_reserve_min
+        name_max_cap=$(( term_cols - meta_reserve ))
+      fi
+
+      (( name_min_soft < 1 )) && name_min_soft=1
+      (( name_min_soft > term_cols )) && name_min_soft=$term_cols
+      (( name_max_cap < 1 )) && name_max_cap=1
+      (( name_max_cap > term_cols )) && name_max_cap=$term_cols
+      (( name_max_cap < name_min_soft )) && name_max_cap=$name_min_soft
+
+      # Calculate actual min/max percentages based on constraints
+      min_pct=$(( (name_min_soft * 100 + term_cols - 1) / term_cols ))
+      (( min_pct < 1 )) && min_pct=1
+      max_pct=$(( (name_max_cap * 100) / term_cols ))
+      (( max_pct > 100 )) && max_pct=100
+      (( max_pct < min_pct )) && max_pct=$min_pct
+
+      # Calculate what the actual column width will be for current and new percentages
+      current_name_limit=$(( (term_cols * NAMEFIRST_WIDTH_PCT_RUNTIME) / 100 ))
+      (( current_name_limit < name_min_soft )) && current_name_limit=$name_min_soft
+      (( current_name_limit > name_max_cap )) && current_name_limit=$name_max_cap
+
+      new_pct=$(( NAMEFIRST_WIDTH_PCT_RUNTIME + delta ))
+      (( new_pct < min_pct )) && new_pct=$min_pct
+      (( new_pct > max_pct )) && new_pct=$max_pct
+
+      new_name_limit=$(( (term_cols * new_pct) / 100 ))
+      (( new_name_limit < name_min_soft )) && new_name_limit=$name_min_soft
+      (( new_name_limit > name_max_cap )) && new_name_limit=$name_max_cap
+
+      range_span=$(( name_max_cap - name_min_soft ))
+      if (( range_span > 0 )); then
+        range_pct=$(( ((new_name_limit - name_min_soft) * 100 + range_span / 2) / range_span ))
+      else
+        range_pct=100
+      fi
+
+      # Return early if no actual change in column width (hit a hard constraint)
+      (( new_name_limit == current_name_limit )) && return 0
+
+      NAMEFIRST_WIDTH_PCT_RUNTIME=$new_pct
+
+      read_stdin_into_array ROWS_COLOR < <(printf '%s\n' "${ROWS_NAMEFIRST_BASE[@]}" | format_name_first_aligned)
+      ROWS_PLAIN=()
+
+      draw_ui
+      footer_message_auto "Name width: %s%% (screen %s%%, range %d-%d%%, %d cols of %d)" "$range_pct" "$NAMEFIRST_WIDTH_PCT_RUNTIME" "$min_pct" "$max_pct" "$new_name_limit" "$term_cols"
+    }
+
     load_data() {
       local t0 t1 t2
 
@@ -4789,6 +4911,7 @@ delete_current_or_selected() {
 
       ROWS_COLOR=()
       ROWS_PLAIN=()
+      ROWS_NAMEFIRST_BASE=()
       ROWS_PATH=()
       ROWS_SELECTED=()
       DUST_ROW_PATHS=()
@@ -4813,10 +4936,11 @@ delete_current_or_selected() {
 
       # Keep a stable plain array for path extraction before any display reformatting.
       read_stdin_into_array ROWS_SELECT_PLAIN < <(printf '%s\n' "${ROWS_COLOR[@]}" | sed -E $'s/\x1B\[[0-9;:]*m//g')
+      ROWS_NAMEFIRST_BASE=("${ROWS_COLOR[@]}")
 
       if (( NAME_FIRST_VIEW )); then
         # Reformat only the display rows; selection rows stay in original capture order.
-        read_stdin_into_array ROWS_COLOR < <(printf '%s\n' "${ROWS_COLOR[@]}" | format_name_first_aligned)
+        read_stdin_into_array ROWS_COLOR < <(printf '%s\n' "${ROWS_NAMEFIRST_BASE[@]}" | format_name_first_aligned)
       fi
       t2=$(now_epoch_ns)
       LAST_PARSE_MS=$(( (t2 - t1) / 1000000 ))
@@ -7407,6 +7531,7 @@ delete_current_or_selected() {
         printf "\033[1;36mSelect\033[0m      \033[1;33m%s\033[0m toggle  \033[1;33m%s\033[0m all  \033[1;33mF5/%s\033[0m copy  \033[1;33m%s\033[0m fullpath  \033[1;33m%s\033[0m move  \033[1;33m%s\033[0m paste  \033[1;33m%s\033[0m delete\n" "$KEY_SELECT_TOGGLE_LABEL" "$KEY_SELECT_ALL" "$KEY_COPY" "$KEY_COPY_PATH_LABEL" "$KEY_MOVE" "$KEY_PASTE" "$KEY_DELETE"
         printf "\033[1;36mFile\033[0m        \033[1;33mF2/%s\033[0m rename  \033[1;33mF3/%s\033[0m view  \033[1;33mF4/%s\033[0m edit  \033[1;33m%s\033[0m compare  \033[1;33m%s\033[0m search  \033[1;33m%s/%s\033[0m find  \033[1;33m%s\033[0m zip\n" "$KEY_RENAME" "$KEY_OPEN_LESS" "$KEY_OPEN_EDITOR" "$KEY_COMPARE" "$KEY_SEARCH" "$KEY_FIND_FILE" "$KEY_FIND_FILE_ALT" "$KEY_EXTRACT_ZIP"
         printf "\033[1;36mView\033[0m        \033[1;33m%s\033[0m hidden  \033[1;33m%s\033[0m debug  \033[1;33m%s\033[0m renderer  \033[1;33m%s\033[0m dust  \033[1;33m%s\033[0m name-first  \033[1;33m%s\033[0m preview  \033[1;33m%s\033[0m SSH\n" "$KEY_TOGGLE_HIDDEN" "$KEY_TOGGLE_DEBUG_LABEL" "$KEY_TOGGLE_SOURCE_LABEL" "$KEY_DUST_MODE" "$KEY_TOGGLE_NAME_FIRST_LABEL" "$KEY_TOGGLE_PREVIEW_LABEL" "$KEY_SSH_PICKER"
+        printf "\033[1;36mLayout\033[0m      \033[1;33m%s/%s\033[0m name-first width\n" "$KEY_NAMEFIRST_DECREASE_LABEL" "$KEY_NAMEFIRST_INCREASE_LABEL"
         printf "\033[1;36mPanels\033[0m      \033[1;33m%s\033[0m bookmarks  \033[1;33m%s\033[0m integrations  \033[1;33m%s\033[0m help\n" "$KEY_BOOKMARKS" "$KEY_INTEGRATIONS" "$KEY_HELP"
         printf "\033[1;36mOther\033[0m       \033[1;33m%s\033[0m reload  \033[1;33m%s\033[0m help  \033[1;33m%s\033[0m command  \033[1;33m%s\033[0m git add/commit/push  \033[1;33m%s\033[0m quit\n" "$KEY_RELOAD_LABEL" "$KEY_HELP" "$KEY_RUN_COMMAND" "$KEY_GIT_PUSH" "$KEY_QUIT"
         printf "\033[%s;1H\033[2mPress any key to return...\033[0m\033[K" "$_rows"
@@ -7451,6 +7576,7 @@ delete_current_or_selected() {
         "${KEY_RELOAD_LABEL}            Reload current directory"
         "${KEY_TOGGLE_DEBUG_LABEL}            Toggle debug details in footer"
         "${KEY_TOGGLE_NAME_FIRST_LABEL}            Toggle name-first layout"
+        "${KEY_NAMEFIRST_DECREASE_LABEL}/${KEY_NAMEFIRST_INCREASE_LABEL}            Decrease/increase name-first width"
         "${KEY_TOGGLE_SOURCE_LABEL}            Cycle list renderer (eza/lsd/dust/logo-ls/ls)"
         "${KEY_TOGGLE_HIDDEN}            Toggle hidden files on/off"
         "${KEY_DUST_MODE}            Toggle dust mode (restore previous renderer on second press)"
@@ -7488,8 +7614,12 @@ delete_current_or_selected() {
         "SB_PREVIEW_COLORS  Enable preview pane colors by content type (1/0, default 1)"
         "SB_PREVIEW_RELEASE_IDLE_MS  Refresh preview after nav key release/idle (default 500ms)"
         "SB_NAMEFIRST_WIDTH_PCT  Name-first width percent of terminal (default 35)"
+        "SB_KEY_NAMEFIRST_DECREASE  Decrease name-first width key (default [)"
+        "SB_KEY_NAMEFIRST_INCREASE  Increase name-first width key (default ])"
         "SB_NAMEFIRST_NAME_MIN  Soft minimum name width in name-first mode (default 12)"
-        "SB_NAMEFIRST_NAME_MAX  Maximum name width cap in name-first mode (default 64)"
+        "SB_NAMEFIRST_NAME_MAX  Optional hard maximum name width in columns (default disabled)"
+        "SB_NAMEFIRST_META_RESERVE  Target columns reserved for metadata when maxing name width (default 50)"
+        "SB_NAMEFIRST_META_RESERVE_MIN  Minimum metadata reserve floor (default 36)"
         "SB_SSH_0..9  SSH specs: [label:]user@host[:port]:/path"
         "SB_SSHFS_DIR  Optional root directory for sshfs mounts"
         "SB_FUSE_ZIP_ARGS  Extra args passed to fuse-zip mount"
@@ -7754,6 +7884,12 @@ delete_current_or_selected() {
             fi
             load_data
             draw_ui
+            ;;
+          "$KEY_NAMEFIRST_DECREASE")
+            adjust_namefirst_width_pct -1
+            ;;
+          "$KEY_NAMEFIRST_INCREASE")
+            adjust_namefirst_width_pct 1
             ;;
           "$KEY_TOGGLE_PREVIEW")
             if (( PREVIEW_MODE )); then
