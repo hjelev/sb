@@ -386,13 +386,31 @@ append_shell_integration() {
             printf 'export PATH="%s:$PATH"\n\n' "$INSTALL_DIR"
         fi
         printf 'sb() {\n'
+        printf '    local sb_bin="%s"\n' "$install_path"
+        printf '    local sb_bash=""\n'
+        printf '    local candidate\n'
+        printf '    for candidate in "${SB_BASH_BIN:-}" /opt/homebrew/bin/bash /usr/local/bin/bash /opt/local/bin/bash /usr/bin/bash bash; do\n'
+        printf '        [ -n "$candidate" ] || continue\n'
+        printf '        command -v "$candidate" >/dev/null 2>&1 || continue\n'
+        printf '        "$candidate" -c '\''exit $(( BASH_VERSINFO[0] >= 4 ? 0 : 1 ))'\'' >/dev/null 2>&1 || continue\n'
+        printf '        sb_bash="$candidate"\n'
+        printf '        break\n'
+        printf '    done\n'
         printf '    if [ "$#" -gt 0 ]; then\n'
-        printf '        "%s" "$@"\n' "$install_path"
+        printf '        if [ -n "$sb_bash" ]; then\n'
+        printf '            "$sb_bash" "$sb_bin" "$@"\n'
+        printf '        else\n'
+        printf '            "$sb_bin" "$@"\n'
+        printf '        fi\n'
         printf '        return\n'
         printf '    fi\n\n'
         printf '    local tmp_file\n'
         printf '    tmp_file=$(mktemp)\n'
-        printf '    "%s" --export-path "$tmp_file"\n' "$install_path"
+        printf '    if [ -n "$sb_bash" ]; then\n'
+        printf '        "$sb_bash" "$sb_bin" --export-path "$tmp_file"\n'
+        printf '    else\n'
+        printf '        "$sb_bin" --export-path "$tmp_file"\n'
+        printf '    fi\n'
         printf '    if [ -s "$tmp_file" ]; then\n'
         printf '        cd "$(cat "$tmp_file")"\n'
         printf '    fi\n'
