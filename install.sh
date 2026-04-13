@@ -13,6 +13,7 @@ SB_SLOGAN="${SB_SLOGAN:-}"
 SB_SLOGANS="${SB_SLOGANS:-Bringing your tools together|One shell to rule them all.|The missing link in your terminal workflow.|Bash-powered. Tool-agnostic.}"
 SB_SLOGAN_ROTATE_RANDOM="${SB_SLOGAN_ROTATE_RANDOM:-1}"
 SB_ACTIVE_SLOGAN=""
+BANNER_RENDERED="0"
 
 usage() {
     cat <<'EOF'
@@ -248,6 +249,22 @@ resolve_ref_short_sha() {
 prompt_yes_no() {
     local prompt="$1"
     local response
+    local tty="/dev/tty"
+
+    if [[ -r "$tty" && -w "$tty" ]]; then
+        while true; do
+            printf '%s' "$prompt" >"$tty"
+            if ! IFS= read -r response <"$tty"; then
+                printf '\n' >"$tty"
+                return 1
+            fi
+            case "$response" in
+                [yY]) return 0 ;;
+                [nN]|"") return 1 ;;
+                *) printf 'Please answer y or n: ' >"$tty" ;;
+            esac
+        done
+    fi
 
     while true; do
         printf '%s' "$prompt"
@@ -262,6 +279,13 @@ prompt_yes_no() {
             *) printf 'Please answer y or n: ' >&2 ;;
         esac
     done
+}
+
+render_banner_once() {
+    if [[ "$BANNER_RENDERED" == "0" ]]; then
+        render_sb_banner "$(resolve_banner_version_label)"
+        BANNER_RENDERED="1"
+    fi
 }
 
 path_contains_dir() {
@@ -567,7 +591,7 @@ if [[ "$UNINSTALL" == "1" ]]; then
         echo "Error: --uninstall cannot be combined with --version or --ref." >&2
         exit 1
     fi
-    render_sb_banner "$(resolve_banner_version_label)"
+    render_banner_once
     uninstall_sb
     exit 0
 fi
@@ -587,6 +611,7 @@ if [[ -n "$LOCAL_PATH" ]]; then
         printf 'Error: local sb script at %s failed syntax validation; aborting.\n' "$LOCAL_PATH" >&2
         exit 1
     fi
+    render_banner_once
     mkdir -p "$INSTALL_DIR"
     TMP_FILE="$(mktemp)"
     trap 'rm -f "$TMP_FILE"' EXIT
@@ -618,6 +643,7 @@ if [[ -n "$VERSION" ]]; then
     REF="$VERSION"
 elif [[ -z "$REF" ]]; then
     if VERSION="$(latest_release_tag 2>/dev/null)" && [[ -n "$VERSION" ]]; then
+        render_banner_once
         # Release tag found; check if master has different commits
         tag_sha="$(resolve_ref_short_sha "$VERSION" 2>/dev/null)" || tag_sha=""
         master_sha="$(resolve_ref_short_sha master 2>/dev/null)" || master_sha=""
@@ -638,6 +664,7 @@ elif [[ -z "$REF" ]]; then
             printf 'Installing Shell Buddy %s\n' "$(display_version_label "$VERSION")"
         fi
     elif REF="$(resolve_default_ref)"; then
+        render_banner_once
         printf 'No GitHub release found, installing from %s\n' "$REF"
     else
         echo "Error: no release found and no fallback branch with the Shell Buddy script is accessible." >&2
@@ -645,7 +672,7 @@ elif [[ -z "$REF" ]]; then
     fi
 fi
 
-render_sb_banner "$(resolve_banner_version_label)"
+render_banner_once
 
 mkdir -p "$INSTALL_DIR"
 TMP_FILE="$(mktemp)"
