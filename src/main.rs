@@ -645,13 +645,24 @@ impl App {
             self.preview_native_last_key = None;
             self.request_preview_for_selected();
         } else {
-            if self.preview_native_last_key.is_some()
-                && matches!(
-                    Self::terminal_image_protocol().0,
-                    crate::integration::probe::TerminalImageProtocol::Kitty
-                )
-            {
-                let _ = Self::clear_kitty_pane_images();
+            if self.preview_native_last_key.is_some() {
+                match Self::terminal_image_protocol().0 {
+                    crate::integration::probe::TerminalImageProtocol::Kitty => {
+                        let _ = Self::clear_kitty_pane_images();
+                    }
+                    crate::integration::probe::TerminalImageProtocol::Iterm2Inline
+                    | crate::integration::probe::TerminalImageProtocol::Sixel => {
+                        if let Some(area) = self.preview_native_area {
+                            let _ = Self::clear_preview_pane_area(
+                                area.x,
+                                area.y,
+                                area.width,
+                                area.height,
+                            );
+                        }
+                    }
+                    _ => {}
+                }
             }
             self.preview_target_path = None;
             self.preview_lines.clear();
@@ -6452,8 +6463,22 @@ fn main() -> io::Result<()> {
                 let offset = app.preview_scroll_offset.min(max_scroll);
                 app.preview_scroll_offset = offset;
 
+                let preview_protocol = App::terminal_image_protocol().0;
+                let native_pane_image = app.preview_enabled
+                    && matches!(
+                        preview_protocol,
+                        crate::integration::probe::TerminalImageProtocol::Kitty
+                            | crate::integration::probe::TerminalImageProtocol::Iterm2Inline
+                            | crate::integration::probe::TerminalImageProtocol::Sixel
+                    )
+                    && app.preview_image_rgb.is_some();
+
                 let rendered_lines: Vec<Line> = if let Some((ref rgb, iw, ih)) = app.preview_image_rgb {
-                    App::halfblock_lines(rgb, iw, ih, preview_text_area.width, preview_text_area.height)
+                    if native_pane_image {
+                        vec![Line::from(Span::raw(" ".repeat(preview_text_area.width as usize))); preview_text_area.height as usize]
+                    } else {
+                        App::halfblock_lines(rgb, iw, ih, preview_text_area.width, preview_text_area.height)
+                    }
                 } else {
                     let mut tlines: Vec<Line> = app
                         .preview_lines
@@ -7639,14 +7664,17 @@ fn main() -> io::Result<()> {
             }
         })?;
 
-        // After ratatui has drawn, overlay native Kitty GP image in the preview pane
-        // for terminals that support it (Ghostty, Kitty, etc.).
-        let kitty_protocol = matches!(
-            App::terminal_image_protocol().0,
+        // After ratatui has drawn, overlay native protocol image in the preview pane
+        // for terminals that support in-pane rendering.
+        let native_protocol = App::terminal_image_protocol().0;
+        let native_pane_supported = matches!(
+            native_protocol,
             crate::integration::probe::TerminalImageProtocol::Kitty
+                | crate::integration::probe::TerminalImageProtocol::Iterm2Inline
+                | crate::integration::probe::TerminalImageProtocol::Sixel
         );
-        if kitty_protocol && app.preview_enabled {
-            if let (Some(area), Some(ref png), Some((_, iw, ih))) = (
+        if native_pane_supported && app.preview_enabled {
+            if let (Some(area), Some(ref png), Some((rgb, iw, ih))) = (
                 app.preview_native_area,
                 app.preview_image_png.as_ref(),
                 app.preview_image_rgb.as_ref(),
@@ -7663,27 +7691,86 @@ fn main() -> io::Result<()> {
                 );
 
                 if app.preview_native_last_key.as_deref() != Some(draw_key.as_str()) {
-                    let _ = App::clear_kitty_pane_images();
-                    let _ = App::emit_kitty_pane(
-                        png,
-                        *iw,
-                        *ih,
-                        fit.x,
-                        fit.y,
-                        fit.width,
-                        fit.height,
-                    );
+                    match native_protocol {
+                        crate::integration::probe::TerminalImageProtocol::Kitty => {
+                            let _ = App::clear_kitty_pane_images();
+                            let _ = App::emit_kitty_pane(
+                                png,
+                                *iw,
+                                *ih,
+                                fit.x,
+                                fit.y,
+                                fit.width,
+                                fit.height,
+                            );
+                        }
+                        crate::integration::probe::TerminalImageProtocol::Iterm2Inline => {
+                            // Use the full preview pane bounds so clearing removes
+                            // remnants from previously larger images.
+                            let _ = App::emit_iterm2_pane(
+                                png,
+                                area.x,
+                                area.y,
+                                area.width,
+                                area.height,
+                            );
+                        }
+                        crate::integration::probe::TerminalImageProtocol::Sixel => {
+                            // Pass the full pane area: emit_sixel_pane handles its
+                            // own pixel-aware sizing and clears stale content first.
+                            let _ = App::emit_sixel_pane(
+                                rgb,
+                                *iw,
+                                *ih,
+                                area.x,
+                                area.y,
+                                area.width,
+                                area.height,
+                            );
+                        }
+                        _ => {}
+                    }
                     app.preview_native_last_key = Some(draw_key);
                 }
             } else if app.preview_native_last_key.is_some() {
                 // Switched from image -> non-image (folder/text/etc.): clear once.
-                let _ = App::clear_kitty_pane_images();
+                match native_protocol {
+                    crate::integration::probe::TerminalImageProtocol::Kitty => {
+                        let _ = App::clear_kitty_pane_images();
+                    }
+                    crate::integration::probe::TerminalImageProtocol::Iterm2Inline
+                    | crate::integration::probe::TerminalImageProtocol::Sixel => {
+                        if let Some(area) = app.preview_native_area {
+                            let _ = App::clear_preview_pane_area(
+                                area.x,
+                                area.y,
+                                area.width,
+                                area.height,
+                            );
+                        }
+                    }
+                    _ => {}
+                }
                 app.preview_native_last_key = None;
             }
         } else if app.preview_native_last_key.is_some() {
-            // Preview disabled (or no longer Kitty): clear once and stop tracking.
-            if kitty_protocol {
-                let _ = App::clear_kitty_pane_images();
+            // Preview disabled (or no longer native pane): clear once and stop tracking.
+            match native_protocol {
+                crate::integration::probe::TerminalImageProtocol::Kitty => {
+                    let _ = App::clear_kitty_pane_images();
+                }
+                crate::integration::probe::TerminalImageProtocol::Iterm2Inline
+                | crate::integration::probe::TerminalImageProtocol::Sixel => {
+                    if let Some(area) = app.preview_native_area {
+                        let _ = App::clear_preview_pane_area(
+                            area.x,
+                            area.y,
+                            area.width,
+                            area.height,
+                        );
+                    }
+                }
+                _ => {}
             }
             app.preview_native_last_key = None;
         }

@@ -1,11 +1,12 @@
 [package]
 name = "sbrs"
-version = "0.5.12"
+version = "0.5.15"
 edition = "2024"
 description = "Shell Buddy (sb)"
 repository = "https://github.com/hjelev/sbrs"
 keywords = ["terminal", "file-manager", "tui", "preview", "images"]
 categories = ["command-line-utilities", "filesystem"]
+license = "MIT"
 
 [dependencies]
 clap = { version = "4.6.0", features = ["derive"] }
