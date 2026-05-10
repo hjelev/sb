@@ -19,6 +19,124 @@ impl App {
     fn mode_shows_main_scrollbar(&self) -> bool {
         matches!(self.mode, AppMode::Browsing | AppMode::PathEditing)
     }
+
+    /// Parse ANSI SGR color codes in a line and return styled ratatui spans.
+    /// Supports: 0 (reset), 1 (bold), 30-37 (fg), 90-97 (bright fg),
+    /// 38;5;N (256-color fg), 38;2;R;G;B (truecolor fg).
+    fn parse_ansi_line(line: &str) -> Vec<Span<'static>> {
+        let mut spans: Vec<Span<'static>> = Vec::new();
+        let mut current_text = String::new();
+        let mut current_bold = false;
+        let mut current_fg: Option<Color> = None;
+
+        let mut chars = line.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch == '\x1b' && chars.peek() == Some(&'[') {
+                chars.next(); // consume '['
+                let mut code_str = String::new();
+                while let Some(&next_ch) = chars.peek() {
+                    if next_ch.is_ascii_digit() || next_ch == ';' {
+                        code_str.push(next_ch);
+                        chars.next();
+                    } else if next_ch == 'm' {
+                        chars.next();
+                        break;
+                    } else {
+                        break;
+                    }
+                }
+
+                // Flush current text
+                if !current_text.is_empty() {
+                    let mut style = Style::default();
+                    if let Some(fg) = current_fg {
+                        style = style.fg(fg);
+                    } else {
+                        style = style.fg(Color::Rgb(210, 210, 210));
+                    }
+                    if current_bold {
+                        style = style.add_modifier(Modifier::BOLD);
+                    }
+                    spans.push(Span::styled(current_text.clone(), style));
+                    current_text.clear();
+                }
+
+                // Parse SGR codes: split by semicolon to handle multi-part codes
+                let parts: Vec<&str> = code_str.split(';').collect();
+                let mut i = 0;
+                while i < parts.len() {
+                    if let Ok(code) = parts[i].parse::<u16>() {
+                        match code {
+                            0 => {
+                                current_bold = false;
+                                current_fg = None;
+                            }
+                            1 => current_bold = true,
+                            // Basic colors (30-37 fg, 90-97 bright fg)
+                            30 => current_fg = Some(Color::Black),
+                            31 => current_fg = Some(Color::Red),
+                            32 => current_fg = Some(Color::Green),
+                            33 => current_fg = Some(Color::Yellow),
+                            34 => current_fg = Some(Color::Blue),
+                            35 => current_fg = Some(Color::Magenta),
+                            36 => current_fg = Some(Color::Cyan),
+                            37 => current_fg = Some(Color::White),
+                            90 => current_fg = Some(Color::DarkGray),
+                            91 => current_fg = Some(Color::Red),
+                            92 => current_fg = Some(Color::Green),
+                            93 => current_fg = Some(Color::Yellow),
+                            94 => current_fg = Some(Color::Blue),
+                            95 => current_fg = Some(Color::Magenta),
+                            96 => current_fg = Some(Color::Cyan),
+                            97 => current_fg = Some(Color::White),
+                            // 256-color mode: 38;5;N
+                            38 if i + 2 < parts.len() && parts[i + 1] == "5" => {
+                                if let Ok(color_idx) = parts[i + 2].parse::<u8>() {
+                                    current_fg = Some(Color::Indexed(color_idx));
+                                }
+                                i += 2;
+                            }
+                            // Truecolor: 38;2;R;G;B
+                            38 if i + 4 < parts.len() && parts[i + 1] == "2" => {
+                                if let (Ok(r), Ok(g), Ok(b)) = (
+                                    parts[i + 2].parse::<u8>(),
+                                    parts[i + 3].parse::<u8>(),
+                                    parts[i + 4].parse::<u8>(),
+                                ) {
+                                    current_fg = Some(Color::Rgb(r, g, b));
+                                }
+                                i += 4;
+                            }
+                            _ => {}
+                        }
+                    }
+                    i += 1;
+                }
+            } else {
+                current_text.push(ch);
+            }
+        }
+
+        // Flush remaining text
+        if !current_text.is_empty() {
+            let mut style = Style::default();
+            if let Some(fg) = current_fg {
+                style = style.fg(fg);
+            } else {
+                style = style.fg(Color::Rgb(210, 210, 210));
+            }
+            if current_bold {
+                style = style.add_modifier(Modifier::BOLD);
+            }
+            spans.push(Span::styled(current_text, style));
+        }
+
+        if spans.is_empty() {
+            spans.push(Span::raw(""));
+        }
+
+        spans
+    }
 }
 
 const MAIN_LIST_DOUBLE_CLICK_WINDOW_MS: u64 = 320;
@@ -239,6 +357,12 @@ enum InternalSearchResult {
     },
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PreviewPaneFocus {
+    Folder,
+    Preview,
+}
+
 #[derive(Clone, Copy)]
 struct InternalSearchContentLimits {
     max_files: usize,
@@ -420,6 +544,7 @@ struct App {
     preview_native_last_key: Option<String>,
     preview_image_rgb: Option<(Vec<u8>, u32, u32)>,
     preview_image_png: Option<Vec<u8>>,
+    preview_pane_focus: PreviewPaneFocus,
 }
 
 const ZIP_BASED_EXTENSIONS: &[&str] = &[
@@ -616,6 +741,7 @@ impl App {
             preview_native_last_key: None,
             preview_image_rgb: None,
             preview_image_png: None,
+            preview_pane_focus: PreviewPaneFocus::Folder,
         };
         app.refresh_header_clock_if_needed();
         app.refresh_entries()?;
@@ -638,6 +764,7 @@ impl App {
         self.preview_enabled = !self.preview_enabled;
         self.preview_scroll_offset = 0;
         if self.preview_enabled {
+            self.preview_pane_focus = PreviewPaneFocus::Folder;
             self.preview_lines = vec!["Loading preview...".to_string()];
             self.preview_footer = None;
             self.preview_image_rgb = None;
@@ -673,7 +800,32 @@ impl App {
             self.preview_native_last_key = None;
             self.preview_image_rgb = None;
             self.preview_image_png = None;
+            self.preview_pane_focus = PreviewPaneFocus::Folder;
         }
+    }
+
+    fn toggle_preview_pane_focus(&mut self) {
+        self.preview_pane_focus = match self.preview_pane_focus {
+            PreviewPaneFocus::Folder => PreviewPaneFocus::Preview,
+            PreviewPaneFocus::Preview => PreviewPaneFocus::Folder,
+        };
+    }
+
+    fn preview_focus_is_preview(&self) -> bool {
+        self.preview_enabled && self.preview_pane_focus == PreviewPaneFocus::Preview
+    }
+
+    fn preview_max_scroll(&self) -> usize {
+        self.preview_lines.len().saturating_sub(1)
+    }
+
+    fn preview_scroll_up(&mut self, amount: usize) {
+        self.preview_scroll_offset = self.preview_scroll_offset.saturating_sub(amount);
+    }
+
+    fn preview_scroll_down(&mut self, amount: usize) {
+        let next = self.preview_scroll_offset.saturating_add(amount);
+        self.preview_scroll_offset = next.min(self.preview_max_scroll());
     }
 
     fn request_preview_for_selected(&mut self) {
@@ -939,7 +1091,7 @@ impl App {
 
         if use_bat {
             if let Ok(out) = Command::new("bat")
-                .args(["--paging=never", "--style=plain", "--color=never", "--line-range", "1:220"])
+                .args(["--paging=never", "--style=plain", "--color=always", "--line-range", "1:220"])
                 .arg(&path)
                 .output()
             {
@@ -5266,8 +5418,16 @@ printf '%s\n' "${paths[$idx]}" > "$out_file"
     fn handle_mouse_scroll(&mut self, scroll_up: bool) {
         match self.mode {
             AppMode::Browsing => {
-                let delta = if scroll_up { -3 } else { 3 };
-                self.move_selection_delta(delta);
+                if self.preview_focus_is_preview() {
+                    if scroll_up {
+                        self.preview_scroll_up(3);
+                    } else {
+                        self.preview_scroll_down(3);
+                    }
+                } else {
+                    let delta = if scroll_up { -3 } else { 3 };
+                    self.move_selection_delta(delta);
+                }
             }
             AppMode::Help => {
                 if scroll_up {
@@ -5392,6 +5552,57 @@ printf '%s\n' "${paths[$idx]}" > "$out_file"
         };
 
         Some((table_area, list_area))
+    }
+
+    fn preview_pane_frame_areas(&self, area: Rect) -> Option<(Rect, Rect)> {
+        if !self.preview_enabled || !matches!(self.mode, AppMode::Browsing | AppMode::PathEditing) {
+            return None;
+        }
+
+        let footer_height = 1;
+        let header_reserved_rows = 1;
+        let chunks = Layout::default()
+            .constraints([Constraint::Min(3), Constraint::Length(footer_height)])
+            .split(area);
+
+        let content_area = Rect::new(
+            chunks[0].x,
+            chunks[0].y + header_reserved_rows,
+            chunks[0].width,
+            chunks[0].height.saturating_sub(header_reserved_rows),
+        );
+        let split = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(33), Constraint::Percentage(67)])
+            .split(content_area);
+        Some((split[0], split[1]))
+    }
+
+    fn handle_preview_pane_tab_click(&mut self, column: u16, row: u16, area: Rect) -> bool {
+        let Some((folder_area, preview_area)) = self.preview_pane_frame_areas(area) else {
+            return false;
+        };
+
+        let in_folder = column >= folder_area.x
+            && column < folder_area.x + folder_area.width
+            && row >= folder_area.y
+            && row < folder_area.y + folder_area.height;
+        let in_preview = column >= preview_area.x
+            && column < preview_area.x + preview_area.width
+            && row >= preview_area.y
+            && row < preview_area.y + preview_area.height;
+
+        if in_folder {
+            self.preview_pane_focus = PreviewPaneFocus::Folder;
+            return false;
+        }
+
+        if in_preview {
+            self.preview_pane_focus = PreviewPaneFocus::Preview;
+            return true;
+        }
+
+        false
     }
 
     fn main_table_scrollbar_area(&self, area: Rect) -> Option<Rect> {
@@ -5536,6 +5747,9 @@ printf '%s\n' "${paths[$idx]}" > "$out_file"
                     }
                 }
                 self.file_list_scroll_dragging = false;
+                if self.handle_preview_pane_tab_click(mouse.column, mouse.row, area) {
+                    return None;
+                }
                 if let Some(key) = self.handle_main_list_click(mouse.column, mouse.row, area) {
                     return Some(key);
                 }
@@ -6033,7 +6247,11 @@ fn main() -> io::Result<()> {
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
                     .title(Line::from(left_title_spans))
-                    .border_style(Style::default().fg(Color::DarkGray));
+                    .border_style(Style::default().fg(if app.preview_focus_is_preview() {
+                        Color::DarkGray
+                    } else {
+                        Color::Rgb(120, 120, 120)
+                    }));
                 f.render_widget(left_block, list_frame_area);
             }
 
@@ -6425,7 +6643,11 @@ fn main() -> io::Result<()> {
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
                     .title(preview_title)
-                    .border_style(Style::default().fg(Color::DarkGray));
+                    .border_style(Style::default().fg(if app.preview_focus_is_preview() {
+                        Color::Rgb(120, 120, 120)
+                    } else {
+                        Color::DarkGray
+                    }));
                 let preview_inner = preview_block.inner(preview_area);
                 f.render_widget(preview_block, preview_area);
 
@@ -6485,10 +6707,10 @@ fn main() -> io::Result<()> {
                         .iter()
                         .skip(offset)
                         .take(visible_rows)
-                        .map(|line| Line::from(Span::styled(
-                            line.clone(),
-                            Style::default().fg(Color::Rgb(210, 210, 210)),
-                        )))
+                        .map(|line| {
+                            let spans = App::parse_ansi_line(line);
+                            Line::from(spans)
+                        })
                         .collect();
                     if tlines.is_empty() {
                         tlines.push(Line::from(Span::styled(
@@ -7854,8 +8076,12 @@ fn main() -> io::Result<()> {
                         }
                     }
                     KeyCode::Tab => {
-                        let current = app.current_path_edit_value();
-                        app.begin_input_edit(AppMode::PathEditing, current);
+                        if app.preview_enabled {
+                            app.toggle_preview_pane_focus();
+                        } else {
+                            let current = app.current_path_edit_value();
+                            app.begin_input_edit(AppMode::PathEditing, current);
+                        }
                     }
                     KeyCode::Char(' ') | KeyCode::Insert => {
                         if !app.entries.is_empty() {
@@ -8107,6 +8333,15 @@ fn main() -> io::Result<()> {
                         }
                     }
                     KeyCode::Up | KeyCode::Down => {
+                        if app.preview_focus_is_preview() {
+                            if key.code == KeyCode::Up {
+                                app.preview_scroll_up(1);
+                            } else {
+                                app.preview_scroll_down(1);
+                            }
+                            continue;
+                        }
+
                         let mut steps: usize = 1;
                         while steps < 32 && event::poll(Duration::from_millis(0))? {
                             match event::read()? {
@@ -8133,23 +8368,37 @@ fn main() -> io::Result<()> {
                         app.move_selection_delta(delta);
                     }
                     KeyCode::PageUp => {
-                        if app.preview_enabled {
-                            app.preview_scroll_offset = app.preview_scroll_offset.saturating_sub(8);
+                        if app.preview_focus_is_preview() {
+                            app.preview_scroll_up(8);
                         } else {
                             app.selected_index = app.selected_index.saturating_sub(app.page_size);
                             app.table_state.select(Some(app.selected_index));
                         }
                     }
                     KeyCode::PageDown => {
-                        if app.preview_enabled {
-                            app.preview_scroll_offset = app.preview_scroll_offset.saturating_add(8);
+                        if app.preview_focus_is_preview() {
+                            app.preview_scroll_down(8);
                         } else if !app.entries.is_empty() {
                             app.selected_index = (app.selected_index + app.page_size).min(app.entries.len() - 1);
                             app.table_state.select(Some(app.selected_index));
                         }
                     }
-                    KeyCode::Home => { app.selected_index = 0; app.table_state.select(Some(0)); }
-                    KeyCode::End => { if !app.entries.is_empty() { app.selected_index = app.entries.len() - 1; app.table_state.select(Some(app.selected_index)); } }
+                    KeyCode::Home => {
+                        if app.preview_focus_is_preview() {
+                            app.preview_scroll_offset = 0;
+                        } else {
+                            app.selected_index = 0;
+                            app.table_state.select(Some(0));
+                        }
+                    }
+                    KeyCode::End => {
+                        if app.preview_focus_is_preview() {
+                            app.preview_scroll_offset = app.preview_max_scroll();
+                        } else if !app.entries.is_empty() {
+                            app.selected_index = app.entries.len() - 1;
+                            app.table_state.select(Some(app.selected_index));
+                        }
+                    }
                     KeyCode::Left | KeyCode::Backspace => {
                         if !app.try_leave_archive() && !app.try_leave_ssh_mount() {
                             app.try_enter_parent_dir();

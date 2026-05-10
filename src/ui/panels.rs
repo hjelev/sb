@@ -289,7 +289,7 @@ pub fn render_help_overlay(
                 ("Enter / Right", "Open folder/file or preview"),
                 ("Left / Bksps", "Go to parent folder"),
                 ("Mouse Click", "L: Select | Double L: Open | R: Parent folder"),
-                ("Tab / ~", "Edit path | Go to home folder"),
+                ("Tab / ~", "Edit path (or switch pane in preview) | Go home"),
                 ("` / s", "Toggle preview | Toggle folder size calc"),
                 ("Ctrl+s", "Open sorting menu"),
                 (".", "Toggle hidden files"),
