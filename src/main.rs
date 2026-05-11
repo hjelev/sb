@@ -241,6 +241,7 @@ enum CopyProgressMsg {
 }
 
 enum DownloadProgressMsg {
+    Status(String),
     Finished {
         file_name: String,
         result: Result<(), String>,
@@ -2309,24 +2310,9 @@ IFS= read -rsn1 _
         self.set_status(format!("downloading {} via {}", file_name, tool));
 
         thread::spawn(move || {
-            let result = util::command::CommandBuilder::download_command(tool, &url, &output_path)
-                .map_err(|e| e.to_string())
-                .and_then(|output| {
-                    if output.status.success() {
-                        Ok(())
-                    } else {
-                        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                        let detail = if !stderr.is_empty() {
-                            stderr
-                        } else if !stdout.is_empty() {
-                            stdout
-                        } else {
-                            format!("{} exited with status {}", tool, output.status)
-                        };
-                        Err(detail)
-                    }
-                });
+            let result = util::command::CommandBuilder::download_with_progress(tool, &url, &output_path, |hint| {
+                let _ = tx.send(DownloadProgressMsg::Status(hint.to_string()));
+            });
 
             let _ = tx.send(DownloadProgressMsg::Finished { file_name, result });
         });
@@ -2337,28 +2323,58 @@ IFS= read -rsn1 _
             return;
         };
 
-        match rx.try_recv() {
-            Ok(DownloadProgressMsg::Finished { file_name, result }) => {
-                self.download_active_name.clear();
-                self.refresh_entries_or_status();
-                match result {
-                    Ok(()) => {
-                        self.select_entry_named(&file_name);
-                        self.set_status(format!("downloaded {}", file_name));
-                    }
-                    Err(error) => {
-                        self.set_status(format!("download failed for {}: {}", file_name, error));
-                    }
+        let mut finished: Option<(String, Result<(), String>)> = None;
+        let mut latest_status: Option<String> = None;
+        let mut disconnected = false;
+        loop {
+            match rx.try_recv() {
+                Ok(DownloadProgressMsg::Status(s)) => latest_status = Some(s),
+                Ok(DownloadProgressMsg::Finished { file_name, result }) => {
+                    finished = Some((file_name, result));
+                }
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    // Normal completion: sender drops after `Finished`, so the queue drains to
+                    // `Disconnected` rather than `Empty`. Still process `finished` below.
+                    disconnected = true;
+                    break;
                 }
             }
-            Err(mpsc::TryRecvError::Empty) => {
-                self.download_rx = Some(rx);
+        }
+
+        if let Some((file_name, result)) = finished {
+            self.download_rx = None;
+            self.download_active_name.clear();
+            self.refresh_entries_or_status();
+            match result {
+                Ok(()) => {
+                    self.select_entry_named(&file_name);
+                    self.set_status(format!("downloaded {}", file_name));
+                }
+                Err(error) => {
+                    self.set_status(format!("download failed for {}: {}", file_name, error));
+                }
             }
-            Err(mpsc::TryRecvError::Disconnected) => {
-                self.download_active_name.clear();
-                self.set_status("download worker disconnected");
+            return;
+        }
+
+        if disconnected {
+            self.download_active_name.clear();
+            self.download_rx = None;
+            self.set_status("download worker disconnected");
+            return;
+        }
+
+        if let Some(s) = latest_status {
+            let name = self.download_active_name.clone();
+            if name.is_empty() {
+                self.set_status(format!("downloading: {}", s));
+            } else {
+                self.set_status(format!("downloading {} — {}", name, s));
             }
         }
+
+        self.download_rx = Some(rx);
     }
 
     fn refresh_entries(&mut self) -> io::Result<()> {

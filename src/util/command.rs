@@ -6,9 +6,10 @@
 #![allow(dead_code)]
 //! - Provides high-level methods for common commands (git, archive, preview)
 
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
-use std::io;
+use std::time::{Duration, Instant};
 
 /// Builder for executing external commands with consistent error handling.
 pub struct CommandBuilder;
@@ -142,6 +143,130 @@ impl CommandBuilder {
 
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
         cmd.output()
+    }
+
+    /// Download from `url` to `output_path` using `wget` or `curl`, streaming stderr for progress.
+    ///
+    /// `on_progress` receives a short snippet suitable for a status/footer line. Callbacks are
+    /// throttled and coalesced so callers can forward them to a UI without flooding.
+    pub fn download_with_progress<F>(tool: &str, url: &str, output_path: &Path, mut on_progress: F) -> Result<(), String>
+    where
+        F: FnMut(&str),
+    {
+        fn stderr_progress_tail(buf: &[u8]) -> Option<String> {
+            let s = String::from_utf8_lossy(buf);
+            let piece = s
+                .rsplit('\r')
+                .next()
+                .unwrap_or("")
+                .rsplit('\n')
+                .next()
+                .unwrap_or("")
+                .trim();
+            if piece.is_empty() {
+                return None;
+            }
+            const MAX: usize = 160;
+            let count = piece.chars().count();
+            let out: String = if count <= MAX {
+                piece.to_string()
+            } else {
+                piece.chars().skip(count.saturating_sub(MAX)).collect()
+            };
+            Some(out)
+        }
+
+        let mut cmd = Command::new(tool);
+        match tool {
+            "wget" => {
+                cmd.args(["--progress=bar:force", "--output-document"])
+                    .arg(output_path)
+                    .arg("--")
+                    .arg(url);
+            }
+            "curl" => {
+                cmd.args([
+                    "--location",
+                    "--fail",
+                    "--output",
+                ])
+                .arg(output_path)
+                .arg("--progress-bar")
+                .arg(url);
+            }
+            other => {
+                return Err(format!("unsupported download tool: {}", other));
+            }
+        }
+
+        cmd.stdout(Stdio::null());
+        cmd.stderr(Stdio::piped());
+
+        let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+        let mut stderr = child.stderr.take().ok_or_else(|| "no stderr pipe".to_string())?;
+
+        let mut raw_buf = Vec::new();
+        let mut err_accum = String::new();
+        let mut read_buf = [0u8; 4096];
+        let mut last_emit = Instant::now().checked_sub(Duration::from_secs(1)).unwrap_or_else(Instant::now);
+        let throttle = Duration::from_millis(200);
+        let mut last_hint: Option<String> = None;
+
+        loop {
+            match stderr.read(&mut read_buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    raw_buf.extend_from_slice(&read_buf[..n]);
+                    if raw_buf.len() > 16 * 1024 {
+                        let drain = raw_buf.len().saturating_sub(16 * 1024);
+                        raw_buf.drain(..drain);
+                    }
+                    let chunk = String::from_utf8_lossy(&read_buf[..n]);
+                    err_accum.push_str(&chunk);
+                    if err_accum.len() > 48 * 1024 {
+                        err_accum.drain(..err_accum.len().saturating_sub(48 * 1024));
+                    }
+
+                    if let Some(s) = stderr_progress_tail(&raw_buf) {
+                        let elapsed_ok = last_emit.elapsed() >= throttle;
+                        let changed = last_hint.as_deref() != Some(s.as_str());
+                        if elapsed_ok || changed {
+                            on_progress(&s);
+                            last_emit = Instant::now();
+                            last_hint = Some(s);
+                        }
+                    }
+                }
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+
+        let status = child.wait().map_err(|e| e.to_string())?;
+        if status.success() {
+            Ok(())
+        } else {
+            let tail = err_accum.trim();
+            let detail = if tail.is_empty() {
+                format!("{} exited with status {}", tool, status)
+            } else {
+                let t = tail
+                    .rsplit('\r')
+                    .next()
+                    .unwrap_or("")
+                    .rsplit('\n')
+                    .next()
+                    .unwrap_or("")
+                    .trim();
+                let tc = t.chars().count();
+                let t = if tc > 512 {
+                    t.chars().skip(tc.saturating_sub(512)).collect::<String>()
+                } else {
+                    t.to_string()
+                };
+                format!("{}: {}", tool, t)
+            };
+            Err(detail)
+        }
     }
 
     /// Check if a tool is available by running `which`.
