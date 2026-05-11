@@ -329,12 +329,12 @@ pub fn render_help_overlay(
             "Search & External",
             [
                 ("f / g", "Fuzzy search | Content search"),
+                ("w", "Download URL (prompt: Ctrl+V or right-click pastes from system clipboard)"),
                 ("S", "Open SSH/rclone mount picker"),
                 ("C", "Delta compare (marked vs cursor)"),
                 ("i / E", "Split shell (L) + preview/edit (R)"),
                 ("I", "Open integrations panel"),
                 ("b / 0-9", "Open bookmarks | Jump to bookmark"),
-                ("", ""),
                 ("", ""),
                 ("", ""),
                 ("", ""),

@@ -225,6 +225,13 @@ impl App {
         self.input_cursor = self.input_cursor.saturating_add(1);
     }
 
+    pub(crate) fn input_insert_str(&mut self, s: &str) {
+        self.clamp_input_cursor();
+        let insert_at = Self::byte_index_for_char(&self.input_buffer, self.input_cursor);
+        self.input_buffer.insert_str(insert_at, s);
+        self.input_cursor = self.input_cursor.saturating_add(s.chars().count());
+    }
+
     pub(crate) fn input_backspace(&mut self) {
         self.clamp_input_cursor();
         if self.input_cursor == 0 {

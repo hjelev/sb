@@ -240,6 +240,13 @@ enum CopyProgressMsg {
     Finished(Result<(), String>),
 }
 
+enum DownloadProgressMsg {
+    Finished {
+        file_name: String,
+        result: Result<(), String>,
+    },
+}
+
 enum ArchiveProgressMsg {
     TotalBytes(u64),
     Progress(u64),
@@ -324,12 +331,15 @@ enum AppMode {
     GitTagInput,
     InternalSearch,
     NoteEditing,
+    DownloadInput,
+    DownloadNaming,
     Renaming,
     PasteRenaming,
     NewFile,
     NewFolder,
     ArchiveCreate,
     ConfirmExtract,
+    ConfirmDownloadOverwrite,
     ConfirmIntegrationInstall,
     Help,
     ConfirmDelete,
@@ -444,6 +454,11 @@ struct App {
     copy_item_name: String,
     copy_current_src: Option<PathBuf>,
     copy_from_remote: bool,
+    download_rx: Option<Receiver<DownloadProgressMsg>>,
+    download_pending_url: Option<String>,
+    download_pending_name: Option<String>,
+    download_resume_input: Option<String>,
+    download_active_name: String,
     paste_total_items: usize,
     paste_ok_items: usize,
     paste_failed_items: usize,
@@ -641,6 +656,11 @@ impl App {
             copy_item_name: String::new(),
             copy_current_src: None,
             copy_from_remote: false,
+            download_rx: None,
+            download_pending_url: None,
+            download_pending_name: None,
+            download_resume_input: None,
+            download_active_name: String::new(),
             paste_total_items: 0,
             paste_ok_items: 0,
             paste_failed_items: 0,
@@ -2026,7 +2046,6 @@ IFS= read -rsn1 _
                     .open(&target)
                     .map(|_| ())
             };
-
             match result {
                 Ok(()) => created.push(name),
                 Err(e) => {
@@ -2055,6 +2074,290 @@ IFS= read -rsn1 _
             self.set_status(format!("created {} item(s)", created.len()));
         } else {
             self.set_status(format!("created {} item(s), {} failed", created.len(), failed));
+        }
+    }
+
+    fn begin_download_input(&mut self) {
+        if self.download_rx.is_some() {
+            self.set_status("download already in progress");
+            return;
+        }
+
+        self.download_pending_url = None;
+        self.download_pending_name = None;
+        self.download_resume_input = None;
+        self.begin_input_edit(AppMode::DownloadInput, String::new());
+    }
+
+    fn paste_clipboard_at_input_cursor(&mut self) {
+        let Some((raw, _backend)) = self.read_system_clipboard_text() else {
+            self.set_status("no clipboard backend available (wl-copy/xclip/xsel/pbcopy)");
+            return;
+        };
+        let normalized: String = raw
+            .trim_end()
+            .replace('\r', "")
+            .lines()
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if normalized.is_empty() {
+            self.set_status("clipboard is empty");
+            return;
+        }
+        self.input_insert_str(&normalized);
+    }
+
+    fn parse_download_input(raw: &str) -> Result<(String, Option<String>), String> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err("enter a URL to download".to_string());
+        }
+
+        let (url, file_name) = if let Some(rest) = trimmed.strip_prefix('"') {
+            let Some(end_quote) = rest.find('"') else {
+                return Err("quoted URL is missing a closing quote".to_string());
+            };
+            let url = rest[..end_quote].trim().to_string();
+            let remainder = rest[end_quote + 1..].trim();
+            let file_name = if remainder.is_empty() {
+                None
+            } else {
+                Some(remainder.to_string())
+            };
+            (url, file_name)
+        } else if let Some(split_at) = trimmed.find(char::is_whitespace) {
+            let url = trimmed[..split_at].trim().to_string();
+            let remainder = trimmed[split_at..].trim();
+            let file_name = if remainder.is_empty() {
+                None
+            } else {
+                Some(remainder.to_string())
+            };
+            (url, file_name)
+        } else {
+            (trimmed.to_string(), None)
+        };
+
+        if url.is_empty() {
+            return Err("enter a URL to download".to_string());
+        }
+        if !url.contains("://") {
+            return Err("URL must include a scheme like https://".to_string());
+        }
+
+        Ok((url, file_name))
+    }
+
+    fn download_url_host(url: &str) -> Option<String> {
+        let authority_and_path = url.split_once("://")?.1;
+        let authority = authority_and_path
+            .split(['/', '?', '#'])
+            .next()
+            .unwrap_or_default();
+        let host_port = authority.rsplit('@').next().unwrap_or(authority);
+        let host = if let Some(rest) = host_port.strip_prefix('[') {
+            rest.split(']').next().unwrap_or_default().trim().to_string()
+        } else {
+            host_port.split(':').next().unwrap_or_default().trim().to_string()
+        };
+
+        if host.is_empty() {
+            None
+        } else {
+            Some(host)
+        }
+    }
+
+    fn download_url_file_name(url: &str) -> Option<String> {
+        let authority_and_path = url.split_once("://")?.1;
+        let path_and_more = authority_and_path.split_once('/').map(|(_, tail)| tail)?;
+        let path = path_and_more
+            .split(['?', '#'])
+            .next()
+            .unwrap_or_default();
+        let name = path.rsplit('/').find(|segment| !segment.is_empty())?;
+        if name == "." || name == ".." {
+            None
+        } else {
+            Some(name.to_string())
+        }
+    }
+
+    fn validate_download_file_name(name: &str) -> Result<String, String> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err("download name cannot be empty".to_string());
+        }
+        if trimmed == "." || trimmed == ".." {
+            return Err("download name cannot be . or ..".to_string());
+        }
+        if trimmed.contains('/') || trimmed.contains('\\') {
+            return Err("download name cannot contain path separators".to_string());
+        }
+        Ok(trimmed.to_string())
+    }
+
+    fn queue_download_request(&mut self, url: String, file_name: String, resume_input: String) {
+        self.download_pending_url = Some(url.clone());
+        self.download_pending_name = Some(file_name.clone());
+        self.download_resume_input = Some(resume_input);
+
+        if self.current_dir.join(&file_name).exists() {
+            self.clear_input_edit();
+            self.mode = AppMode::ConfirmDownloadOverwrite;
+            self.set_status(format!("target exists: overwrite {}?", file_name));
+            return;
+        }
+
+        self.start_download_job(url, file_name);
+    }
+
+    fn submit_download_input(&mut self) {
+        let resume_input = self.input_buffer.trim().to_string();
+        let (url, explicit_name) = match Self::parse_download_input(&resume_input) {
+            Ok(parsed) => parsed,
+            Err(message) => {
+                self.set_status(message);
+                return;
+            }
+        };
+
+        if let Some(name) = explicit_name {
+            match Self::validate_download_file_name(&name) {
+                Ok(file_name) => self.queue_download_request(url, file_name, resume_input),
+                Err(message) => self.set_status(message),
+            }
+            return;
+        }
+
+        if let Some(name) = Self::download_url_file_name(&url) {
+            match Self::validate_download_file_name(&name) {
+                Ok(file_name) => self.queue_download_request(url, file_name, resume_input),
+                Err(message) => self.set_status(message),
+            }
+            return;
+        }
+
+        let Some(host_name) = Self::download_url_host(&url) else {
+            self.set_status("could not derive a file name from URL");
+            return;
+        };
+
+        self.download_pending_url = Some(url);
+        self.download_pending_name = None;
+        self.download_resume_input = Some(resume_input);
+        self.begin_input_edit(AppMode::DownloadNaming, host_name);
+        self.set_status("edit download name and press Enter");
+    }
+
+    fn submit_download_name(&mut self) {
+        let Some(url) = self.download_pending_url.clone() else {
+            self.mode = AppMode::Browsing;
+            self.clear_input_edit();
+            self.set_status("download target is missing");
+            return;
+        };
+
+        match Self::validate_download_file_name(&self.input_buffer) {
+            Ok(file_name) => {
+                let resume_input = format!("\"{}\" {}", url, file_name);
+                self.queue_download_request(url, file_name, resume_input);
+            }
+            Err(message) => self.set_status(message),
+        }
+    }
+
+    fn cancel_download_overwrite(&mut self) {
+        let resume_input = self.download_resume_input.clone().unwrap_or_default();
+        self.begin_input_edit(AppMode::DownloadInput, resume_input);
+        self.download_pending_name = None;
+        self.set_status("download overwrite cancelled");
+    }
+
+    fn preferred_download_tool(&self) -> Option<&'static str> {
+        if self.integration_active("wget") {
+            Some("wget")
+        } else if self.integration_active("curl") {
+            Some("curl")
+        } else {
+            None
+        }
+    }
+
+    fn start_download_job(&mut self, url: String, file_name: String) {
+        if self.download_rx.is_some() {
+            self.set_status("download already in progress");
+            return;
+        }
+
+        let Some(tool) = self.preferred_download_tool() else {
+            self.set_status("wget/curl not found in PATH");
+            return;
+        };
+
+        let output_path = self.current_dir.join(&file_name);
+        let (tx, rx) = mpsc::channel();
+        self.download_rx = Some(rx);
+        self.download_active_name = file_name.clone();
+        self.download_pending_url = None;
+        self.download_pending_name = None;
+        self.download_resume_input = None;
+        self.clear_input_edit();
+        self.mode = AppMode::Browsing;
+        self.set_status(format!("downloading {} via {}", file_name, tool));
+
+        thread::spawn(move || {
+            let result = util::command::CommandBuilder::download_command(tool, &url, &output_path)
+                .map_err(|e| e.to_string())
+                .and_then(|output| {
+                    if output.status.success() {
+                        Ok(())
+                    } else {
+                        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                        let detail = if !stderr.is_empty() {
+                            stderr
+                        } else if !stdout.is_empty() {
+                            stdout
+                        } else {
+                            format!("{} exited with status {}", tool, output.status)
+                        };
+                        Err(detail)
+                    }
+                });
+
+            let _ = tx.send(DownloadProgressMsg::Finished { file_name, result });
+        });
+    }
+
+    fn pump_download_progress(&mut self) {
+        let Some(rx) = self.download_rx.take() else {
+            return;
+        };
+
+        match rx.try_recv() {
+            Ok(DownloadProgressMsg::Finished { file_name, result }) => {
+                self.download_active_name.clear();
+                self.refresh_entries_or_status();
+                match result {
+                    Ok(()) => {
+                        self.select_entry_named(&file_name);
+                        self.set_status(format!("downloaded {}", file_name));
+                    }
+                    Err(error) => {
+                        self.set_status(format!("download failed for {}: {}", file_name, error));
+                    }
+                }
+            }
+            Err(mpsc::TryRecvError::Empty) => {
+                self.download_rx = Some(rx);
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.download_active_name.clear();
+                self.set_status("download worker disconnected");
+            }
         }
     }
 
@@ -4407,6 +4710,13 @@ IFS= read -rsn1 _
             MouseEventKind::ScrollDown => self.handle_mouse_scroll(false),
             MouseEventKind::Down(MouseButton::Right) => {
                 self.file_list_scroll_dragging = false;
+                if matches!(
+                    self.mode,
+                    AppMode::DownloadInput | AppMode::DownloadNaming
+                ) {
+                    self.paste_clipboard_at_input_cursor();
+                    return None;
+                }
                 if matches!(self.mode, AppMode::Browsing | AppMode::PathEditing) {
                     return Some(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
                 }
@@ -4573,6 +4883,7 @@ fn main() -> io::Result<()> {
         app.pump_archive_progress();
         app.pump_copy_total_prescan();
         app.pump_copy_progress();
+        app.pump_download_progress();
         app.pump_folder_size_progress();
         app.pump_recursive_mtime_progress();
         app.pump_current_dir_total_size_progress();
@@ -4586,6 +4897,8 @@ fn main() -> io::Result<()> {
         let text_input_cursor = matches!(
             app.mode,
             AppMode::PathEditing
+                | AppMode::DownloadInput
+                | AppMode::DownloadNaming
                 | AppMode::Renaming
                 | AppMode::PasteRenaming
                 | AppMode::NewFile
@@ -6145,11 +6458,13 @@ fn main() -> io::Result<()> {
                     + app.input_cursor as u16;
                 let cursor_y = input_area.y;
                 f.set_cursor(cursor_x.min(input_area.x + input_area.width.saturating_sub(1)), cursor_y);
-            } else if matches!(app.mode, AppMode::PasteRenaming | AppMode::ArchiveCreate | AppMode::NoteEditing | AppMode::CommandInput | AppMode::GitCommitMessage | AppMode::GitTagInput) {
+            } else if matches!(app.mode, AppMode::DownloadInput | AppMode::DownloadNaming | AppMode::PasteRenaming | AppMode::ArchiveCreate | AppMode::NoteEditing | AppMode::CommandInput | AppMode::GitCommitMessage | AppMode::GitTagInput) {
                 let area = f.size();
                 let rename_area = Rect::new(area.width/4, area.height/2 - 1, area.width/2, 3);
                 f.render_widget(Clear, rename_area);
                 let title = match app.mode {
+                    AppMode::DownloadInput => " Download URL (w: URL [name], quote URL if needed) ",
+                    AppMode::DownloadNaming => " Save Download As ",
                     AppMode::PasteRenaming => " Paste As ",
                     AppMode::NewFile => " New File Name ",
                     AppMode::NewFolder => " New Folder Name ",
@@ -6166,6 +6481,47 @@ fn main() -> io::Result<()> {
                 let cursor_x = rename_area.x + 1 + app.input_cursor as u16;
                 let cursor_y = rename_area.y + 1;
                 f.set_cursor(cursor_x.min(rename_area.x + rename_area.width.saturating_sub(1)), cursor_y);
+            } else if app.mode == AppMode::ConfirmDownloadOverwrite {
+                let area = f.size();
+                let file_name = app
+                    .download_pending_name
+                    .as_deref()
+                    .unwrap_or("download");
+                let lines = vec![
+                    "Overwrite existing file?".to_string(),
+                    String::new(),
+                    format!(" {}", file_name),
+                    String::new(),
+                    " y / Enter = overwrite    n / Esc = cancel".to_string(),
+                ];
+                let msg = lines.join("\n");
+                let content_w = lines
+                    .iter()
+                    .map(|line| line.chars().count() as u16)
+                    .max()
+                    .unwrap_or(28);
+                let dialog_w = (content_w + 2).max(40).min(area.width.saturating_sub(4).max(1));
+                let dialog_h = (lines.len() as u16 + 2).max(7).min(area.height.saturating_sub(4).max(1));
+                let confirm_area = Rect::new(
+                    (area.width.saturating_sub(dialog_w)) / 2,
+                    (area.height.saturating_sub(dialog_h)) / 2,
+                    dialog_w,
+                    dialog_h,
+                );
+                f.render_widget(Clear, confirm_area);
+                f.render_widget(
+                    Paragraph::new(msg)
+                        .wrap(Wrap { trim: true })
+                        .style(Style::default().fg(Color::Rgb(140, 200, 255)))
+                        .block(
+                            Block::default()
+                                .borders(Borders::ALL)
+                                .border_type(BorderType::Rounded)
+                                .title(" Confirm Download Overwrite ")
+                                .title_style(Style::default().fg(Color::White)),
+                        ),
+                    confirm_area,
+                );
             } else if app.mode == AppMode::Bookmarks {
                 let bookmarks = App::load_bookmarks();
                 if !bookmarks.is_empty() && app.bookmark_selected >= bookmarks.len() {
@@ -6433,7 +6789,7 @@ fn main() -> io::Result<()> {
                 left_status_parts.push(format!("Clipboard:{}", app.clipboard.len()));
             }
             let left_status = left_status_parts.join(" │ ");
-            let right_status = "c:Copy v:paste m:Move r:Rename d:Del e:Edit s:Size o:Open-GUI f:Find `:preview h:Help q:Quit";
+            let right_status = "c:Copy v:paste m:Move r:Rename w:Web d:Del e:Edit s:Size o:Open-GUI f:Find `:preview h:Help q:Quit";
             let width = chunks[1].width as usize;
             let left_len = left_status.chars().count();
             let right_len = right_status.chars().count();
@@ -6832,6 +7188,9 @@ fn main() -> io::Result<()> {
                             // Copy single selected
                             app.clipboard.push(e.path());
                         }
+                    }
+                    KeyCode::Char('w') => {
+                        app.begin_download_input();
                     }
                     KeyCode::Char('v') => {
                         app.begin_paste();
@@ -7534,6 +7893,64 @@ fn main() -> io::Result<()> {
                     }
                     _ => {}
                 },
+                AppMode::DownloadInput => match key.code {
+                    KeyCode::Enter => {
+                        app.submit_download_input();
+                    }
+                    KeyCode::Esc => {
+                        app.download_pending_url = None;
+                        app.download_pending_name = None;
+                        app.download_resume_input = None;
+                        app.clear_input_edit();
+                        app.mode = AppMode::Browsing;
+                        app.set_status("download cancelled");
+                    }
+                    KeyCode::Char('v') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        app.paste_clipboard_at_input_cursor();
+                    }
+                    KeyCode::Backspace => app.input_backspace(),
+                    KeyCode::Delete => app.input_delete(),
+                    KeyCode::Left => app.input_move_left(),
+                    KeyCode::Right => app.input_move_right(),
+                    KeyCode::Home => app.input_move_home(),
+                    KeyCode::End => app.input_move_end(),
+                    KeyCode::Char(c)
+                        if !key.modifiers.contains(KeyModifiers::CONTROL)
+                            && !key.modifiers.contains(KeyModifiers::ALT) =>
+                    {
+                        app.input_insert_char(c)
+                    }
+                    _ => {}
+                },
+                AppMode::DownloadNaming => match key.code {
+                    KeyCode::Enter => {
+                        app.submit_download_name();
+                    }
+                    KeyCode::Esc => {
+                        app.download_pending_url = None;
+                        app.download_pending_name = None;
+                        app.download_resume_input = None;
+                        app.clear_input_edit();
+                        app.mode = AppMode::Browsing;
+                        app.set_status("download cancelled");
+                    }
+                    KeyCode::Char('v') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        app.paste_clipboard_at_input_cursor();
+                    }
+                    KeyCode::Backspace => app.input_backspace(),
+                    KeyCode::Delete => app.input_delete(),
+                    KeyCode::Left => app.input_move_left(),
+                    KeyCode::Right => app.input_move_right(),
+                    KeyCode::Home => app.input_move_home(),
+                    KeyCode::End => app.input_move_end(),
+                    KeyCode::Char(c)
+                        if !key.modifiers.contains(KeyModifiers::CONTROL)
+                            && !key.modifiers.contains(KeyModifiers::ALT) =>
+                    {
+                        app.input_insert_char(c)
+                    }
+                    _ => {}
+                },
                 AppMode::GitCommitMessage => match key.code {
                     KeyCode::Enter => {
                         let raw = app.input_buffer.clone();
@@ -8119,6 +8536,23 @@ fn main() -> io::Result<()> {
                 AppMode::ConfirmExtract => {
                     app.handle_confirm_extract_key(key);
                 }
+                AppMode::ConfirmDownloadOverwrite => match key.code {
+                    KeyCode::Enter | KeyCode::Char('y') => {
+                        if let (Some(url), Some(file_name)) = (
+                            app.download_pending_url.clone(),
+                            app.download_pending_name.clone(),
+                        ) {
+                            app.start_download_job(url, file_name);
+                        } else {
+                            app.mode = AppMode::Browsing;
+                            app.set_status("download cancelled");
+                        }
+                    }
+                    KeyCode::Esc | KeyCode::Char('n') => {
+                        app.cancel_download_overwrite();
+                    }
+                    _ => {}
+                },
                 AppMode::ConfirmIntegrationInstall => {
                     if app.handle_confirm_integration_install_key(key)? {
                         terminal.clear()?;
