@@ -2318,6 +2318,11 @@ IFS= read -rsn1 _
         });
     }
 
+    /// Drains all pending download messages for this frame.
+    ///
+    /// `Disconnected` only means the sender is gone **and** the queue is empty; any `Finished`
+    /// message was already delivered as `Ok(Finished)` in this same drain loop (never skip the
+    /// `finished` block by returning early on `Disconnected`).
     fn pump_download_progress(&mut self) {
         let Some(rx) = self.download_rx.take() else {
             return;
@@ -2325,7 +2330,7 @@ IFS= read -rsn1 _
 
         let mut finished: Option<(String, Result<(), String>)> = None;
         let mut latest_status: Option<String> = None;
-        let mut disconnected = false;
+        let mut channel_closed = false;
         loop {
             match rx.try_recv() {
                 Ok(DownloadProgressMsg::Status(s)) => latest_status = Some(s),
@@ -2334,9 +2339,9 @@ IFS= read -rsn1 _
                 }
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    // Normal completion: sender drops after `Finished`, so the queue drains to
-                    // `Disconnected` rather than `Empty`. Still process `finished` below.
-                    disconnected = true;
+                    // Queue empty and all senders dropped. If the worker exited normally, we already
+                    // received `Ok(Finished)` above; otherwise `finished` stays empty.
+                    channel_closed = true;
                     break;
                 }
             }
@@ -2358,7 +2363,7 @@ IFS= read -rsn1 _
             return;
         }
 
-        if disconnected {
+        if channel_closed {
             self.download_active_name.clear();
             self.download_rx = None;
             self.set_status("download worker disconnected");
