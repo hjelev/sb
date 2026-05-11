@@ -11,7 +11,8 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use crate::app_render_cache::{EntryRenderCache, EntryRenderConfig};
 use crate::ui::list_render;
 use crate::ui::list_temperature;
-use crate::{env_flag_true, App};
+use crate::util::config::AppConfig;
+use crate::App;
 
 pub(crate) fn rt_to_ct_color(color: ratatui::style::Color) -> CtColor {
     match color {
@@ -48,9 +49,10 @@ pub fn list_current_directory(
     } else {
         env::current_dir()?
     };
-    let nerd_font_active = env::var("NERD_FONT_ACTIVE").map(|v| v == "1").unwrap_or(false);
-    let no_color = env_flag_true(&["NO_COLOR"]);
-    let show_icons = env::var("TERMINAL_ICONS").map(|v| v != "0").unwrap_or(true);
+    let config = AppConfig::from_env();
+    let nerd_font_active = config.nerd_font_active;
+    let no_color = config.no_color;
+    let show_icons = config.show_icons;
     let term_w = crossterm::terminal::size()
         .map(|(w, _)| w as usize)
         .unwrap_or(120);

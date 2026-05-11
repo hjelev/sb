@@ -2,7 +2,17 @@ use std::{
     env, fs,
     io::{self, Read},
     path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
+    process::{Command, Stdio},
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+use crossterm::{
+    cursor::{Hide, Show},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    execute,
+    terminal::{
+        disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType, EnterAlternateScreen,
+        LeaveAlternateScreen,
+    },
 };
 
 use crate::{App, ArchiveKind, ZIP_BASED_EXTENSIONS};
@@ -254,5 +264,297 @@ impl App {
             }
             _ => false,
         }
+    }
+}
+
+impl App {
+    pub(crate) fn age_encrypt_file_interactive(input: &PathBuf, output: &PathBuf) -> Result<(), String> {
+        let status = Command::new("age")
+            .args(["-p", "-o"])
+            .arg(output)
+            .arg(input)
+            .status()
+            .map_err(|e| e.to_string())?;
+
+        if status.success() {
+            Ok(())
+        } else {
+            Err("age encryption failed".to_string())
+        }
+    }
+
+    pub(crate) fn age_decrypt_file_interactive(input: &PathBuf, output: &PathBuf) -> Result<(), String> {
+        let status = Command::new("age")
+            .args(["-d", "-o"])
+            .arg(output)
+            .arg(input)
+            .status()
+            .map_err(|e| e.to_string())?;
+
+        if status.success() {
+            Ok(())
+        } else {
+            Err("age decryption failed".to_string())
+        }
+    }
+
+    pub(crate) fn protect_file_with_age(&mut self, input: &PathBuf) -> io::Result<()> {
+        let protected_path = Self::age_protected_output_path(input);
+        if protected_path.exists() {
+            self.set_status(format!(
+                "protected target exists: {}",
+                protected_path.file_name().and_then(|n| n.to_str()).unwrap_or("target")
+            ));
+            return Ok(());
+        }
+
+        disable_raw_mode()?;
+        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        let result = Self::age_encrypt_file_interactive(input, &protected_path);
+        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+        execute!(io::stdout(), TermClear(ClearType::All), crossterm::cursor::MoveTo(0, 0))?;
+        enable_raw_mode()?;
+
+        match result {
+            Ok(()) => {
+                let _ = crate::util::cleanup::safe_cleanup_path(input);
+                self.set_status("file protected with age password");
+                self.refresh_entries_or_status();
+            }
+            Err(e) => {
+                let _ = crate::util::cleanup::safe_cleanup_path(&protected_path);
+                self.set_status(format!("protect failed: {}", e));
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn unprotect_file_with_age(&mut self, input: &PathBuf) -> io::Result<()> {
+        let plain_path = Self::age_plain_output_path(input);
+        if plain_path.exists() {
+            self.set_status(format!(
+                "unprotect target exists: {}",
+                plain_path.file_name().and_then(|n| n.to_str()).unwrap_or("target")
+            ));
+            return Ok(());
+        }
+
+        disable_raw_mode()?;
+        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        let result = Self::age_decrypt_file_interactive(input, &plain_path);
+        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+        execute!(io::stdout(), TermClear(ClearType::All), crossterm::cursor::MoveTo(0, 0))?;
+        enable_raw_mode()?;
+
+        match result {
+            Ok(()) => {
+                let _ = crate::util::cleanup::safe_cleanup_path(input);
+                self.set_status("password protection removed");
+                self.refresh_entries_or_status();
+            }
+            Err(e) => {
+                let _ = crate::util::cleanup::safe_cleanup_path(&plain_path);
+                self.set_status(format!("unprotect failed: {}", e));
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn preview_age_file(&mut self, input: &PathBuf) -> io::Result<bool> {
+        let Ok((tmp_dir, tmp_path)) = Self::age_temp_decrypt_paths(input, "preview") else {
+            self.set_status("failed to prepare temporary file");
+            return Ok(false);
+        };
+
+        disable_raw_mode()?;
+        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        let decrypted = Self::age_decrypt_file_interactive(input, &tmp_path);
+
+        let mut shown = false;
+        if decrypted.is_ok() {
+            if Self::is_image_file(&tmp_path) && self.integration_active("viu") {
+                shown = Self::preview_single_image_with_tool(&tmp_path, "viu");
+            } else if Self::is_image_file(&tmp_path) && self.integration_active("chafa") {
+                shown = Self::preview_single_image_with_tool(&tmp_path, "chafa");
+            } else if Self::is_markdown_file(&tmp_path) && self.integration_active("glow") {
+                shown = Command::new("glow")
+                    .arg("-p")
+                    .arg(&tmp_path)
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false);
+            } else if Self::is_mermaid_file(&tmp_path) && self.integration_active("mmdflux") {
+                if let Ok(mut child) = Command::new("mmdflux")
+                    .arg(&tmp_path)
+                    .stdout(Stdio::piped())
+                    .spawn()
+                {
+                    if let Some(mmd_out) = child.stdout.take() {
+                        shown = Command::new("less")
+                            .args(["-R"])
+                            .stdin(mmd_out)
+                            .status()
+                            .map(|s| s.success())
+                            .unwrap_or(false);
+                    }
+                    let _ = child.wait();
+                }
+            } else if Self::is_html_file(&tmp_path) && self.integration_active("links") {
+                shown = Command::new("links")
+                    .arg(&tmp_path)
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false);
+            } else if Self::is_json_file(&tmp_path) && self.integration_active("jnv") {
+                shown = Self::preview_json_with_jnv(&tmp_path)?;
+            } else if Self::is_delimited_text_file(&tmp_path) && self.integration_active("csvlens") {
+                shown = Command::new("csvlens")
+                    .arg(&tmp_path)
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false);
+            } else if Self::is_audio_file(&tmp_path) && self.integration_active("sox") {
+                let mut child = if Self::integration_probe("play").0 {
+                    Command::new("play")
+                        .arg(&tmp_path)
+                        .stdin(Stdio::null())
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .spawn()
+                } else {
+                    Command::new("sox")
+                        .arg(&tmp_path)
+                        .arg("-d")
+                        .stdin(Stdio::null())
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .spawn()
+                };
+
+                if let Ok(ref mut proc) = child {
+                    println!("Playing decrypted audio: {}", input.display());
+                    println!("Press q, Esc, or Left to stop playback.");
+                    enable_raw_mode()?;
+                    loop {
+                        if proc.try_wait()?.is_some() {
+                            break;
+                        }
+                        if event::poll(Duration::from_millis(120))? {
+                            if let Event::Key(k) = event::read()? {
+                                if matches!(k.code, KeyCode::Char('q') | KeyCode::Esc | KeyCode::Left) {
+                                    let _ = proc.kill();
+                                    let _ = proc.wait();
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    disable_raw_mode()?;
+                    shown = true;
+                }
+            } else if Self::is_cast_file(&tmp_path) && self.integration_active("asciinema") {
+                shown = Self::preview_cast_with_asciinema(&tmp_path)?;
+            } else if Self::is_supported_archive(&tmp_path) {
+                shown = self.preview_archive_contents(&tmp_path);
+            } else if Self::is_pdf_file(&tmp_path) && self.integration_active("pdftotext") {
+                if let Ok(mut child) = Command::new("pdftotext")
+                    .args(["-layout", "-nopgbrk"])
+                    .arg(&tmp_path)
+                    .arg("-")
+                    .stdout(Stdio::piped())
+                    .spawn()
+                {
+                    if let Some(pdf_text) = child.stdout.take() {
+                        shown = Command::new("less")
+                            .args(["-R"])
+                            .stdin(pdf_text)
+                            .status()
+                            .map(|s| s.success())
+                            .unwrap_or(false);
+                    }
+                    let _ = child.wait();
+                }
+            } else if Self::is_binary_file(&tmp_path) && self.integration_active("hexyl") {
+                let hexyl = Command::new("hexyl")
+                    .arg(&tmp_path)
+                    .stdout(Stdio::piped())
+                    .spawn();
+                if let Ok(child) = hexyl {
+                    shown = Command::new("less")
+                        .args(["-R"])
+                        .stdin(child.stdout.unwrap())
+                        .status()
+                        .map(|s| s.success())
+                        .unwrap_or(false);
+                }
+            } else if self.integration_active("bat") {
+                let bat_cmd = Self::bat_tool().unwrap_or_else(|| "bat".to_string());
+                shown = Command::new(bat_cmd)
+                    .args(["--paging=always", "--style=full", "--color=always"])
+                    .arg(&tmp_path)
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false);
+            } else {
+                shown = Command::new("less")
+                    .args(["-R", tmp_path.to_str().unwrap_or_default()])
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false);
+            }
+        }
+
+        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+        execute!(io::stdout(), TermClear(ClearType::All), crossterm::cursor::MoveTo(0, 0))?;
+        enable_raw_mode()?;
+        let _ = fs::remove_file(&tmp_path);
+        let _ = fs::remove_dir_all(&tmp_dir);
+
+        if let Err(e) = decrypted {
+            self.set_status(format!("decrypt failed: {}", e));
+            return Ok(false);
+        }
+        Ok(shown)
+    }
+
+    pub(crate) fn edit_age_file(&mut self, input: &PathBuf) -> io::Result<bool> {
+        let Ok((tmp_dir, tmp_path)) = Self::age_temp_decrypt_paths(input, "edit") else {
+            self.set_status("failed to prepare temporary file");
+            return Ok(false);
+        };
+
+        disable_raw_mode()?;
+        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        execute!(io::stdout(), Show)?;
+        let decrypted = Self::age_decrypt_file_interactive(input, &tmp_path);
+        if decrypted.is_err() {
+            execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+            enable_raw_mode()?;
+            execute!(io::stdout(), Hide)?;
+            let _ = fs::remove_file(&tmp_path);
+            let _ = fs::remove_dir_all(&tmp_dir);
+            self.set_status(format!("decrypt failed: {}", decrypted.err().unwrap_or_default()));
+            return Ok(false);
+        }
+
+        let editor = env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
+        let _ = Command::new(editor)
+            .arg(&tmp_path)
+            .status();
+
+        let result = Self::age_encrypt_file_interactive(&tmp_path, input);
+        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+        enable_raw_mode()?;
+        execute!(io::stdout(), Hide)?;
+
+        let _ = fs::remove_file(&tmp_path);
+        let _ = fs::remove_dir_all(&tmp_dir);
+        match result {
+            Ok(()) => self.set_status("protected file updated"),
+            Err(e) => self.set_status(format!("re-protect failed: {}", e)),
+        }
+        self.refresh_entries_or_status();
+        Ok(true)
     }
 }

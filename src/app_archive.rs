@@ -2,7 +2,9 @@ use std::{
     fs, io,
     path::PathBuf,
     process::{Command, Stdio},
-    time::{SystemTime, UNIX_EPOCH},
+    sync::mpsc,
+    thread,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use crossterm::{
@@ -10,7 +12,9 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 
-use crate::{App, ArchiveKind, ArchiveMount};
+use crate::{App, AppMode, ArchiveKind, ArchiveMount, ArchiveProgressMsg};
+use crate::util::command::CommandBuilder;
+use crate::util::cleanup::safe_cleanup_path;
 
 impl App {
     pub(crate) fn create_archive_mount_path(&self) -> PathBuf {
@@ -70,7 +74,7 @@ impl App {
                 true
             }
             _ => {
-                let _ = fs::remove_dir(&mount_path);
+                let _ = safe_cleanup_path(&mount_path);
                 self.set_status(&format!("failed to mount archive with {}", tool));
                 false
             }
@@ -150,36 +154,8 @@ impl App {
     }
 
     pub(crate) fn unmount_archive_path(path: &PathBuf) {
-        let _ = Command::new("fusermount")
-            .args(["-u", path.to_string_lossy().as_ref()])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-        let _ = Command::new("fusermount3")
-            .args(["-u", path.to_string_lossy().as_ref()])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-        let _ = Command::new("fusermount")
-            .args(["-uz", path.to_string_lossy().as_ref()])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-        let _ = Command::new("fusermount3")
-            .args(["-uz", path.to_string_lossy().as_ref()])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-        let _ = Command::new("umount")
-            .arg(path)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-        let _ = Command::new("umount")
-            .args(["-l", path.to_string_lossy().as_ref()])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+        // Best-effort unmount — ignore failure since we'll remove the dir anyway.
+        let _ = CommandBuilder::unmount_archive(path);
     }
 
     pub(crate) fn try_leave_archive(&mut self) -> bool {
@@ -217,7 +193,7 @@ impl App {
         while let Some(mount) = self.archive_mounts.pop() {
             let _ = mount.archive_path;
             Self::unmount_archive_path(&mount.mount_path);
-            let _ = fs::remove_dir(&mount.mount_path);
+            let _ = safe_cleanup_path(&mount.mount_path);
         }
     }
 
@@ -239,7 +215,403 @@ impl App {
             }
         }
         Self::unmount_archive_path(&mount.mount_path);
-        let _ = fs::remove_dir(&mount.mount_path);
+        let _ = safe_cleanup_path(&mount.mount_path);
         true
+    }
+
+    pub(crate) fn archive_targets(&self) -> Vec<PathBuf> {
+        if !self.marked_indices.is_empty() {
+            self.entries
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| self.marked_indices.contains(i))
+                .map(|(_, e)| e.path())
+                .collect()
+        } else {
+            self.entries
+                .get(self.selected_index)
+                .map(|e| e.path())
+                .into_iter()
+                .collect()
+        }
+    }
+
+    pub(crate) fn run_zip_action(&mut self) {
+        if self.archive_rx.is_some() {
+            self.set_status("archive creation already in progress");
+            return;
+        }
+
+        let targets = self.archive_targets();
+        if targets.is_empty() {
+            self.set_status("no selected item");
+            return;
+        }
+
+        let all_archives = targets.iter().all(Self::is_supported_archive);
+
+        if all_archives {
+            if targets.iter().any(|p| !self.can_extract_archive(p)) {
+                self.set_status("missing extractor for one or more selected archives");
+                return;
+            }
+
+            self.archive_extract_targets = targets;
+            self.mode = AppMode::ConfirmExtract;
+            self.set_status("confirm extraction: press y to continue");
+            return;
+        }
+
+        if !self.integration_enabled("zip") || !Self::integration_probe("zip").0 {
+            self.set_status("zip not found in PATH");
+            return;
+        }
+
+        let base_name = if targets.len() == 1 {
+            targets[0]
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "archive".to_string())
+        } else {
+            "archive".to_string()
+        };
+        let mut archive_name = format!("{}.zip", base_name);
+        let mut n = 2usize;
+        while self.current_dir.join(&archive_name).exists() {
+            archive_name = format!("{}-{}.zip", base_name, n);
+            n += 1;
+        }
+
+        self.archive_create_targets = targets;
+        self.begin_input_edit(AppMode::ArchiveCreate, archive_name);
+        self.set_status("confirm archive name and press Enter");
+    }
+
+    pub(crate) fn create_archive_from_input(&mut self) {
+        if self.archive_rx.is_some() {
+            self.set_status("archive creation already in progress");
+            return;
+        }
+
+        let mut archive_name = self.input_buffer.trim().to_string();
+        if archive_name.is_empty() {
+            self.set_status("archive name cannot be empty");
+            return;
+        }
+        if !archive_name.to_lowercase().ends_with(".zip") {
+            archive_name.push_str(".zip");
+        }
+
+        let targets = self.archive_create_targets.clone();
+        if targets.is_empty() {
+            self.mode = AppMode::Browsing;
+            self.clear_input_edit();
+            self.set_status("nothing to archive");
+            return;
+        }
+
+        if self.current_dir.join(&archive_name).exists() {
+            self.set_status("archive already exists: choose another name");
+            return;
+        }
+
+        let mut item_names: Vec<String> = Vec::new();
+        for t in &targets {
+            if let Some(name) = t.file_name() {
+                item_names.push(name.to_string_lossy().into_owned());
+            }
+        }
+        if item_names.is_empty() {
+            self.mode = AppMode::Browsing;
+            self.archive_create_targets.clear();
+            self.clear_input_edit();
+            self.set_status("nothing to archive");
+            return;
+        }
+
+        self.mode = AppMode::Browsing;
+        let targets = std::mem::take(&mut self.archive_create_targets);
+        self.clear_input_edit();
+        self.start_archive_job(archive_name, targets);
+    }
+
+    pub(crate) fn extract_archives_confirmed(&mut self) {
+        let targets = std::mem::take(&mut self.archive_extract_targets);
+        if targets.is_empty() {
+            self.set_status("no archives selected");
+            return;
+        }
+
+        let mut ok_count = 0usize;
+        let mut fail_count = 0usize;
+        for archive in &targets {
+            let base = archive
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "extracted".to_string());
+
+            let mut out_dir = self.current_dir.join(&base);
+            let mut n = 2usize;
+            while out_dir.exists() {
+                out_dir = self.current_dir.join(format!("{}-{}", base, n));
+                n += 1;
+            }
+
+            let _ = fs::create_dir_all(&out_dir);
+            let ok = match Self::archive_kind(archive) {
+                Some(ArchiveKind::Zip) => Command::new("unzip")
+                    .args(["-q"])
+                    .arg(archive)
+                    .args(["-d"])
+                    .arg(&out_dir)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false),
+                Some(ArchiveKind::Tar) => Command::new("tar")
+                    .arg("-xf")
+                    .arg(archive)
+                    .arg("-C")
+                    .arg(&out_dir)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false),
+                Some(ArchiveKind::SevenZip) => {
+                    if let Some(tool) = Self::seven_zip_tool() {
+                        Command::new(tool)
+                            .arg("x")
+                            .arg("-y")
+                            .arg(format!("-o{}", out_dir.to_string_lossy()))
+                            .arg(archive)
+                            .stdin(Stdio::null())
+                            .stdout(Stdio::null())
+                            .stderr(Stdio::null())
+                            .status()
+                            .map(|s| s.success())
+                            .unwrap_or(false)
+                    } else {
+                        false
+                    }
+                }
+                Some(ArchiveKind::Rar) => {
+                    if let Some(tool) = Self::rar_tool() {
+                        Command::new(tool)
+                            .arg("x")
+                            .arg("-o+")
+                            .arg(archive)
+                            .arg(&out_dir)
+                            .stdin(Stdio::null())
+                            .stdout(Stdio::null())
+                            .stderr(Stdio::null())
+                            .status()
+                            .map(|s| s.success())
+                            .unwrap_or(false)
+                    } else {
+                        false
+                    }
+                }
+                None => false,
+            };
+            if ok {
+                ok_count += 1;
+            } else {
+                fail_count += 1;
+            }
+        }
+
+        self.refresh_entries_or_status();
+        if fail_count == 0 {
+            self.set_status(format!("extracted {} archive(s)", ok_count));
+        } else {
+            self.set_status(format!(
+                "extract finished: {} ok, {} failed",
+                ok_count, fail_count
+            ));
+        }
+    }
+
+    pub(crate) fn update_archive_status(&mut self) {
+        if self.archive_name.is_empty() {
+            return;
+        }
+
+        let total = self.archive_total_bytes;
+        let done = self.archive_done_bytes;
+        let scanning = total == 0 && done == 0;
+        let display_total = total.max(done).max(1);
+        let percent = if total == 0 {
+            0.0
+        } else {
+            (done.min(display_total) as f64 * 100.0) / display_total as f64
+        };
+
+        let bar_len = 20usize;
+        let filled = ((percent / 100.0) * bar_len as f64).round() as usize;
+        let filled = filled.min(bar_len);
+        let bar = format!(
+            "{}{}",
+            "#".repeat(filled),
+            "-".repeat(bar_len.saturating_sub(filled))
+        );
+
+        let elapsed = self
+            .archive_started_at
+            .map(|t| t.elapsed().as_secs_f64())
+            .unwrap_or(0.0)
+            .max(0.001);
+        let speed = done as f64 / elapsed;
+        let speed_str = if speed > 0.0 {
+            format!("{}/s", Self::format_size(speed as u64))
+        } else {
+            "-".to_string()
+        };
+
+        let eta = if speed > 0.0 && display_total > done {
+            let eta_secs = ((display_total - done) as f64 / speed).round() as u64;
+            Self::format_eta(eta_secs)
+        } else {
+            "-".to_string()
+        };
+        let total_label = if scanning {
+            "?".to_string()
+        } else {
+            Self::format_size(display_total)
+        };
+        let scan_suffix = if scanning { " scanning size..." } else { "" };
+
+        self.set_status(format!(
+            "archive [{}] {:>3.0}% {}/{} {} eta {} {}{}",
+            bar,
+            percent,
+            Self::format_size(done),
+            total_label,
+            speed_str,
+            eta,
+            self.archive_name,
+            scan_suffix
+        ));
+    }
+
+    pub(crate) fn start_archive_job(&mut self, archive_name: String, targets: Vec<PathBuf>) {
+        let mut item_names: Vec<String> = Vec::new();
+        for t in &targets {
+            if let Some(name) = t.file_name() {
+                item_names.push(name.to_string_lossy().into_owned());
+            }
+        }
+        if item_names.is_empty() {
+            self.set_status("nothing to archive");
+            return;
+        }
+
+        let cwd = self.current_dir.clone();
+        let archive_path = cwd.join(&archive_name);
+        let (tx, rx) = mpsc::channel();
+        self.archive_rx = Some(rx);
+        self.archive_total_bytes = 0;
+        self.archive_done_bytes = 0;
+        self.archive_started_at = Some(Instant::now());
+        self.archive_name = archive_name.clone();
+        self.update_archive_status();
+
+        thread::spawn(move || {
+            let total_bytes = targets
+                .iter()
+                .filter_map(|p| Self::compute_total_bytes(p).ok())
+                .fold(0u64, |acc, v| acc.saturating_add(v));
+            let _ = tx.send(ArchiveProgressMsg::TotalBytes(total_bytes));
+
+            let mut cmd = Command::new("zip");
+            cmd.arg("-r")
+                .arg(&archive_name)
+                .args(&item_names)
+                .current_dir(&cwd)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+
+            match cmd.spawn() {
+                Ok(mut child) => loop {
+                    let done = fs::metadata(&archive_path).map(|m| m.len()).unwrap_or(0);
+                    let _ = tx.send(ArchiveProgressMsg::Progress(done));
+                    match child.try_wait() {
+                        Ok(Some(status)) => {
+                            if status.success() {
+                                let _ = tx.send(ArchiveProgressMsg::Finished(Ok(archive_name.clone())));
+                            } else {
+                                let _ = tx.send(ArchiveProgressMsg::Finished(Err(
+                                    "zip command failed".to_string(),
+                                )));
+                            }
+                            break;
+                        }
+                        Ok(None) => {
+                            thread::sleep(Duration::from_millis(120));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(ArchiveProgressMsg::Finished(Err(e.to_string())));
+                            break;
+                        }
+                    }
+                },
+                Err(e) => {
+                    let _ = tx.send(ArchiveProgressMsg::Finished(Err(e.to_string())));
+                }
+            }
+        });
+    }
+
+    pub(crate) fn pump_archive_progress(&mut self) {
+        let Some(rx) = self.archive_rx.take() else {
+            return;
+        };
+
+        let mut finished: Option<Result<String, String>> = None;
+        loop {
+            match rx.try_recv() {
+                Ok(ArchiveProgressMsg::TotalBytes(total)) => {
+                    self.archive_total_bytes = total;
+                }
+                Ok(ArchiveProgressMsg::Progress(done)) => {
+                    self.archive_done_bytes = done;
+                }
+                Ok(ArchiveProgressMsg::Finished(result)) => {
+                    finished = Some(result);
+                    break;
+                }
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    finished = Some(Err("archive worker disconnected".to_string()));
+                    break;
+                }
+            }
+        }
+
+        if let Some(result) = finished {
+            self.archive_started_at = None;
+            self.archive_total_bytes = 0;
+            self.archive_done_bytes = 0;
+            self.archive_name.clear();
+            match result {
+                Ok(name) => {
+                    self.refresh_entries_or_status();
+                    self.select_entry_named(&name);
+                    self.set_status(format!("archive created: {}", name));
+                }
+                Err(e) => {
+                    self.set_status(format!("archive create failed: {}", e));
+                }
+            }
+        } else {
+            self.archive_rx = Some(rx);
+            self.update_archive_status();
+        }
     }
 }

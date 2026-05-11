@@ -1,11 +1,22 @@
 use std::{
+    io::{self, Write},
     path::PathBuf,
-    process::Command,
+    process::{Command, Stdio},
     sync::mpsc,
     thread,
 };
+use crossterm::{
+    cursor::MoveTo,
+    event::{self, Event, KeyCode, DisableMouseCapture, EnableMouseCapture},
+    execute,
+    terminal::{
+        disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType, EnterAlternateScreen,
+        LeaveAlternateScreen,
+    },
+};
 
-use crate::{App, GitInfoCache};
+use crate::{App, AppMode, GitInfoCache};
+use crate::util::command::CommandBuilder;
 
 impl App {
     pub(crate) fn pump_git_info(&mut self) {
@@ -65,37 +76,23 @@ impl App {
     }
 
     pub(crate) fn get_git_info(path: &PathBuf) -> Option<(String, bool, Option<(String, u64)>)> {
-        let path_str = path.to_str()?;
-
-        let branch = Command::new("git")
-            .args(["-C", path_str, "symbolic-ref", "--short", "-q", "HEAD"])
-            .output()
+        let branch = CommandBuilder::git_command(path, &["symbolic-ref", "--short", "-q", "HEAD"])
             .ok()
             .and_then(|out| {
                 if out.status.success() {
                     let value = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                    if value.is_empty() {
-                        None
-                    } else {
-                        Some(value)
-                    }
+                    if value.is_empty() { None } else { Some(value) }
                 } else {
                     None
                 }
             })
             .or_else(|| {
-                Command::new("git")
-                    .args(["-C", path_str, "rev-parse", "--short", "HEAD"])
-                    .output()
+                CommandBuilder::git_command(path, &["rev-parse", "--short", "HEAD"])
                     .ok()
                     .and_then(|out| {
                         if out.status.success() {
                             let value = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                            if value.is_empty() {
-                                None
-                            } else {
-                                Some(value)
-                            }
+                            if value.is_empty() { None } else { Some(value) }
                         } else {
                             None
                         }
@@ -103,46 +100,37 @@ impl App {
             })?;
 
         // Fast tracked-change dirty check: exit code 1 means dirty, 0 means clean.
-        let dirty_status = Command::new("git")
-            .args(["-C", path_str, "diff-index", "--quiet", "HEAD", "--"])
-            .status()
+        let dirty_status = CommandBuilder::git_command(path, &["diff-index", "--quiet", "HEAD", "--"])
             .ok()?;
 
-        let is_dirty = match dirty_status.code() {
+        let is_dirty = match dirty_status.status.code() {
             Some(0) => false,
             Some(1) => true,
             _ => return None,
         };
 
-        let latest_tag = Command::new("git")
-            .args([
-                "-C",
-                path_str,
+        let latest_tag = CommandBuilder::git_command(
+            path,
+            &[
                 "for-each-ref",
                 "refs/tags",
                 "--sort=-v:refname",
                 "--count=1",
                 "--format=%(refname:short)",
-            ])
-            .output()
-            .ok()
-            .and_then(|out| {
-                if out.status.success() {
-                    let value = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                    if value.is_empty() {
-                        None
-                    } else {
-                        Some(value)
-                    }
-                } else {
-                    None
-                }
-            });
+            ],
+        )
+        .ok()
+        .and_then(|out| {
+            if out.status.success() {
+                let value = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if value.is_empty() { None } else { Some(value) }
+            } else {
+                None
+            }
+        });
 
         let tag_info = latest_tag.and_then(|tag| {
-            let ahead = Command::new("git")
-                .args(["-C", path_str, "rev-list", "--count", &format!("{}..HEAD", tag)])
-                .output()
+            let ahead = CommandBuilder::git_command(path, &["rev-list", "--count", &format!("{}..HEAD", tag)])
                 .ok()
                 .and_then(|out| {
                     if out.status.success() {
@@ -159,5 +147,232 @@ impl App {
         });
 
         Some((branch, is_dirty, tag_info))
+    }
+
+    pub(crate) fn parse_git_commit_message(raw: &str) -> (String, bool) {
+        let mut amend = false;
+        let mut parts: Vec<&str> = Vec::new();
+        for token in raw.split_whitespace() {
+            if token == "--amend" {
+                amend = true;
+            } else {
+                parts.push(token);
+            }
+        }
+        (parts.join(" "), amend)
+    }
+
+    pub(crate) fn latest_git_tag(&self) -> Option<String> {
+        let out = CommandBuilder::git_command(&self.current_dir, &["describe", "--tags", "--abbrev=0"])
+            .ok()?;
+
+        if !out.status.success() {
+            return None;
+        }
+
+        let tag = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if tag.is_empty() {
+            None
+        } else {
+            Some(tag)
+        }
+    }
+
+    pub(crate) fn preview_git_diff_and_confirm_commit(&mut self) -> io::Result<bool> {
+        disable_raw_mode()?;
+        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+
+        let delta_available = self.integration_active("delta");
+        if delta_available {
+            println!("$ git -c core.pager=delta -c delta.side-by-side=true -c delta.features=side-by-side diff");
+            let _ = Command::new("git")
+                .args([
+                    "-c",
+                    "core.pager=delta",
+                    "-c",
+                    "delta.side-by-side=true",
+                    "-c",
+                    "delta.features=side-by-side",
+                    "diff",
+                ])
+                .current_dir(&self.current_dir)
+                .stdin(Stdio::inherit())
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
+                .status();
+        } else {
+            println!("$ git -c color.ui=always diff");
+            let _ = Command::new("git")
+                .args(["-c", "color.ui=always", "diff"])
+                .current_dir(&self.current_dir)
+                .stdin(Stdio::inherit())
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
+                .status();
+            println!("\nTip: install delta for side-by-side colored diff preview.");
+        }
+
+        println!("\n$ git status");
+        let _ = Command::new("git")
+            .arg("status")
+            .current_dir(&self.current_dir)
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status();
+
+        print!("\nDo you really want to commit these changes? [y/N]: ");
+        let _ = io::stdout().flush();
+        let mut answer = String::new();
+        let _ = io::stdin().read_line(&mut answer);
+        let confirmed = matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes");
+
+        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+        enable_raw_mode()?;
+
+        Ok(confirmed)
+    }
+
+    pub(crate) fn run_git_commit_and_push(&mut self, commit_message: &str, amend: bool) -> io::Result<()> {
+        disable_raw_mode()?;
+        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+
+        let mut failed_step: Option<String> = None;
+        let mut push_forced = false;
+        let run_step = |args: &[&str], dir: &PathBuf| -> io::Result<bool> {
+            let out = CommandBuilder::git_command(dir, args)?;
+            Ok(out.status.success())
+        };
+
+        println!("$ git add --all");
+        if !run_step(&["add", "--all"], &self.current_dir)? {
+            failed_step = Some("git add --all failed".to_string());
+        }
+
+        if failed_step.is_none() {
+            if amend {
+                println!("$ git commit -m \"{}\" --amend", commit_message);
+                if !run_step(&["commit", "-m", commit_message, "--amend"], &self.current_dir)? {
+                    failed_step = Some("git commit --amend failed".to_string());
+                }
+            } else {
+                println!("$ git commit -m \"{}\"", commit_message);
+                if !run_step(&["commit", "-m", commit_message], &self.current_dir)? {
+                    failed_step = Some("git commit failed".to_string());
+                }
+            }
+        }
+
+        if failed_step.is_none() {
+            if amend {
+                println!("$ git push origin HEAD -f");
+                push_forced = true;
+                if !run_step(&["push", "origin", "HEAD", "-f"], &self.current_dir)? {
+                    failed_step = Some("git push -f failed".to_string());
+                }
+            } else {
+                println!("$ git push origin HEAD");
+                if !run_step(&["push", "origin", "HEAD"], &self.current_dir)? {
+                    failed_step = Some("git push failed".to_string());
+                }
+            }
+        }
+
+        let mut tag_requested = false;
+        if failed_step.is_none() {
+            println!("\nPress any key to return to sbrs, or press 't' to create+push a tag...");
+            let _ = io::stdout().flush();
+            enable_raw_mode()?;
+            loop {
+                if let Event::Key(key) = event::read()? {
+                    tag_requested = matches!(key.code, KeyCode::Char('t') | KeyCode::Char('T'));
+                    break;
+                }
+            }
+            disable_raw_mode()?;
+        } else {
+            println!("\nPress any key to return to sbrs...");
+            let _ = io::stdout().flush();
+            enable_raw_mode()?;
+            loop {
+                if let Event::Key(_) = event::read()? {
+                    break;
+                }
+            }
+            disable_raw_mode()?;
+        }
+
+        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+        enable_raw_mode()?;
+
+        if let Some(step) = failed_step {
+            self.set_status(step);
+        } else if push_forced {
+            self.set_status("amend commit pushed with -f");
+            if tag_requested {
+                let prefill = self.latest_git_tag().unwrap_or_else(|| "v0.1.0".to_string());
+                self.begin_input_edit(AppMode::GitTagInput, prefill);
+                self.set_status("edit tag and press Enter to create+push (Esc=cancel)");
+            }
+        } else {
+            self.set_status("commit pushed");
+            if tag_requested {
+                let prefill = self.latest_git_tag().unwrap_or_else(|| "v0.1.0".to_string());
+                self.begin_input_edit(AppMode::GitTagInput, prefill);
+                self.set_status("edit tag and press Enter to create+push (Esc=cancel)");
+            }
+        }
+
+        self.refresh_entries_or_status();
+        self.git_info_cache = None;
+        self.request_git_info_for_current_dir_once();
+        Ok(())
+    }
+
+    pub(crate) fn run_git_tag_and_push(&mut self, tag: &str) -> io::Result<()> {
+        disable_raw_mode()?;
+        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+
+        let run_step = |args: &[&str], dir: &PathBuf| -> io::Result<bool> {
+            let out = CommandBuilder::git_command(dir, args)?;
+            Ok(out.status.success())
+        };
+
+        let mut failed_step: Option<String> = None;
+
+        println!("$ git tag {}", tag);
+        if !run_step(&["tag", tag], &self.current_dir)? {
+            failed_step = Some("git tag failed".to_string());
+        }
+
+        if failed_step.is_none() {
+            println!("$ git push origin {}", tag);
+            if !run_step(&["push", "origin", tag], &self.current_dir)? {
+                failed_step = Some("git push tag failed".to_string());
+            }
+        }
+
+        println!("\nPress Enter to return to sbrs...");
+        let _ = io::stdout().flush();
+        let mut line = String::new();
+        let _ = io::stdin().read_line(&mut line);
+
+        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+        enable_raw_mode()?;
+
+        if let Some(step) = failed_step {
+            self.set_status(step);
+        } else {
+            self.set_status(format!("tag pushed: {}", tag));
+        }
+
+        self.refresh_entries_or_status();
+        self.git_info_cache = None;
+        self.request_git_info_for_current_dir_once();
+        Ok(())
     }
 }

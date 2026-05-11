@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fs, path::Path, str::FromStr, time::UNIX_EPOCH};
 
 use crate::util::format::format_mtime;
+use crate::ui::palette::Palette;
 use devicons::{icon_for_file, File as DevFile, Theme};
 use ratatui::prelude::*;
 use crate::ui::icons::named_file_icon;
@@ -34,13 +35,13 @@ impl App {
         }
 
         if is_symlink {
-            return ("\u{f1177}".to_string(), Style::default().fg(Color::Rgb(100, 220, 220)));
+            return ("\u{f1177}".to_string(), Style::default().fg(Palette::SYMLINK));
         }
 
         if nerd_font_active {
             if is_dir {
                 let dir_style = Style::default()
-                    .fg(Color::Rgb(100, 160, 240))
+                    .fg(Palette::ACCENT_PRIMARY)
                     .add_modifier(Modifier::BOLD);
                 if let Some((glyph, _)) = ui::icons::named_dir_icon(name) {
                     (glyph.to_string(), dir_style)
@@ -63,9 +64,9 @@ impl App {
                 .map(|ext| ext.eq_ignore_ascii_case("age"))
                 .unwrap_or(false)
             {
-                ("".to_string(), Style::default().fg(Color::Rgb(230, 190, 90)))
+                ("".to_string(), Style::default().fg(Palette::WARNING_ALT))
             } else if let Some((custom_icon, (r, g, b))) = named_file_icon(name) {
-                (custom_icon.to_string(), Style::default().fg(Color::Rgb(r, g, b)))
+                (custom_icon.to_string(), Style::default().fg(Color::Rgb(r, g, b))) // custom per-file icon
             } else {
                 let data = icon_for_file(&DevFile::new(Path::new(name)), Some(Theme::Dark));
                 let color = Color::from_str(data.color).unwrap_or(Color::White);
@@ -75,7 +76,7 @@ impl App {
             (
                 "📁".to_string(),
                 Style::default()
-                    .fg(Color::Rgb(100, 160, 240))
+                    .fg(Palette::ACCENT_PRIMARY)
                     .add_modifier(Modifier::BOLD),
             )
         } else {
@@ -110,10 +111,10 @@ impl App {
 
         let mut name_style = if is_dir {
             Style::default()
-                .fg(Color::Rgb(100, 160, 240))
+                .fg(Palette::ACCENT_PRIMARY)
                 .add_modifier(Modifier::BOLD)
         } else if Self::is_age_protected_file(&path) {
-            Style::default().fg(Color::Rgb(230, 190, 90))
+            Style::default().fg(Palette::WARNING_ALT)
         } else {
             let file_color = icon_data
                 .as_ref()
@@ -123,7 +124,7 @@ impl App {
         };
 
         if is_symlink {
-            name_style = Style::default().fg(Color::Rgb(100, 220, 220));
+            name_style = Style::default().fg(Palette::SYMLINK);
         }
 
         #[cfg(unix)]
@@ -135,7 +136,7 @@ impl App {
                     .map(|m| m.permissions().mode() & 0o111 != 0)
                     .unwrap_or(false)
             {
-                name_style = Style::default().fg(Color::Rgb(120, 220, 120));
+                name_style = Style::default().fg(Palette::SUCCESS_ALT);
             }
         }
 

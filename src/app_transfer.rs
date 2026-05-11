@@ -1,0 +1,572 @@
+use std::{
+    fs,
+    io::{self, Read, Write},
+    path::PathBuf,
+    process::{Command, Stdio},
+    sync::mpsc::{self, Sender},
+    thread,
+    time::Instant,
+};
+
+use crossterm::{
+    cursor::{Hide, Show},
+    event::{DisableMouseCapture, EnableMouseCapture},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+
+use crate::{App, AppMode, CopyProgressMsg};
+
+impl App {
+    pub(crate) fn is_path_inside_remote_mount(&self, path: &PathBuf) -> bool {
+        self.ssh_mounts
+            .iter()
+            .any(|m| path == &m.mount_path || path.starts_with(&m.mount_path))
+    }
+
+    pub(crate) fn begin_transfer(&mut self, move_mode: bool) {
+        if self.clipboard.is_empty() {
+            self.set_status("clipboard is empty");
+            return;
+        }
+        if self.archive_rx.is_some() {
+            self.set_status("archive creation in progress");
+            return;
+        }
+        if self.copy_rx.is_some() {
+            self.set_status("copy already in progress");
+            return;
+        }
+        self.paste_queue = self.clipboard.iter().cloned().collect();
+        self.paste_current_src = None;
+        self.paste_move_mode = move_mode;
+        self.paste_target_dir = Some(self.current_dir.clone());
+        self.paste_total_items = self.clipboard.len();
+        self.paste_ok_items = 0;
+        self.paste_failed_items = 0;
+        let sources = self.clipboard.clone();
+        let (tx_total, rx_total) = mpsc::channel();
+        self.copy_total_rx = Some(rx_total);
+        thread::spawn(move || {
+            let total = sources
+                .iter()
+                .filter_map(|src| App::compute_total_bytes(src).ok())
+                .fold(0u64, |acc, v| acc.saturating_add(v));
+            let _ = tx_total.send(total);
+        });
+        self.copy_total_bytes = 0;
+        self.copy_done_bytes = 0;
+        self.copy_done_before_job = 0;
+        self.copy_job_total_bytes = 0;
+        self.copy_started_at = Some(Instant::now());
+        self.copy_current_src = None;
+        self.advance_paste_queue();
+    }
+
+    pub(crate) fn pump_copy_total_prescan(&mut self) {
+        let Some(rx) = self.copy_total_rx.take() else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(total) => {
+                self.copy_total_bytes = total;
+            }
+            Err(mpsc::TryRecvError::Empty) => {
+                self.copy_total_rx = Some(rx);
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.copy_total_rx = None;
+            }
+        }
+    }
+
+    pub(crate) fn begin_paste(&mut self) {
+        self.begin_transfer(false);
+    }
+
+    pub(crate) fn begin_move(&mut self) {
+        self.begin_transfer(true);
+    }
+
+    pub(crate) fn copy_full_paths_to_system_clipboard(&mut self) {
+        let targets = self.delete_targets();
+        if targets.is_empty() {
+            self.set_status("no selected item");
+            return;
+        }
+
+        let payload = targets
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        for backend in ["wl-copy", "xclip", "xsel", "pbcopy"] {
+            if !self.integration_active(backend) {
+                continue;
+            }
+
+            let mut cmd = match backend {
+                "wl-copy" => Command::new("wl-copy"),
+                "xclip" => {
+                    let mut cmd = Command::new("xclip");
+                    cmd.args(["-selection", "clipboard"]);
+                    cmd
+                }
+                "xsel" => {
+                    let mut cmd = Command::new("xsel");
+                    cmd.args(["--clipboard", "--input"]);
+                    cmd
+                }
+                "pbcopy" => Command::new("pbcopy"),
+                _ => continue,
+            };
+
+            let mut child = match cmd
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+            {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+
+            let write_ok = child
+                .stdin
+                .take()
+                .map(|mut stdin| stdin.write_all(payload.as_bytes()).is_ok())
+                .unwrap_or(false);
+            if !write_ok {
+                let _ = child.kill();
+                let _ = child.wait();
+                continue;
+            }
+
+            if child.wait().map(|s| s.success()).unwrap_or(false) {
+                self.set_status(format!(
+                    "copied {} full path(s) to system clipboard via {}",
+                    targets.len(),
+                    backend
+                ));
+                return;
+            }
+        }
+
+        self.set_status("no clipboard backend available (wl-copy/xclip/xsel/pbcopy)");
+    }
+
+    pub(crate) fn read_system_clipboard_text(&self) -> Option<(String, &'static str)> {
+        for backend in ["wl-copy", "xclip", "xsel", "pbcopy"] {
+            if !self.integration_active(backend) {
+                continue;
+            }
+
+            let output = match backend {
+                "wl-copy" => {
+                    if !Self::integration_probe("wl-paste").0 {
+                        continue;
+                    }
+                    Command::new("wl-paste")
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::null())
+                        .output()
+                }
+                "xclip" => Command::new("xclip")
+                    .args(["-selection", "clipboard", "-out"])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::null())
+                    .output(),
+                "xsel" => Command::new("xsel")
+                    .args(["--clipboard", "--output"])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::null())
+                    .output(),
+                "pbcopy" => {
+                    if !Self::integration_probe("pbpaste").0 {
+                        continue;
+                    }
+                    Command::new("pbpaste")
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::null())
+                        .output()
+                }
+                _ => continue,
+            };
+
+            if let Ok(out) = output {
+                if out.status.success() {
+                    return Some((String::from_utf8_lossy(&out.stdout).into_owned(), backend));
+                }
+            }
+        }
+
+        None
+    }
+
+    pub(crate) fn write_system_clipboard_text(&self, payload: &str) -> Option<&'static str> {
+        for backend in ["wl-copy", "xclip", "xsel", "pbcopy"] {
+            if !self.integration_active(backend) {
+                continue;
+            }
+
+            let mut cmd = match backend {
+                "wl-copy" => Command::new("wl-copy"),
+                "xclip" => {
+                    let mut cmd = Command::new("xclip");
+                    cmd.args(["-selection", "clipboard"]);
+                    cmd
+                }
+                "xsel" => {
+                    let mut cmd = Command::new("xsel");
+                    cmd.args(["--clipboard", "--input"]);
+                    cmd
+                }
+                "pbcopy" => Command::new("pbcopy"),
+                _ => continue,
+            };
+
+            let mut child = match cmd
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+            {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+
+            let write_ok = child
+                .stdin
+                .take()
+                .map(|mut stdin| stdin.write_all(payload.as_bytes()).is_ok())
+                .unwrap_or(false);
+            if !write_ok {
+                let _ = child.kill();
+                let _ = child.wait();
+                continue;
+            }
+
+            if child.wait().map(|s| s.success()).unwrap_or(false) {
+                return Some(backend);
+            }
+        }
+
+        None
+    }
+
+    pub(crate) fn edit_system_clipboard_via_temp_file(&mut self) -> io::Result<()> {
+        let Some((clipboard_text, read_backend)) = self.read_system_clipboard_text() else {
+            self.set_status("no clipboard backend available (wl-copy/xclip/xsel/pbcopy)");
+            return Ok(());
+        };
+
+        let tmp = Self::create_temp_selection_path("sbrs_clipboard_edit");
+        if fs::write(&tmp, clipboard_text.as_bytes()).is_err() {
+            self.set_status("failed to create temporary clipboard file");
+            return Ok(());
+        }
+
+        disable_raw_mode()?;
+        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        execute!(io::stdout(), Show)?;
+
+        let edit_result = (|| -> io::Result<String> {
+            let _ = Command::new(self.config.editor.clone()).arg(&tmp).status();
+            fs::read_to_string(&tmp)
+        })();
+
+        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+        enable_raw_mode()?;
+        execute!(io::stdout(), Hide)?;
+
+        let _ = fs::remove_file(&tmp);
+
+        match edit_result {
+            Ok(updated_text) => {
+                if let Some(write_backend) = self.write_system_clipboard_text(&updated_text) {
+                    self.set_status(format!(
+                        "clipboard updated via {} (read via {})",
+                        write_backend, read_backend
+                    ));
+                } else {
+                    self.set_status("failed to write updated clipboard content");
+                }
+            }
+            Err(e) => {
+                self.set_status(format!("clipboard edit failed: {}", e));
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn copy_path_with_progress(
+        src: &PathBuf,
+        dest: &PathBuf,
+        tx: &Sender<CopyProgressMsg>,
+        copied_bytes: &mut u64,
+    ) -> io::Result<()> {
+        if src.is_dir() {
+            fs::create_dir_all(dest)?;
+            for child in fs::read_dir(src)? {
+                let child = child?;
+                let child_src = child.path();
+                let child_dest = dest.join(child.file_name());
+                Self::copy_path_with_progress(&child_src, &child_dest, tx, copied_bytes)?;
+            }
+            Ok(())
+        } else {
+            if let Some(parent) = dest.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            let mut in_file = fs::File::open(src)?;
+            let mut out_file = fs::File::create(dest)?;
+            let mut buffer = [0u8; 64 * 1024];
+            loop {
+                let read = in_file.read(&mut buffer)?;
+                if read == 0 {
+                    break;
+                }
+                out_file.write_all(&buffer[..read])?;
+                *copied_bytes = copied_bytes.saturating_add(read as u64);
+                let _ = tx.send(CopyProgressMsg::CopiedBytes(*copied_bytes));
+            }
+            Ok(())
+        }
+    }
+
+    pub(crate) fn update_copy_status(&mut self) {
+        if self.copy_item_name.is_empty() {
+            return;
+        }
+        let total = self.copy_total_bytes;
+        let scanning = total == 0 && self.copy_total_rx.is_some();
+        let done = if total == 0 {
+            self.copy_done_bytes
+        } else {
+            self.copy_done_bytes.min(total)
+        };
+        let effective_total = if total == 0 {
+            done.saturating_add(self.copy_job_total_bytes).max(1)
+        } else {
+            total.max(1)
+        };
+        let percent = if total == 0 {
+            if self.copy_total_rx.is_some() {
+                0.0
+            } else {
+                100.0
+            }
+        } else {
+            (done as f64 * 100.0) / effective_total as f64
+        };
+        let elapsed_secs = self
+            .copy_started_at
+            .map(|t| t.elapsed().as_secs_f64())
+            .unwrap_or(0.0)
+            .max(0.001);
+        let bytes_per_sec = done as f64 / elapsed_secs;
+        let remaining = if total == 0 {
+            0
+        } else {
+            total.saturating_sub(done)
+        };
+        let eta_secs = if bytes_per_sec > 0.0 {
+            (remaining as f64 / bytes_per_sec) as u64
+        } else {
+            0
+        };
+        let bar_width = 14usize;
+        let filled = ((percent / 100.0) * bar_width as f64).round() as usize;
+        let bar = format!(
+            "{}{}",
+            "#".repeat(filled.min(bar_width)),
+            "-".repeat(bar_width.saturating_sub(filled.min(bar_width)))
+        );
+        let total_label = if total == 0 && self.copy_total_rx.is_some() {
+            "?".to_string()
+        } else {
+            Self::format_size(effective_total)
+        };
+        let eta_label = if total == 0 {
+            "-".to_string()
+        } else {
+            Self::format_eta(eta_secs)
+        };
+        let scan_suffix = if scanning { " scanning size..." } else { "" };
+        let current_idx =
+            (self.paste_ok_items + self.paste_failed_items + 1).min(self.paste_total_items.max(1));
+        let scope = if self.copy_from_remote { "remote " } else { "" };
+        self.set_status(format!(
+            "{}copy [{}] {:>3.0}% {}/{} {}/s eta {} ({}/{}) {}{}",
+            scope,
+            bar,
+            percent,
+            Self::format_size(done),
+            total_label,
+            Self::format_size(bytes_per_sec as u64),
+            eta_label,
+            current_idx,
+            self.paste_total_items,
+            self.copy_item_name,
+            scan_suffix
+        ));
+    }
+
+    pub(crate) fn start_copy_job(&mut self, src: PathBuf, dest: PathBuf, display_name: String) {
+        let (tx, rx) = mpsc::channel();
+        self.copy_rx = Some(rx);
+        self.copy_done_before_job = self.copy_done_bytes;
+        self.copy_job_total_bytes = 0;
+        self.copy_item_name = display_name;
+        self.copy_current_src = Some(src.clone());
+        self.copy_from_remote = self.is_path_inside_remote_mount(&src);
+        self.update_copy_status();
+
+        thread::spawn(move || {
+            let total = Self::compute_total_bytes(&src).unwrap_or(0);
+            let _ = tx.send(CopyProgressMsg::TotalBytes(total));
+            let mut copied = 0u64;
+            let result =
+                Self::copy_path_with_progress(&src, &dest, &tx, &mut copied).map_err(|e| e.to_string());
+            let _ = tx.send(CopyProgressMsg::Finished(result));
+        });
+    }
+
+    pub(crate) fn pump_copy_progress(&mut self) {
+        let Some(rx) = self.copy_rx.take() else {
+            return;
+        };
+
+        let mut done_result: Option<Result<(), String>> = None;
+        loop {
+            match rx.try_recv() {
+                Ok(CopyProgressMsg::TotalBytes(total)) => {
+                    self.copy_job_total_bytes = total;
+                }
+                Ok(CopyProgressMsg::CopiedBytes(done)) => {
+                    self.copy_done_bytes = self.copy_done_before_job.saturating_add(done);
+                }
+                Ok(CopyProgressMsg::Finished(result)) => {
+                    done_result = Some(result);
+                    break;
+                }
+                Err(mpsc::TryRecvError::Empty) => {
+                    break;
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    done_result = Some(Err("copy worker disconnected".to_string()));
+                    break;
+                }
+            }
+        }
+
+        if let Some(result) = done_result {
+            match result {
+                Ok(()) => {
+                    if self.paste_move_mode {
+                        if let Some(src) = self.copy_current_src.take() {
+                            let delete_res = if src.is_dir() {
+                                fs::remove_dir_all(&src)
+                            } else {
+                                fs::remove_file(&src)
+                            };
+                            if let Err(e) = delete_res {
+                                self.paste_failed_items += 1;
+                                self.set_status(format!(
+                                    "move cleanup failed for {}: {}",
+                                    self.copy_item_name, e
+                                ));
+                                self.copy_job_total_bytes = 0;
+                                self.copy_done_before_job = self.copy_done_bytes;
+                                self.copy_item_name.clear();
+                                self.copy_from_remote = false;
+                                let _ = self.refresh_entries();
+                                self.advance_paste_queue();
+                                return;
+                            }
+                        }
+                    }
+                    self.paste_ok_items += 1;
+                    self.copy_done_bytes = self
+                        .copy_done_before_job
+                        .saturating_add(self.copy_job_total_bytes);
+                }
+                Err(e) => {
+                    self.paste_failed_items += 1;
+                    self.set_status(format!("paste failed for {}: {}", self.copy_item_name, e));
+                }
+            }
+            self.copy_job_total_bytes = 0;
+            self.copy_done_before_job = self.copy_done_bytes;
+            self.copy_item_name.clear();
+            self.copy_current_src = None;
+            self.copy_from_remote = false;
+            let _ = self.refresh_entries();
+            self.advance_paste_queue();
+        } else {
+            self.copy_rx = Some(rx);
+            self.update_copy_status();
+        }
+    }
+
+    pub(crate) fn format_eta(total_seconds: u64) -> String {
+        crate::util::format::format_eta(total_seconds)
+    }
+
+    pub(crate) fn advance_paste_queue(&mut self) {
+        if self.copy_rx.is_some() {
+            return;
+        }
+        while let Some(src) = self.paste_queue.pop_front() {
+            let name = src
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "pasted_item".to_string());
+            let target_dir = self
+                .paste_target_dir
+                .as_ref()
+                .cloned()
+                .unwrap_or_else(|| self.current_dir.clone());
+            let dest = target_dir.join(&name);
+            if dest.exists() {
+                self.paste_current_src = Some(src);
+                self.begin_input_edit(AppMode::PasteRenaming, name);
+                self.set_status("target exists: edit name and press Enter");
+                return;
+            }
+
+            if self.paste_move_mode {
+                if fs::rename(&src, &dest).is_ok() {
+                    self.paste_ok_items += 1;
+                    let _ = self.refresh_entries();
+                    continue;
+                }
+            }
+
+            self.start_copy_job(src, dest, name);
+            return;
+        }
+
+        self.paste_current_src = None;
+        self.paste_move_mode = false;
+        self.paste_target_dir = None;
+        self.clear_input_edit();
+        self.mode = AppMode::Browsing;
+        self.copy_started_at = None;
+        self.copy_total_rx = None;
+        self.copy_current_src = None;
+        self.refresh_entries_or_status();
+        if self.paste_failed_items == 0 && self.paste_ok_items > 0 {
+            self.set_status(format!("transfer complete: {} item", self.paste_ok_items));
+        } else if self.paste_failed_items == 0 {
+            self.set_status("nothing to transfer");
+        } else {
+            self.set_status(format!(
+                "transfer finished: {} ok, {} failed ({} total)",
+                self.paste_ok_items, self.paste_failed_items, self.paste_total_items
+            ));
+        }
+    }
+}
