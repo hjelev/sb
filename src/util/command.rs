@@ -116,6 +116,34 @@ impl CommandBuilder {
         cmd.output()
     }
 
+    /// Download a URL to the given output path using wget or curl.
+    pub fn download_command(tool: &str, url: &str, output_path: &Path) -> io::Result<Output> {
+        let mut cmd = Command::new(tool);
+        match tool {
+            "wget" => {
+                cmd.args(["--output-document"])
+                    .arg(output_path)
+                    .arg("--")
+                    .arg(url);
+            }
+            "curl" => {
+                cmd.args(["--location", "--fail", "--output"])
+                    .arg(output_path)
+                    .arg("--")
+                    .arg(url);
+            }
+            other => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("unsupported download tool: {}", other),
+                ));
+            }
+        }
+
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        cmd.output()
+    }
+
     /// Check if a tool is available by running `which`.
     ///
     /// Returns true if the tool can be found in PATH.
