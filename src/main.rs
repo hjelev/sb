@@ -667,7 +667,7 @@ impl App {
                     is_symlink,
                 );
                 let icon_prefix = if show_icons && !icon_glyph.is_empty() {
-                    format!("{} ", icon_glyph)
+                    format!(" {} ", icon_glyph)
                 } else {
                     String::new()
                 };
@@ -833,11 +833,6 @@ impl App {
             image_rgb: None,
         }
     }
-
-
-
-
-
 
     fn preview_json_with_jnv(path: &PathBuf) -> io::Result<bool> {
         let mut child = Command::new("jnv").arg(path).spawn();

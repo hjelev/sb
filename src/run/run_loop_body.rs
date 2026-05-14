@@ -47,7 +47,7 @@ pub(crate) fn run_tui_body(
             execute!(terminal.backend_mut(), SetCursorStyle::DefaultUserShape)?;
         }
         terminal.draw(|f| {
-            let footer_height = if app.preview_enabled { 1 } else { 2 };
+            let footer_height = 2;
             let header_reserved_rows = if app.preview_enabled { 1 } else { 2 };
             let chunks = Layout::default()
                 .constraints([Constraint::Min(3), Constraint::Length(footer_height)])
@@ -338,10 +338,13 @@ pub(crate) fn run_tui_body(
                 let cursor_y = chunks[0].y;
                 f.set_cursor(cursor_x, cursor_y);
             }
-            if !app.preview_enabled {
-                f.render_widget(Block::default().borders(Borders::BOTTOM).border_type(BorderType::Rounded).border_style(Style::default().fg(Color::DarkGray)), 
-                    Rect::new(chunks[0].x, chunks[0].y + 1, chunks[0].width, 1));
-            }
+            f.render_widget(
+                Block::default()
+                    .borders(Borders::BOTTOM)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(Color::DarkGray)),
+                Rect::new(chunks[0].x, chunks[0].y + 1, chunks[0].width, 1),
+            );
 
             // --- Table ---
             let content_area = Rect::new(
@@ -514,7 +517,11 @@ pub(crate) fn run_tui_body(
                     .map(|s| s.as_str())
                     .unwrap_or("");
                 let tree_prefix = app.tree_row_prefixes.get(idx).map(|s| s.as_str()).unwrap_or("");
-                let icon_prefix_width = if app.show_icons && !entry_cache.icon_glyph.is_empty() { 2usize } else { 0usize };
+                let icon_prefix_width = if app.show_icons && !entry_cache.icon_glyph.is_empty() {
+                    if app.preview_enabled { 3usize } else { 2usize }
+                } else {
+                    0usize
+                };
                 let prefix_width = tree_prefix.chars().count();
                 let available_name_width = name_text_width.saturating_sub(prefix_width + icon_prefix_width).max(1);
                 let rendered_name = truncate_with_ellipsis(&entry_cache.raw_name, available_name_width);
@@ -541,7 +548,12 @@ pub(crate) fn run_tui_body(
                         spans.push(Span::styled(tree_prefix.to_string(), tree_style));
                     }
                     if app.show_icons {
-                        spans.push(Span::styled(format!("{} ", entry_cache.icon_glyph), icon_style));
+                        let icon_text = if app.preview_enabled {
+                            format!(" {} ", entry_cache.icon_glyph)
+                        } else {
+                            format!("{} ", entry_cache.icon_glyph)
+                        };
+                        spans.push(Span::styled(icon_text, icon_style));
                     }
                     spans.push(Span::styled(rendered_name, name_style));
                     if !rendered_note.is_empty() {
@@ -688,7 +700,12 @@ pub(crate) fn run_tui_body(
                                             spans.push(Span::styled(tree_prefix.to_string(), tree_style));
                                         }
                                         if app.show_icons {
-                                            spans.push(Span::styled(format!("{} ", entry_cache.icon_glyph), icon_style));
+                                            let icon_text = if app.preview_enabled {
+                                                format!(" {} ", entry_cache.icon_glyph)
+                                            } else {
+                                                format!("{} ", entry_cache.icon_glyph)
+                                            };
+                                            spans.push(Span::styled(icon_text, icon_style));
                                         }
                                         spans.push(Span::styled(full_name.to_string(), name_style));
                                         if !note_suffix.is_empty() {
@@ -2018,11 +2035,10 @@ pub(crate) fn run_tui_body(
             status_spans.push(Span::raw(gap));
             status_spans.extend(right_spans);
             let status = Line::from(status_spans);
-            let footer_block = if app.preview_enabled {
-                Block::default()
-            } else {
-                Block::default().borders(Borders::TOP).border_type(BorderType::Rounded).border_style(Style::default().fg(Color::DarkGray))
-            };
+            let footer_block = Block::default()
+                .borders(Borders::TOP)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(Color::DarkGray));
             f.render_widget(Paragraph::new(status).block(footer_block), chunks[1]);
             let selected_total_status = if app.copy_rx.is_none() && app.archive_rx.is_none() {
                 app.selected_total_size_status()
