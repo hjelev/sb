@@ -1,3 +1,4 @@
+pub mod ansi;
 pub mod cli;
 pub mod dialogs;
 pub mod icons;
@@ -7,6 +8,7 @@ pub mod modal;
 pub mod palette;
 pub mod panels;
 pub mod search;
+pub mod scrollbar;
 pub mod spans;
 pub mod status;
 pub mod tree;
