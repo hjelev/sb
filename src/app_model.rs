@@ -196,6 +196,16 @@ pub(crate) enum PreviewPaneFocus {
 }
 
 #[derive(Clone, Copy)]
+pub(crate) enum PreviewLineKind {
+    Plain,
+    Styled {
+        fg: Option<Color>,
+        bold: bool,
+        dim: bool,
+    },
+}
+
+#[derive(Clone, Copy)]
 pub(crate) struct InternalSearchContentLimits {
     pub(crate) max_files: usize,
     pub(crate) max_hits: usize,
@@ -231,6 +241,7 @@ pub(crate) enum PreviewContentMsg {
         request_id: u64,
         path: PathBuf,
         lines: Vec<String>,
+        line_kinds: Vec<PreviewLineKind>,
         footer: Option<String>,
         image_rgb: Option<(Vec<u8>, u32, u32)>,
     },

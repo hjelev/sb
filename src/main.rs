@@ -180,11 +180,12 @@ struct App {
     preview_scroll_offset: usize,
     preview_target_path: Option<PathBuf>,
     preview_lines: Vec<String>,
+    preview_line_kinds: Vec<PreviewLineKind>,
     preview_footer: Option<String>,
     preview_rx: Option<Receiver<PreviewContentMsg>>,
     preview_request_id: u64,
     preview_pending: bool,
-    preview_cache: HashMap<PathBuf, (Vec<String>, Option<String>)>,
+    preview_cache: HashMap<PathBuf, (Vec<String>, Vec<PreviewLineKind>, Option<String>)>,
     preview_native_area: Option<Rect>,
     preview_native_last_key: Option<String>,
     preview_image_rgb: Option<(Vec<u8>, u32, u32)>,
@@ -382,6 +383,7 @@ impl App {
             preview_scroll_offset: 0,
             preview_target_path: None,
             preview_lines: Vec::new(),
+            preview_line_kinds: Vec::new(),
             preview_footer: None,
             preview_rx: None,
             preview_request_id: 0,
@@ -416,6 +418,7 @@ impl App {
         if self.preview_enabled {
             self.preview_pane_focus = PreviewPaneFocus::Folder;
             self.preview_lines = vec!["Loading preview...".to_string()];
+            self.preview_line_kinds = vec![PreviewLineKind::Plain];
             self.preview_footer = None;
             self.preview_image_rgb = None;
             self.preview_image_png = None;
@@ -443,6 +446,7 @@ impl App {
             }
             self.preview_target_path = None;
             self.preview_lines.clear();
+            self.preview_line_kinds.clear();
             self.preview_footer = None;
             self.preview_pending = false;
             self.preview_rx = None;
@@ -484,6 +488,7 @@ impl App {
         }
         let Some(path) = self.entries.get(self.selected_index).map(|e| e.path()) else {
             self.preview_lines = vec!["No selection".to_string()];
+            self.preview_line_kinds = vec![PreviewLineKind::Plain];
             self.preview_footer = None;
             self.preview_target_path = None;
             self.preview_pending = false;
@@ -506,7 +511,8 @@ impl App {
             if let Some(cached) = self.preview_cache.get(&path).cloned() {
                 self.preview_target_path = Some(path);
                 self.preview_lines = cached.0;
-                self.preview_footer = cached.1;
+                self.preview_line_kinds = cached.1;
+                self.preview_footer = cached.2;
                 self.preview_pending = false;
                 self.preview_scroll_offset = 0;
                 return;
@@ -519,6 +525,7 @@ impl App {
         self.preview_pending = true;
         self.preview_scroll_offset = 0;
         self.preview_lines = vec!["Loading preview...".to_string()];
+        self.preview_line_kinds = vec![PreviewLineKind::Plain];
         self.preview_footer = None;
 
         let use_bat = Self::integration_availability_and_detail("bat").0;
@@ -551,6 +558,7 @@ impl App {
                 request_id,
                 path,
                 lines,
+                line_kinds,
                 footer,
                 image_rgb,
             }) => {
@@ -558,9 +566,10 @@ impl App {
                     self.preview_target_path = Some(path.clone());
                     if image_rgb.is_none() {
                         self.preview_cache
-                            .insert(path.clone(), (lines.clone(), footer.clone()));
+                            .insert(path.clone(), (lines.clone(), line_kinds.clone(), footer.clone()));
                     }
                     self.preview_lines = lines;
+                    self.preview_line_kinds = line_kinds;
                     self.preview_footer = footer;
                     if let Some((ref rgb, w, h)) = image_rgb {
                         self.preview_image_png = App::encode_rgb_to_png(rgb, w, h);
@@ -580,6 +589,7 @@ impl App {
                 if request_id == self.preview_request_id {
                     self.preview_target_path = Some(path);
                     self.preview_lines = vec![message];
+                    self.preview_line_kinds = vec![PreviewLineKind::Plain];
                     self.preview_footer = None;
                 self.preview_image_rgb = None;
                 self.preview_image_png = None;
@@ -607,6 +617,7 @@ impl App {
     ) -> PreviewContentMsg {
         if path.is_dir() {
             let mut entries = Vec::new();
+            let mut line_kinds = Vec::new();
             let mut names = Vec::new();
             if let Ok(read_dir) = fs::read_dir(&path) {
                 for item in read_dir.flatten().take(500) {
@@ -635,7 +646,20 @@ impl App {
                     .map(|m| m.file_type().is_symlink())
                     .unwrap_or(false);
                 let is_dir = entry_path.is_dir();
-                let (icon_glyph, _) = App::icon_for_name(
+                #[cfg(unix)]
+                let is_executable = {
+                    use std::os::unix::fs::PermissionsExt;
+                    !is_dir
+                        && entry_path
+                            .metadata()
+                            .map(|m| m.permissions().mode() & 0o111 != 0)
+                            .unwrap_or(false)
+                };
+                #[cfg(not(unix))]
+                let is_executable = false;
+                let is_hidden = file_name.starts_with('.');
+
+                let (icon_glyph, icon_style) = App::icon_for_name(
                     &file_name,
                     is_dir,
                     show_icons,
@@ -649,10 +673,36 @@ impl App {
                 };
                 let suffix = if is_dir { "/" } else { "" };
                 entries.push(format!("{}{}{}", icon_prefix, file_name, suffix));
+
+                let mut style = if is_symlink {
+                    Style::default().fg(ui::palette::Palette::SYMLINK)
+                } else if is_dir {
+                    Style::default()
+                        .fg(ui::palette::Palette::ACCENT_PRIMARY)
+                        .add_modifier(Modifier::BOLD)
+                } else if is_executable {
+                    Style::default().fg(ui::palette::Palette::SUCCESS_ALT)
+                } else {
+                    icon_style.fg.map_or_else(
+                        || Style::default().fg(ui::palette::Palette::TEXT_NORMAL),
+                        |fg| Style::default().fg(fg),
+                    )
+                };
+
+                if is_hidden {
+                    style = style.add_modifier(Modifier::DIM);
+                }
+
+                line_kinds.push(PreviewLineKind::Styled {
+                    fg: style.fg,
+                    bold: style.add_modifier.contains(Modifier::BOLD),
+                    dim: style.add_modifier.contains(Modifier::DIM),
+                });
             }
 
             if entries.is_empty() {
                 entries.push("[empty folder]".to_string());
+                line_kinds.push(PreviewLineKind::Plain);
             }
 
             let footer = App::compute_total_display_bytes(&path)
@@ -662,6 +712,7 @@ impl App {
                 request_id,
                 path,
                 lines: entries,
+                line_kinds,
                 footer,
                 image_rgb: None,
             };
@@ -684,10 +735,12 @@ impl App {
             } else {
                 Vec::new()
             };
+            let line_kinds = vec![PreviewLineKind::Plain; lines.len()];
             return PreviewContentMsg::Ready {
                 request_id,
                 path,
                 lines,
+                line_kinds,
                 footer,
                 image_rgb,
             };
@@ -702,10 +755,12 @@ impl App {
             } else {
                 Vec::new()
             };
+            let line_kinds = vec![PreviewLineKind::Plain; lines.len()];
             return PreviewContentMsg::Ready {
                 request_id,
                 path,
                 lines,
+                line_kinds,
                 footer,
                 image_rgb,
             };
@@ -725,10 +780,12 @@ impl App {
             }
             let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             let footer = Some(format!("Size: {}", App::format_size(size)));
+            let line_kinds = vec![PreviewLineKind::Plain; lines.len()];
             return PreviewContentMsg::Ready {
                 request_id,
                 path,
                 lines,
+                line_kinds,
                 footer,
                 image_rgb: None,
             };
@@ -766,10 +823,12 @@ impl App {
         }
 
         let footer = Some(format!("Size: {}", App::format_size(size)));
+        let line_kinds = vec![PreviewLineKind::Plain; lines.len()];
         PreviewContentMsg::Ready {
             request_id,
             path,
             lines,
+            line_kinds,
             footer,
             image_rgb: None,
         }

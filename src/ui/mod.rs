@@ -7,6 +7,7 @@ pub mod list_temperature;
 pub mod modal;
 pub mod palette;
 pub mod panels;
+pub mod preview;
 pub mod search;
 pub mod scrollbar;
 pub mod spans;

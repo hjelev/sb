@@ -850,14 +850,27 @@ pub(crate) fn run_tui_body(
                         App::halfblock_lines(rgb, iw, ih, preview_text_area.width, preview_text_area.height)
                     }
                 } else {
+                    let is_directory_preview = app
+                        .preview_target_path
+                        .as_ref()
+                        .map(|path| path.is_dir())
+                        .unwrap_or(false);
                     let mut tlines: Vec<Line> = app
                         .preview_lines
                         .iter()
                         .skip(offset)
                         .take(visible_rows)
-                        .map(|line| {
-                            let spans = ui::ansi::parse_ansi_line(line);
-                            Line::from(spans)
+                        .enumerate()
+                        .map(|(idx, line)| {
+                            if is_directory_preview {
+                                ui::preview::render_directory_preview_line(
+                                    line,
+                                    app.preview_line_kinds.get(offset + idx).copied(),
+                                )
+                            } else {
+                                let spans = ui::ansi::parse_ansi_line(line);
+                                Line::from(spans)
+                            }
                         })
                         .collect();
                     if tlines.is_empty() {
