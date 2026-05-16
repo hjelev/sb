@@ -402,15 +402,22 @@ pub(crate) fn run_tui_body(
                 }
                 left_title_spans.push(Span::raw(" "));
 
+                let left_border_color = if app.is_dual_panel_mode() {
+                    if app.active_panel == crate::DualPanelSide::Left {
+                        Color::White
+                    } else {
+                        Color::Rgb(120, 120, 120)
+                    }
+                } else if app.preview_focus_is_preview() {
+                    Color::DarkGray
+                } else {
+                    Color::White
+                };
                 let left_block = Block::default()
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
                     .title(Line::from(left_title_spans))
-                    .border_style(Style::default().fg(if app.preview_focus_is_preview() {
-                        Color::DarkGray
-                    } else {
-                        Color::Rgb(120, 120, 120)
-                    }));
+                    .border_style(Style::default().fg(left_border_color));
                 f.render_widget(left_block, list_frame_area);
             }
 
@@ -466,7 +473,21 @@ pub(crate) fn run_tui_body(
 
             // Keep selected-row background while preserving per-span foreground colors
             // (e.g. filename white, note text gray).
-            let selection_style = Style::default().bg(Color::Rgb(50, 50, 50));
+            let (selection_style, right_selection_style) = if app.is_dual_panel_mode() {
+                match app.active_panel {
+                    crate::DualPanelSide::Left => (
+                        Style::default().bg(Color::Rgb(40, 65, 110)),
+                        Style::default().bg(Color::Rgb(38, 38, 45)),
+                    ),
+                    crate::DualPanelSide::Right => (
+                        Style::default().bg(Color::Rgb(38, 38, 45)),
+                        Style::default().bg(Color::Rgb(40, 65, 110)),
+                    ),
+                }
+            } else {
+                let s = Style::default().bg(Color::Rgb(50, 50, 50));
+                (s, s)
+            };
             let marker_width = if app.no_color { 3 } else { 0 };
             let name_text_width = file_name_width.saturating_sub(marker_width).max(1);
             let entry_styles = |mut icon_style: Style, mut name_style: Style, is_selected: bool| {
@@ -818,7 +839,7 @@ pub(crate) fn run_tui_body(
                     .border_type(BorderType::Rounded)
                     .title(preview_title)
                     .border_style(Style::default().fg(if app.preview_focus_is_preview() {
-                        Color::Rgb(120, 120, 120)
+                        Color::White
                     } else {
                         Color::DarkGray
                     }));
@@ -991,9 +1012,9 @@ pub(crate) fn run_tui_body(
                         .border_type(BorderType::Rounded)
                         .title(right_title)
                         .border_style(Style::default().fg(if app.active_panel == crate::DualPanelSide::Right {
-                            Color::Rgb(120, 120, 120)
+                            Color::White
                         } else {
-                            Color::DarkGray
+                            Color::Rgb(120, 120, 120)
                         }));
                     let right_inner = right_block.inner(preview_area);
                     f.render_widget(right_block, preview_area);
@@ -1038,6 +1059,7 @@ pub(crate) fn run_tui_body(
                             let name = truncate_with_ellipsis(&entry_cache.raw_name, right_name_width);
                             let mut spans = Vec::new();
                             if app.show_icons && !entry_cache.icon_glyph.is_empty() {
+                                spans.push(Span::raw(" "));
                                 spans.push(Span::styled(format!("{} ", entry_cache.icon_glyph), entry_cache.icon_style));
                             }
                             spans.push(Span::styled(name, entry_cache.name_style));
@@ -1064,7 +1086,7 @@ pub(crate) fn run_tui_body(
                                 )));
                             }
                             Row::new(cells).style(if idx == app.right_selected_index {
-                                selection_style
+                                right_selection_style
                             } else {
                                 Style::default()
                             })
@@ -1079,7 +1101,7 @@ pub(crate) fn run_tui_body(
                         right_constraints.push(Constraint::Length(right_date_width as u16));
                     }
                     let right_table = Table::new(right_rows, right_constraints)
-                        .highlight_style(selection_style)
+                        .highlight_style(right_selection_style)
                         .highlight_symbol("");
                     app.right_table_state.select(Some(app.right_selected_index));
                     f.render_stateful_widget(right_table, right_inner, &mut app.right_table_state);

@@ -114,15 +114,19 @@ pub(crate) fn handle_app_key_event_body(
                 let _ = terminal.clear();
             }
             KeyCode::Char('c') | KeyCode::F(5) => {
-                app.clipboard.clear();
-                if !app.marked_indices.is_empty() {
-                    // Copy all marked
-                    for &idx in &app.marked_indices {
-                        if let Some(e) = app.entries.get(idx) { app.clipboard.push(e.path()); }
+                if app.is_dual_panel_mode() {
+                    app.begin_dual_panel_transfer(false);
+                } else {
+                    app.clipboard.clear();
+                    if !app.marked_indices.is_empty() {
+                        // Copy all marked
+                        for &idx in &app.marked_indices {
+                            if let Some(e) = app.entries.get(idx) { app.clipboard.push(e.path()); }
+                        }
+                    } else if let Some(e) = app.entries.get(app.selected_index) {
+                        // Copy single selected
+                        app.clipboard.push(e.path());
                     }
-                } else if let Some(e) = app.entries.get(app.selected_index) {
-                    // Copy single selected
-                    app.clipboard.push(e.path());
                 }
             }
             KeyCode::Char('w') => {
@@ -132,7 +136,11 @@ pub(crate) fn handle_app_key_event_body(
                 app.begin_paste();
             }
             KeyCode::Char('m') => {
-                app.begin_move();
+                if app.is_dual_panel_mode() {
+                    app.begin_dual_panel_transfer(true);
+                } else {
+                    app.begin_move();
+                }
             }
             KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 app.edit_system_clipboard_via_temp_file()?;
@@ -245,7 +253,7 @@ pub(crate) fn handle_app_key_event_body(
                 if let Ok(home) = env::var("HOME") {
                     let home_path = PathBuf::from(home);
                     if home_path.is_dir() {
-                        app.try_enter_dir(home_path);
+                        app.try_enter_dir_on_active_panel(home_path);
                     }
                 }
             }
@@ -276,7 +284,7 @@ pub(crate) fn handle_app_key_event_body(
                 if let Ok(path_str) = env::var(format!("SB_BOOKMARK_{}", idx)) {
                     let path = PathBuf::from(&path_str);
                     if path.is_dir() {
-                        app.try_enter_dir(path);
+                        app.try_enter_dir_on_active_panel(path);
                     }
                 }
             }
@@ -1442,7 +1450,7 @@ pub(crate) fn handle_app_key_event_body(
                         RemoteEntry::ArchiveMount { mount_path, archive_name } => {
                             if mount_path.is_dir() {
                                 app.mode = AppMode::Browsing;
-                                app.try_enter_dir(mount_path);
+                                app.try_enter_dir_on_active_panel(mount_path);
                             } else {
                                 app.set_status(format!("mount not available: {}", archive_name));
                                 app.mode = AppMode::Browsing;
@@ -1451,7 +1459,7 @@ pub(crate) fn handle_app_key_event_body(
                         RemoteEntry::LocalMount { mount_path, name, .. } => {
                             if mount_path.is_dir() {
                                 app.mode = AppMode::Browsing;
-                                app.try_enter_dir(mount_path);
+                                app.try_enter_dir_on_active_panel(mount_path);
                             } else {
                                 app.set_status(format!("mount not available: {}", name));
                                 app.mode = AppMode::Browsing;
@@ -1517,7 +1525,7 @@ pub(crate) fn handle_app_key_event_body(
                 if let Ok(path_str) = env::var(format!("SB_BOOKMARK_{}", idx)) {
                     let path = PathBuf::from(&path_str);
                     if path.is_dir() {
-                        app.try_enter_dir(path);
+                        app.try_enter_dir_on_active_panel(path);
                     }
                 }
                 app.mode = AppMode::Browsing;
@@ -1527,7 +1535,7 @@ pub(crate) fn handle_app_key_event_body(
                 if let Ok(path_str) = env::var(format!("SB_BOOKMARK_{}", idx)) {
                     let path = PathBuf::from(&path_str);
                     if path.is_dir() {
-                        app.try_enter_dir(path);
+                        app.try_enter_dir_on_active_panel(path);
                     }
                 }
                 app.mode = AppMode::Browsing;

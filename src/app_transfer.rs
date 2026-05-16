@@ -15,7 +15,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 
-use crate::{App, AppMode, CopyProgressMsg};
+use crate::{App, AppMode, CopyProgressMsg, DualPanelSide};
 
 impl App {
     pub(crate) fn is_path_inside_remote_mount(&self, path: &PathBuf) -> bool {
@@ -24,9 +24,14 @@ impl App {
             .any(|m| path == &m.mount_path || path.starts_with(&m.mount_path))
     }
 
-    pub(crate) fn begin_transfer(&mut self, move_mode: bool) {
-        if self.clipboard.is_empty() {
-            self.set_status("clipboard is empty");
+    fn begin_transfer_from_sources(
+        &mut self,
+        sources: Vec<PathBuf>,
+        target_dir: PathBuf,
+        move_mode: bool,
+    ) {
+        if sources.is_empty() {
+            self.set_status("no selected item");
             return;
         }
         if self.archive_rx.is_some() {
@@ -37,14 +42,13 @@ impl App {
             self.set_status("copy already in progress");
             return;
         }
-        self.paste_queue = self.clipboard.iter().cloned().collect();
+        self.paste_queue = sources.iter().cloned().collect();
         self.paste_current_src = None;
         self.paste_move_mode = move_mode;
-        self.paste_target_dir = Some(self.current_dir.clone());
-        self.paste_total_items = self.clipboard.len();
+        self.paste_target_dir = Some(target_dir);
+        self.paste_total_items = sources.len();
         self.paste_ok_items = 0;
         self.paste_failed_items = 0;
-        let sources = self.clipboard.clone();
         let (tx_total, rx_total) = mpsc::channel();
         self.copy_total_rx = Some(rx_total);
         thread::spawn(move || {
@@ -61,6 +65,50 @@ impl App {
         self.copy_started_at = Some(Instant::now());
         self.copy_current_src = None;
         self.advance_paste_queue();
+    }
+
+    pub(crate) fn begin_transfer(&mut self, move_mode: bool) {
+        if self.clipboard.is_empty() {
+            self.set_status("clipboard is empty");
+            return;
+        }
+        self.begin_transfer_from_sources(self.clipboard.clone(), self.current_dir.clone(), move_mode);
+    }
+
+    pub(crate) fn begin_dual_panel_transfer(&mut self, move_mode: bool) {
+        if !self.is_dual_panel_mode() {
+            self.set_status("dual panel mode is not active");
+            return;
+        }
+
+        let (sources, target_dir) = match self.active_panel {
+            DualPanelSide::Left => {
+                let sources = if !self.marked_indices.is_empty() {
+                    self.entries
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| self.marked_indices.contains(i))
+                        .map(|(_, e)| e.path())
+                        .collect()
+                } else {
+                    self.entries
+                        .get(self.selected_index)
+                        .map(|e| vec![e.path()])
+                        .unwrap_or_default()
+                };
+                (sources, self.right_dir.clone())
+            }
+            DualPanelSide::Right => {
+                let sources = self
+                    .right_entries
+                    .get(self.right_selected_index)
+                    .map(|e| vec![e.path()])
+                    .unwrap_or_default();
+                (sources, self.current_dir.clone())
+            }
+        };
+
+        self.begin_transfer_from_sources(sources, target_dir, move_mode);
     }
 
     pub(crate) fn pump_copy_total_prescan(&mut self) {
@@ -492,6 +540,9 @@ impl App {
                     self.copy_done_bytes = self
                         .copy_done_before_job
                         .saturating_add(self.copy_job_total_bytes);
+                    if self.is_dual_panel_mode() {
+                        let _ = self.refresh_right_panel_entries();
+                    }
                 }
                 Err(e) => {
                     self.paste_failed_items += 1;
@@ -541,6 +592,9 @@ impl App {
                 if fs::rename(&src, &dest).is_ok() {
                     self.paste_ok_items += 1;
                     let _ = self.refresh_entries();
+                    if self.is_dual_panel_mode() {
+                        let _ = self.refresh_right_panel_entries();
+                    }
                     continue;
                 }
             }
@@ -558,6 +612,9 @@ impl App {
         self.copy_total_rx = None;
         self.copy_current_src = None;
         self.refresh_entries_or_status();
+        if self.is_dual_panel_mode() {
+            let _ = self.refresh_right_panel_entries();
+        }
         if self.paste_failed_items == 0 && self.paste_ok_items > 0 {
             self.set_status(format!("transfer complete: {} item", self.paste_ok_items));
         } else if self.paste_failed_items == 0 {

@@ -185,7 +185,6 @@ struct App {
     db_preview_output_lines: Vec<String>,
     db_preview_row_limit: usize,
     db_preview_error: Option<String>,
-    preview_enabled: bool,
     view_mode: ViewMode,
     preview_scroll_offset: usize,
     preview_target_path: Option<PathBuf>,
@@ -397,7 +396,6 @@ impl App {
             db_preview_output_lines: Vec::new(),
             db_preview_row_limit: 8,
             db_preview_error: None,
-            preview_enabled: false,
             view_mode: ViewMode::Normal,
             preview_scroll_offset: 0,
             preview_target_path: None,
@@ -1025,6 +1023,25 @@ IFS= read -rsn1 _
         }
     }
 
+    fn active_panel_dir(&self) -> PathBuf {
+        if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
+            self.right_dir.clone()
+        } else {
+            self.current_dir.clone()
+        }
+    }
+
+    fn try_enter_dir_on_active_panel(&mut self, target: PathBuf) {
+        if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
+            self.right_dir = target;
+            if self.refresh_right_panel_entries().is_err() {
+                self.set_status("refresh failed");
+            }
+        } else {
+            self.try_enter_dir(target);
+        }
+    }
+
 
 
 
@@ -1268,16 +1285,16 @@ IFS= read -rsn1 _
     }
 
     fn mount_rclone_remote(&mut self, name: &str, rtype: &str) -> io::Result<()> {
+        let return_dir = self.active_panel_dir();
         // If already mounted, just navigate there
         if let Some(existing) = self.ssh_mounts.iter_mut().find(|m| m._host_alias == name) {
-            existing.return_dir = self.current_dir.clone();
+            existing.return_dir = return_dir.clone();
             let mount_path = existing.mount_path.clone();
             self.mode = AppMode::Browsing;
-            self.try_enter_dir(mount_path);
+            self.try_enter_dir_on_active_panel(mount_path);
             return Ok(());
         }
         let _ = rtype; // informational only
-        let return_dir = self.current_dir.clone();
         let mount_dir = PathBuf::from(format!("/tmp/sbrs_rclone_{}", name));
         if mount_dir.exists() {
             let _ = fs::remove_dir(&mount_dir);
@@ -1301,7 +1318,7 @@ IFS= read -rsn1 _
                 remote_os_icon,
             });
             self.mode = AppMode::Browsing;
-            self.try_enter_dir(mount_dir);
+            self.try_enter_dir_on_active_panel(mount_dir);
             Ok(())
         } else {
             let _ = fs::remove_dir(&mount_dir);
@@ -1332,18 +1349,18 @@ IFS= read -rsn1 _
     }
 
     fn mount_ssh_host(&mut self, host: &SshHost) -> io::Result<()> {
+        let return_dir = self.active_panel_dir();
         // If already mounted, just navigate there
         if let Some(existing) = self.ssh_mounts.iter_mut().find(|m| m._host_alias == host.alias) {
-            existing.return_dir = self.current_dir.clone();
+            existing.return_dir = return_dir.clone();
             if existing.remote_os_icon.is_none() {
                 existing.remote_os_icon = Self::detect_ssh_remote_os_icon(host);
             }
             let mount_path = existing.mount_path.clone();
             self.mode = AppMode::Browsing;
-            self.try_enter_dir(mount_path);
+            self.try_enter_dir_on_active_panel(mount_path);
             return Ok(());
         }
-        let return_dir = self.current_dir.clone();
         let mount_dir = PathBuf::from(format!("/tmp/sbrs_sshfs_{}", host.alias));
         // Remove stale dir if it exists but isn't mounted
         if mount_dir.exists() {
@@ -1382,7 +1399,7 @@ IFS= read -rsn1 _
                 remote_os_icon,
             });
             self.mode = AppMode::Browsing;
-            self.try_enter_dir(mount_dir);
+            self.try_enter_dir_on_active_panel(mount_dir);
             Ok(())
         } else {
             let _ = fs::remove_dir(&mount_dir);
@@ -2988,9 +3005,14 @@ IFS= read -rsn1 _
             .any(|m| path == &m.mount_path || path.starts_with(&m.mount_path))
     }
 
-    fn begin_transfer(&mut self, move_mode: bool) {
-        if self.clipboard.is_empty() {
-            self.set_status("clipboard is empty");
+    fn begin_transfer_from_sources(
+        &mut self,
+        sources: Vec<PathBuf>,
+        target_dir: PathBuf,
+        move_mode: bool,
+    ) {
+        if sources.is_empty() {
+            self.set_status("no selected item");
             return;
         }
         if self.archive_rx.is_some() {
@@ -3001,14 +3023,13 @@ IFS= read -rsn1 _
             self.set_status("copy already in progress");
             return;
         }
-        self.paste_queue = self.clipboard.iter().cloned().collect();
+        self.paste_queue = sources.iter().cloned().collect();
         self.paste_current_src = None;
         self.paste_move_mode = move_mode;
-        self.paste_target_dir = Some(self.current_dir.clone());
-        self.paste_total_items = self.clipboard.len();
+        self.paste_target_dir = Some(target_dir);
+        self.paste_total_items = sources.len();
         self.paste_ok_items = 0;
         self.paste_failed_items = 0;
-        let sources = self.clipboard.clone();
         let (tx_total, rx_total) = mpsc::channel();
         self.copy_total_rx = Some(rx_total);
         thread::spawn(move || {
@@ -3025,6 +3046,50 @@ IFS= read -rsn1 _
         self.copy_started_at = Some(Instant::now());
         self.copy_current_src = None;
         self.advance_paste_queue();
+    }
+
+    fn begin_transfer(&mut self, move_mode: bool) {
+        if self.clipboard.is_empty() {
+            self.set_status("clipboard is empty");
+            return;
+        }
+        self.begin_transfer_from_sources(self.clipboard.clone(), self.current_dir.clone(), move_mode);
+    }
+
+    fn begin_dual_panel_transfer(&mut self, move_mode: bool) {
+        if !self.is_dual_panel_mode() {
+            self.set_status("dual panel mode is not active");
+            return;
+        }
+
+        let (sources, target_dir) = match self.active_panel {
+            DualPanelSide::Left => {
+                let sources = if !self.marked_indices.is_empty() {
+                    self.entries
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| self.marked_indices.contains(i))
+                        .map(|(_, e)| e.path())
+                        .collect()
+                } else {
+                    self.entries
+                        .get(self.selected_index)
+                        .map(|e| vec![e.path()])
+                        .unwrap_or_default()
+                };
+                (sources, self.right_dir.clone())
+            }
+            DualPanelSide::Right => {
+                let sources = self
+                    .right_entries
+                    .get(self.right_selected_index)
+                    .map(|e| vec![e.path()])
+                    .unwrap_or_default();
+                (sources, self.current_dir.clone())
+            }
+        };
+
+        self.begin_transfer_from_sources(sources, target_dir, move_mode);
     }
 
     fn pump_copy_total_prescan(&mut self) {
@@ -3435,6 +3500,9 @@ IFS= read -rsn1 _
                                 self.copy_item_name.clear();
                                 self.copy_from_remote = false;
                                 let _ = self.refresh_entries();
+                                if self.is_dual_panel_mode() {
+                                    let _ = self.refresh_right_panel_entries();
+                                }
                                 self.advance_paste_queue();
                                 return;
                             }
@@ -3456,6 +3524,9 @@ IFS= read -rsn1 _
             self.copy_current_src = None;
             self.copy_from_remote = false;
             let _ = self.refresh_entries();
+            if self.is_dual_panel_mode() {
+                let _ = self.refresh_right_panel_entries();
+            }
             self.advance_paste_queue();
         } else {
             self.copy_rx = Some(rx);
@@ -3493,6 +3564,9 @@ IFS= read -rsn1 _
                 if fs::rename(&src, &dest).is_ok() {
                     self.paste_ok_items += 1;
                     let _ = self.refresh_entries();
+                    if self.is_dual_panel_mode() {
+                        let _ = self.refresh_right_panel_entries();
+                    }
                     continue;
                 }
             }
@@ -3510,6 +3584,9 @@ IFS= read -rsn1 _
         self.copy_total_rx = None;
         self.copy_current_src = None;
         self.refresh_entries_or_status();
+        if self.is_dual_panel_mode() {
+            let _ = self.refresh_right_panel_entries();
+        }
         if self.paste_failed_items == 0 && self.paste_ok_items > 0 {
             self.set_status(format!("transfer complete: {} item", self.paste_ok_items));
         } else if self.paste_failed_items == 0 {
