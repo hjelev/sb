@@ -19,7 +19,7 @@ use crossterm::{
 };
 use ratatui::prelude::*;
 
-use crate::{App, AppMode, InternalSearchScope, RemoteEntry};
+use crate::{App, AppMode, DualPanelSide, InternalSearchScope, RemoteEntry};
 
 mod key_dispatch_body;
 

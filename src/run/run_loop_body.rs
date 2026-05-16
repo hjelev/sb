@@ -48,7 +48,7 @@ pub(crate) fn run_tui_body(
         }
         terminal.draw(|f| {
             let footer_height = 2;
-            let header_reserved_rows = if app.preview_enabled { 1 } else { 2 };
+            let header_reserved_rows = if app.is_preview_mode() || app.is_dual_panel_mode() { 1 } else { 2 };
             let chunks = Layout::default()
                 .constraints([Constraint::Min(3), Constraint::Length(footer_height)])
                 .split(f.size());
@@ -57,8 +57,10 @@ pub(crate) fn run_tui_body(
             let scrollbar_visible_in_main = {
                 let table_area_height = chunks[0].height.saturating_sub(header_reserved_rows);
                 let needs_scroll = app.entries.len() > table_area_height as usize;
-                let table_area_width = if app.preview_enabled {
+                let table_area_width = if app.is_preview_mode() {
                     (chunks[0].width * 33 / 100).max(1)
+                } else if app.is_dual_panel_mode() {
+                    (chunks[0].width * 50 / 100).max(1)
                 } else {
                     chunks[0].width
                 };
@@ -126,7 +128,7 @@ pub(crate) fn run_tui_body(
             } else {
                 Span::raw(header_sep)
             };
-            let mut left_spans: Vec<Span> = if app.preview_enabled {
+            let mut left_spans: Vec<Span> = if app.is_preview_mode() || app.is_dual_panel_mode() {
                 vec![]
             } else {
                 vec![
@@ -353,17 +355,23 @@ pub(crate) fn run_tui_body(
                 chunks[0].width,
                 chunks[0].height.saturating_sub(header_reserved_rows),
             );
-            let (list_frame_area, preview_frame_area) = if app.preview_enabled {
+            let (list_frame_area, preview_frame_area) = if app.is_preview_mode() {
                 let split = Layout::default()
                     .direction(Direction::Horizontal)
                     .constraints([Constraint::Percentage(33), Constraint::Percentage(67)])
+                    .split(content_area);
+                (split[0], Some(split[1]))
+            } else if app.is_dual_panel_mode() {
+                let split = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
                     .split(content_area);
                 (split[0], Some(split[1]))
             } else {
                 (content_area, None)
             };
 
-            if app.preview_enabled {
+            if app.is_preview_mode() || app.is_dual_panel_mode() {
                 let path_text = if app.mode == AppMode::PathEditing {
                     app.input_buffer.clone()
                 } else {
@@ -406,14 +414,14 @@ pub(crate) fn run_tui_body(
                 f.render_widget(left_block, list_frame_area);
             }
 
-            let term_w = if app.preview_enabled {
+            let term_w = if app.is_preview_mode() || app.is_dual_panel_mode() {
                 list_frame_area.width.saturating_sub(2)
             } else {
                 chunks[0].width
             };
-            let show_date = !app.preview_enabled && term_w >= 50;
-            let show_size = !app.preview_enabled && term_w >= 70;
-            let show_meta = !app.preview_enabled && term_w >= 90;
+            let show_date = term_w >= 50;
+            let show_size = term_w >= 70;
+            let show_meta = !app.is_preview_mode() && !app.is_dual_panel_mode() && term_w >= 90;
             let show_pct = app.folder_size_enabled && show_size;
             let perms_width = 11usize;
             let group_width = app.meta_group_width.max(1);
@@ -518,7 +526,7 @@ pub(crate) fn run_tui_body(
                     .unwrap_or("");
                 let tree_prefix = app.tree_row_prefixes.get(idx).map(|s| s.as_str()).unwrap_or("");
                 let icon_prefix_width = if app.show_icons && !entry_cache.icon_glyph.is_empty() {
-                    if app.preview_enabled { 3usize } else { 2usize }
+                    if app.is_preview_mode() || app.is_dual_panel_mode() { 3usize } else { 2usize }
                 } else {
                     0usize
                 };
@@ -548,7 +556,7 @@ pub(crate) fn run_tui_body(
                         spans.push(Span::styled(tree_prefix.to_string(), tree_style));
                     }
                     if app.show_icons {
-                        let icon_text = if app.preview_enabled {
+                        let icon_text = if app.is_preview_mode() || app.is_dual_panel_mode() {
                             format!(" {} ", entry_cache.icon_glyph)
                         } else {
                             format!("{} ", entry_cache.icon_glyph)
@@ -616,7 +624,7 @@ pub(crate) fn run_tui_body(
                 .highlight_style(selection_style)
                 .highlight_symbol(""); 
 
-            let table_area = if app.preview_enabled {
+            let table_area = if app.is_preview_mode() || app.is_dual_panel_mode() {
                 Rect::new(
                     list_frame_area.x + 1,
                     list_frame_area.y + 1,
@@ -639,7 +647,7 @@ pub(crate) fn run_tui_body(
             if app.entries.is_empty() {
                 f.render_widget(
                     Paragraph::new(Line::from(Span::styled(
-                        "No files or folders yet. Use the 'n' or 'N' buttons to break the silence.",
+                        "No files or folders yet. Use the 'n' button to break the silence.",
                         Style::default()
                             .fg(Color::Rgb(140, 140, 140))
                             .add_modifier(Modifier::ITALIC),
@@ -700,7 +708,7 @@ pub(crate) fn run_tui_body(
                                             spans.push(Span::styled(tree_prefix.to_string(), tree_style));
                                         }
                                         if app.show_icons {
-                                            let icon_text = if app.preview_enabled {
+                                            let icon_text = if app.is_preview_mode() || app.is_dual_panel_mode() {
                                                 format!(" {} ", entry_cache.icon_glyph)
                                             } else {
                                                 format!("{} ", entry_cache.icon_glyph)
@@ -723,14 +731,14 @@ pub(crate) fn run_tui_body(
 
             // --- Bottom divider border ---
             let bottom_border_y = table_area.y + table_area.height;
-            if !app.preview_enabled && app.mode_shows_main_scrollbar() && bottom_border_y < chunks[0].y + chunks[0].height {
+            if !app.is_preview_mode() && !app.is_dual_panel_mode() && app.mode_shows_main_scrollbar() && bottom_border_y < chunks[0].y + chunks[0].height {
                 f.render_widget(Block::default().borders(Borders::TOP).border_type(BorderType::Rounded).border_style(Style::default().fg(Color::DarkGray)), 
                     Rect::new(chunks[0].x, bottom_border_y, chunks[0].width, 1));
             }
 
             if can_draw_scrollbar {
                 let sb_area = Rect::new(
-                    if app.preview_enabled {
+                    if app.is_preview_mode() || app.is_dual_panel_mode() {
                         list_frame_area.x + list_frame_area.width.saturating_sub(1)
                     } else {
                         table_area.x + table_area.width.saturating_sub(1)
@@ -771,6 +779,7 @@ pub(crate) fn run_tui_body(
 
             app.preview_native_area = None;
             if let Some(preview_area) = preview_frame_area {
+                if app.is_preview_mode() {
                 let title_path = app
                     .preview_target_path
                     .clone()
@@ -851,7 +860,7 @@ pub(crate) fn run_tui_body(
                 app.preview_scroll_offset = offset;
 
                 let preview_protocol = App::terminal_image_protocol().0;
-                let native_pane_image = app.preview_enabled
+                let native_pane_image = app.is_preview_mode()
                     && matches!(
                         preview_protocol,
                         crate::integration::probe::TerminalImageProtocol::Kitty
@@ -944,6 +953,136 @@ pub(crate) fn run_tui_body(
                         }
                         f.render_widget(Paragraph::new(sb_lines), sb_area);
                     }
+                }
+                } else if app.is_dual_panel_mode() {
+                    let right_path = if app.right_dir.as_os_str().is_empty() {
+                        app.current_dir.clone()
+                    } else {
+                        app.right_dir.clone()
+                    };
+                    let right_title = {
+                        let name = right_path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .filter(|n| !n.is_empty())
+                            .unwrap_or("Right")
+                            .to_string();
+                        let is_symlink = fs::symlink_metadata(&right_path)
+                            .map(|m| m.file_type().is_symlink())
+                            .unwrap_or(false);
+                        let (icon_glyph, icon_style) = App::icon_for_path(
+                            &right_path,
+                            app.show_icons,
+                            app.nerd_font_active,
+                            is_symlink,
+                        );
+                        let mut spans = vec![Span::raw(" ")];
+                        if !icon_glyph.is_empty() {
+                            spans.push(Span::styled(icon_glyph, icon_style));
+                            spans.push(Span::raw(" "));
+                        }
+                        spans.push(Span::styled(name, Style::default().fg(Color::Rgb(220, 220, 220))));
+                        spans.push(Span::raw(" "));
+                        Line::from(spans)
+                    };
+
+                    let right_block = Block::default()
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .title(right_title)
+                        .border_style(Style::default().fg(if app.active_panel == crate::DualPanelSide::Right {
+                            Color::Rgb(120, 120, 120)
+                        } else {
+                            Color::DarkGray
+                        }));
+                    let right_inner = right_block.inner(preview_area);
+                    f.render_widget(right_block, preview_area);
+
+                    let right_term_w = right_inner.width.saturating_sub(2).max(1);
+                    let right_show_date = right_term_w >= 50;
+                    let right_show_size = right_term_w >= 70;
+                    let right_size_min_max = if right_show_size {
+                        ui::list_temperature::size_min_max_from_sizes(
+                            app.right_entry_render_cache.iter().map(|entry| entry.size_bytes),
+                        )
+                    } else {
+                        None
+                    };
+                    let right_date_rank_by_ts = if right_show_date {
+                        ui::list_temperature::date_rank_map_from_unix(
+                            app.right_entry_render_cache.iter().map(|entry| entry.modified_unix),
+                        )
+                    } else {
+                        HashMap::new()
+                    };
+                    let right_size_width = if right_show_size {
+                        app.right_entry_render_cache
+                            .iter()
+                            .map(|entry| entry.size_col.trim().chars().count())
+                            .max()
+                            .unwrap_or(1)
+                            .max(1)
+                    } else {
+                        1
+                    };
+                    let right_date_width = 16usize;
+                    let right_name_width = (right_term_w as usize)
+                        .saturating_sub((if right_show_size { right_size_width } else { 0 }) + if right_show_date { right_date_width } else { 0 })
+                        .max(1);
+
+                    let right_rows: Vec<Row> = app
+                        .right_entry_render_cache
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, entry_cache)| {
+                            let name = truncate_with_ellipsis(&entry_cache.raw_name, right_name_width);
+                            let mut spans = Vec::new();
+                            if app.show_icons && !entry_cache.icon_glyph.is_empty() {
+                                spans.push(Span::styled(format!("{} ", entry_cache.icon_glyph), entry_cache.icon_style));
+                            }
+                            spans.push(Span::styled(name, entry_cache.name_style));
+                            let name_cell = Cell::from(Line::from(spans));
+                            let mut cells = vec![name_cell];
+                            if right_show_size {
+                                let right_size_style = Style::default().fg(ui::list_temperature::size_color_for(
+                                    entry_cache.size_bytes,
+                                    right_size_min_max,
+                                ));
+                                cells.push(Cell::from(Span::styled(
+                                    format!("{:>width$}", entry_cache.size_col.trim(), width = right_size_width),
+                                    right_size_style,
+                                )));
+                            }
+                            if right_show_date {
+                                let right_date_style = Style::default().fg(ui::list_temperature::date_color_for(
+                                    entry_cache.modified_unix,
+                                    &right_date_rank_by_ts,
+                                ));
+                                cells.push(Cell::from(Span::styled(
+                                    entry_cache.date_col.clone(),
+                                    right_date_style,
+                                )));
+                            }
+                            Row::new(cells).style(if idx == app.right_selected_index {
+                                selection_style
+                            } else {
+                                Style::default()
+                            })
+                        })
+                        .collect();
+
+                    let mut right_constraints: Vec<Constraint> = vec![Constraint::Min(0)];
+                    if right_show_size {
+                        right_constraints.push(Constraint::Length(right_size_width as u16));
+                    }
+                    if right_show_date {
+                        right_constraints.push(Constraint::Length(right_date_width as u16));
+                    }
+                    let right_table = Table::new(right_rows, right_constraints)
+                        .highlight_style(selection_style)
+                        .highlight_symbol("");
+                    app.right_table_state.select(Some(app.right_selected_index));
+                    f.render_stateful_widget(right_table, right_inner, &mut app.right_table_state);
                 }
             }
 
@@ -2096,7 +2235,7 @@ pub(crate) fn run_tui_body(
                     chunks[0].width,
                     chunks[0].height.saturating_sub(header_reserved_rows),
                 );
-                if app.preview_enabled {
+                if app.is_preview_mode() || app.is_dual_panel_mode() {
                     // In split preview mode, extra corner overlays can clash with the
                     // rounded pane border; skip the synthetic scrollbar corners.
                 } else {
@@ -2115,7 +2254,7 @@ pub(crate) fn run_tui_body(
                 | crate::integration::probe::TerminalImageProtocol::Iterm2Inline
                 | crate::integration::probe::TerminalImageProtocol::Sixel
         );
-        if native_pane_supported && app.preview_enabled {
+        if native_pane_supported && app.is_preview_mode() {
             if let (Some(area), Some(ref png), Some((rgb, iw, ih))) = (
                 app.preview_native_area,
                 app.preview_image_png.as_ref(),

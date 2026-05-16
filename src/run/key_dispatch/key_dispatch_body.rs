@@ -67,7 +67,12 @@ pub(crate) fn handle_app_key_event_body(
                 }
             }
             KeyCode::Tab => {
-                if app.preview_enabled {
+                if app.is_dual_panel_mode() {
+                    app.active_panel = match app.active_panel {
+                        DualPanelSide::Left => DualPanelSide::Right,
+                        DualPanelSide::Right => DualPanelSide::Left,
+                    };
+                } else if app.is_preview_mode() {
                     app.toggle_preview_pane_focus();
                 } else {
                     let current = app.current_path_edit_value();
@@ -336,6 +341,40 @@ pub(crate) fn handle_app_key_event_body(
                     return Ok(KeyDispatchOutcome::ContinueLoop);
                 }
 
+                if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
+                    if app.right_entries.is_empty() {
+                        return Ok(KeyDispatchOutcome::ContinueLoop);
+                    }
+
+                    let mut steps: usize = 1;
+                    while steps < 32 && event::poll(Duration::from_millis(0))? {
+                        match event::read()? {
+                            Event::Key(next)
+                                if next.code == key.code
+                                    && next.modifiers == key.modifiers
+                                    && next.kind == key.kind =>
+                            {
+                                steps += 1;
+                            }
+                            Event::Key(next) => {
+                                *deferred_key = Some(next);
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    let max_idx = app.right_entries.len().saturating_sub(1);
+                    let next_idx = if key.code == KeyCode::Up {
+                        app.right_selected_index.saturating_sub(steps)
+                    } else {
+                        (app.right_selected_index + steps).min(max_idx)
+                    };
+                    app.right_selected_index = next_idx;
+                    app.right_table_state.select(Some(next_idx));
+                    return Ok(KeyDispatchOutcome::ContinueLoop);
+                }
+
                 let mut steps: usize = 1;
                 while steps < 32 && event::poll(Duration::from_millis(0))? {
                     match event::read()? {
@@ -364,6 +403,9 @@ pub(crate) fn handle_app_key_event_body(
             KeyCode::PageUp => {
                 if app.preview_focus_is_preview() {
                     app.preview_scroll_up(8);
+                } else if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
+                    app.right_selected_index = app.right_selected_index.saturating_sub(app.page_size);
+                    app.right_table_state.select(Some(app.right_selected_index));
                 } else {
                     app.selected_index = app.selected_index.saturating_sub(app.page_size);
                     app.table_state.select(Some(app.selected_index));
@@ -372,6 +414,11 @@ pub(crate) fn handle_app_key_event_body(
             KeyCode::PageDown => {
                 if app.preview_focus_is_preview() {
                     app.preview_scroll_down(8);
+                } else if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
+                    if !app.right_entries.is_empty() {
+                        app.right_selected_index = (app.right_selected_index + app.page_size).min(app.right_entries.len() - 1);
+                        app.right_table_state.select(Some(app.right_selected_index));
+                    }
                 } else if !app.entries.is_empty() {
                     app.selected_index = (app.selected_index + app.page_size).min(app.entries.len() - 1);
                     app.table_state.select(Some(app.selected_index));
@@ -380,6 +427,9 @@ pub(crate) fn handle_app_key_event_body(
             KeyCode::Home => {
                 if app.preview_focus_is_preview() {
                     app.preview_scroll_offset = 0;
+                } else if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
+                    app.right_selected_index = 0;
+                    app.right_table_state.select(Some(0));
                 } else {
                     app.selected_index = 0;
                     app.table_state.select(Some(0));
@@ -388,17 +438,40 @@ pub(crate) fn handle_app_key_event_body(
             KeyCode::End => {
                 if app.preview_focus_is_preview() {
                     app.preview_scroll_offset = app.preview_max_scroll();
+                } else if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
+                    if !app.right_entries.is_empty() {
+                        app.right_selected_index = app.right_entries.len() - 1;
+                        app.right_table_state.select(Some(app.right_selected_index));
+                    }
                 } else if !app.entries.is_empty() {
                     app.selected_index = app.entries.len() - 1;
                     app.table_state.select(Some(app.selected_index));
                 }
             }
             KeyCode::Left | KeyCode::Backspace => {
+                if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
+                    if let Some(parent) = app.right_dir.parent() {
+                        app.right_dir = parent.to_path_buf();
+                        let _ = app.refresh_right_panel_entries();
+                    }
+                    return Ok(KeyDispatchOutcome::ContinueLoop);
+                }
                 if !app.try_leave_archive() && !app.try_leave_ssh_mount() {
                     app.try_enter_parent_dir();
                 }
             }
             KeyCode::Enter | KeyCode::Right => {
+                if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
+                    if let Some(selected_path) = app.right_entries.get(app.right_selected_index).map(|e| e.path()) {
+                        if selected_path.is_dir() {
+                            app.right_dir = selected_path;
+                            let _ = app.refresh_right_panel_entries();
+                        } else {
+                            app.set_status("right panel file selected");
+                        }
+                    }
+                    return Ok(KeyDispatchOutcome::ContinueLoop);
+                }
                 if let Some(selected_path) = app.entries.get(app.selected_index).map(|e| e.path()) {
                     if selected_path.is_dir() { app.try_enter_dir(selected_path); }
                     else if App::is_age_protected_file(&selected_path) {

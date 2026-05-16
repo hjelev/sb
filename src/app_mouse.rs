@@ -583,8 +583,8 @@ impl App {
             return None;
         }
 
-        let footer_height = if self.preview_enabled { 1 } else { 2 };
-        let header_reserved_rows = if self.preview_enabled { 1 } else { 2 };
+        let footer_height = if self.is_preview_mode() || self.is_dual_panel_mode() { 1 } else { 2 };
+        let header_reserved_rows = if self.is_preview_mode() || self.is_dual_panel_mode() { 1 } else { 2 };
         let chunks = Layout::default()
             .constraints([Constraint::Min(3), Constraint::Length(footer_height)])
             .split(area);
@@ -596,16 +596,21 @@ impl App {
             chunks[0].height.saturating_sub(header_reserved_rows),
         );
 
-        let list_frame_area = if self.preview_enabled {
+        let list_frame_area = if self.is_preview_mode() {
             Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([Constraint::Percentage(33), Constraint::Percentage(67)])
+                .split(content_area)[0]
+        } else if self.is_dual_panel_mode() {
+            Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
                 .split(content_area)[0]
         } else {
             content_area
         };
 
-        let table_area = if self.preview_enabled {
+        let table_area = if self.is_preview_mode() || self.is_dual_panel_mode() {
             Rect::new(
                 list_frame_area.x + 1,
                 list_frame_area.y + 1,
@@ -637,7 +642,7 @@ impl App {
     }
 
     fn preview_pane_frame_areas(&self, area: Rect) -> Option<(Rect, Rect)> {
-        if !self.preview_enabled || !matches!(self.mode, AppMode::Browsing | AppMode::PathEditing) {
+        if !self.is_preview_mode() || !matches!(self.mode, AppMode::Browsing | AppMode::PathEditing) {
             return None;
         }
 

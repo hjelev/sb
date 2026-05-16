@@ -2,6 +2,14 @@ impl App {
     fn mode_shows_main_scrollbar(&self) -> bool {
         matches!(self.mode, AppMode::Browsing | AppMode::PathEditing)
     }
+
+    fn is_preview_mode(&self) -> bool {
+        self.view_mode == ViewMode::Preview
+    }
+
+    fn is_dual_panel_mode(&self) -> bool {
+        self.view_mode == ViewMode::DualPanel
+    }
 }
 
 const MAIN_LIST_DOUBLE_CLICK_WINDOW_MS: u64 = 320;
@@ -36,6 +44,7 @@ mod app_images;
 mod app_input;
 mod app_files;
 mod app_meta;
+mod app_preview;
 mod app_render_cache;
 pub(crate) use app_render_cache::{EntryRenderCache, EntryRenderConfig};
 mod app_model;
@@ -177,6 +186,7 @@ struct App {
     db_preview_row_limit: usize,
     db_preview_error: Option<String>,
     preview_enabled: bool,
+    view_mode: ViewMode,
     preview_scroll_offset: usize,
     preview_target_path: Option<PathBuf>,
     preview_lines: Vec<String>,
@@ -191,6 +201,14 @@ struct App {
     preview_image_rgb: Option<(Vec<u8>, u32, u32)>,
     preview_image_png: Option<Vec<u8>>,
     preview_pane_focus: PreviewPaneFocus,
+    active_panel: DualPanelSide,
+    right_dir: PathBuf,
+    right_entries: Vec<fs::DirEntry>,
+    right_entry_render_cache: Vec<EntryRenderCache>,
+    right_selected_index: usize,
+    right_table_state: TableState,
+    right_sort_mode: SortMode,
+    right_show_hidden: bool,
 }
 
 const ZIP_BASED_EXTENSIONS: &[&str] = &[
@@ -380,6 +398,7 @@ impl App {
             db_preview_row_limit: 8,
             db_preview_error: None,
             preview_enabled: false,
+            view_mode: ViewMode::Normal,
             preview_scroll_offset: 0,
             preview_target_path: None,
             preview_lines: Vec::new(),
@@ -394,6 +413,14 @@ impl App {
             preview_image_rgb: None,
             preview_image_png: None,
             preview_pane_focus: PreviewPaneFocus::Folder,
+            active_panel: DualPanelSide::Left,
+            right_dir: PathBuf::new(),
+            right_entries: Vec::new(),
+            right_entry_render_cache: Vec::new(),
+            right_selected_index: 0,
+            right_table_state: TableState::default(),
+            right_sort_mode: SortMode::NameAsc,
+            right_show_hidden: false,
         };
         app.refresh_header_clock_if_needed();
         app.refresh_entries()?;
@@ -410,143 +437,6 @@ impl App {
         }
         self.header_clock_minute_key = Some(minute_key);
         self.header_clock_text = now.format("%Y-%m-%d %H:%M").to_string();
-    }
-
-    fn toggle_preview_mode(&mut self) {
-        self.preview_enabled = !self.preview_enabled;
-        self.preview_scroll_offset = 0;
-        if self.preview_enabled {
-            self.preview_pane_focus = PreviewPaneFocus::Folder;
-            self.preview_lines = vec!["Loading preview...".to_string()];
-            self.preview_line_kinds = vec![PreviewLineKind::Plain];
-            self.preview_footer = None;
-            self.preview_image_rgb = None;
-            self.preview_image_png = None;
-            self.preview_native_last_key = None;
-            self.request_preview_for_selected();
-        } else {
-            if self.preview_native_last_key.is_some() {
-                match Self::terminal_image_protocol().0 {
-                    crate::integration::probe::TerminalImageProtocol::Kitty => {
-                        let _ = Self::clear_kitty_pane_images();
-                    }
-                    crate::integration::probe::TerminalImageProtocol::Iterm2Inline
-                    | crate::integration::probe::TerminalImageProtocol::Sixel => {
-                        if let Some(area) = self.preview_native_area {
-                            let _ = Self::clear_preview_pane_area(
-                                area.x,
-                                area.y,
-                                area.width,
-                                area.height,
-                            );
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            self.preview_target_path = None;
-            self.preview_lines.clear();
-            self.preview_line_kinds.clear();
-            self.preview_footer = None;
-            self.preview_pending = false;
-            self.preview_rx = None;
-            self.preview_native_area = None;
-            self.preview_native_last_key = None;
-            self.preview_image_rgb = None;
-            self.preview_image_png = None;
-            self.preview_pane_focus = PreviewPaneFocus::Folder;
-        }
-    }
-
-    fn toggle_preview_pane_focus(&mut self) {
-        self.preview_pane_focus = match self.preview_pane_focus {
-            PreviewPaneFocus::Folder => PreviewPaneFocus::Preview,
-            PreviewPaneFocus::Preview => PreviewPaneFocus::Folder,
-        };
-    }
-
-    fn preview_focus_is_preview(&self) -> bool {
-        self.preview_enabled && self.preview_pane_focus == PreviewPaneFocus::Preview
-    }
-
-    fn preview_max_scroll(&self) -> usize {
-        self.preview_lines.len().saturating_sub(1)
-    }
-
-    fn preview_scroll_up(&mut self, amount: usize) {
-        self.preview_scroll_offset = self.preview_scroll_offset.saturating_sub(amount);
-    }
-
-    fn preview_scroll_down(&mut self, amount: usize) {
-        let next = self.preview_scroll_offset.saturating_add(amount);
-        self.preview_scroll_offset = next.min(self.preview_max_scroll());
-    }
-
-    fn request_preview_for_selected(&mut self) {
-        if !self.preview_enabled {
-            return;
-        }
-        let Some(path) = self.entries.get(self.selected_index).map(|e| e.path()) else {
-            self.preview_lines = vec!["No selection".to_string()];
-            self.preview_line_kinds = vec![PreviewLineKind::Plain];
-            self.preview_footer = None;
-            self.preview_target_path = None;
-            self.preview_pending = false;
-            self.preview_rx = None;
-            self.preview_image_rgb = None;
-            self.preview_image_png = None;
-            return;
-        };
-
-        if self.preview_target_path.as_ref() == Some(&path) && (self.preview_pending || !self.preview_lines.is_empty() || self.preview_image_rgb.is_some()) {
-            return;
-        }
-
-        // Path changed: clear stale image data.
-        self.preview_image_rgb = None;
-        self.preview_image_png = None;
-
-        // Image files skip text cache (their render path uses decoded RGB).
-        if !Self::is_image_file(&path) {
-            if let Some(cached) = self.preview_cache.get(&path).cloned() {
-                self.preview_target_path = Some(path);
-                self.preview_lines = cached.0;
-                self.preview_line_kinds = cached.1;
-                self.preview_footer = cached.2;
-                self.preview_pending = false;
-                self.preview_scroll_offset = 0;
-                return;
-            }
-        }
-
-        self.preview_request_id = self.preview_request_id.saturating_add(1);
-        let request_id = self.preview_request_id;
-        self.preview_target_path = Some(path.clone());
-        self.preview_pending = true;
-        self.preview_scroll_offset = 0;
-        self.preview_lines = vec!["Loading preview...".to_string()];
-        self.preview_line_kinds = vec![PreviewLineKind::Plain];
-        self.preview_footer = None;
-
-        let use_bat = Self::integration_availability_and_detail("bat").0;
-        let use_file = Self::integration_availability_and_detail("file").0;
-        let use_resvg = self.integration_active("resvg");
-        let show_icons = self.show_icons;
-        let nerd_font_active = self.nerd_font_active;
-        let (tx, rx) = mpsc::channel();
-        self.preview_rx = Some(rx);
-        thread::spawn(move || {
-            let msg = App::build_preview_content(
-                request_id,
-                path,
-                use_bat,
-                use_file,
-                use_resvg,
-                show_icons,
-                nerd_font_active,
-            );
-            let _ = tx.send(msg);
-        });
     }
 
     fn pump_preview_progress(&mut self) {
@@ -4211,8 +4101,8 @@ IFS= read -rsn1 _
             return None;
         }
 
-        let footer_height = if self.preview_enabled { 1 } else { 2 };
-        let header_reserved_rows = if self.preview_enabled { 1 } else { 2 };
+        let footer_height = if self.is_preview_mode() || self.is_dual_panel_mode() { 1 } else { 2 };
+        let header_reserved_rows = if self.is_preview_mode() || self.is_dual_panel_mode() { 1 } else { 2 };
         let chunks = Layout::default()
             .constraints([Constraint::Min(3), Constraint::Length(footer_height)])
             .split(area);
@@ -4224,16 +4114,21 @@ IFS= read -rsn1 _
             chunks[0].height.saturating_sub(header_reserved_rows),
         );
 
-        let list_frame_area = if self.preview_enabled {
+        let list_frame_area = if self.is_preview_mode() {
             Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([Constraint::Percentage(33), Constraint::Percentage(67)])
+                .split(content_area)[0]
+        } else if self.is_dual_panel_mode() {
+            Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
                 .split(content_area)[0]
         } else {
             content_area
         };
 
-        let table_area = if self.preview_enabled {
+        let table_area = if self.is_preview_mode() || self.is_dual_panel_mode() {
             Rect::new(
                 list_frame_area.x + 1,
                 list_frame_area.y + 1,
@@ -4265,7 +4160,7 @@ IFS= read -rsn1 _
     }
 
     fn preview_pane_frame_areas(&self, area: Rect) -> Option<(Rect, Rect)> {
-        if !self.preview_enabled || !matches!(self.mode, AppMode::Browsing | AppMode::PathEditing) {
+        if !self.is_preview_mode() || !matches!(self.mode, AppMode::Browsing | AppMode::PathEditing) {
             return None;
         }
 

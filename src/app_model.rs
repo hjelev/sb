@@ -195,6 +195,21 @@ pub(crate) enum PreviewPaneFocus {
     Preview,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum ViewMode {
+    #[default]
+    Normal,
+    Preview,
+    DualPanel,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum DualPanelSide {
+    #[default]
+    Left,
+    Right,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) enum PreviewLineKind {
     Plain,
