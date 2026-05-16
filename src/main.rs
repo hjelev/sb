@@ -78,6 +78,7 @@ struct App {
     input_buffer: String,
     input_cursor: usize,
     status_message: String,
+    right_status_message: String,
     page_size: usize,
     ssh_mounts: Vec<SshMount>,
     remote_entries: Vec<RemoteEntry>,
@@ -149,6 +150,11 @@ struct App {
     selected_total_size_pending: bool,
     selected_total_size_bytes: Option<u64>,
     selected_total_size_items: usize,
+    right_selected_total_size_rx: Option<Receiver<SelectedTotalSizeMsg>>,
+    right_selected_total_size_scan_id: u64,
+    right_selected_total_size_pending: bool,
+    right_selected_total_size_bytes: Option<u64>,
+    right_selected_total_size_items: usize,
     sort_mode: SortMode,
     sort_menu_selected: usize,
     panel_tab: u8,
@@ -205,6 +211,7 @@ struct App {
     right_entries: Vec<fs::DirEntry>,
     right_entry_render_cache: Vec<EntryRenderCache>,
     right_selected_index: usize,
+    right_marked_indices: HashSet<usize>,
     right_table_state: TableState,
     right_sort_mode: SortMode,
     right_show_hidden: bool,
@@ -289,6 +296,7 @@ impl App {
             input_buffer: String::new(),
             input_cursor: 0,
             status_message: String::new(),
+            right_status_message: String::new(),
             page_size: 20,
             ssh_mounts: Vec::new(),
             remote_entries: Vec::new(),
@@ -360,6 +368,11 @@ impl App {
             selected_total_size_pending: false,
             selected_total_size_bytes: None,
             selected_total_size_items: 0,
+            right_selected_total_size_rx: None,
+            right_selected_total_size_scan_id: 0,
+            right_selected_total_size_pending: false,
+            right_selected_total_size_bytes: None,
+            right_selected_total_size_items: 0,
             sort_mode: SortMode::NameAsc,
             sort_menu_selected: 0,
             panel_tab: 0,
@@ -416,6 +429,7 @@ impl App {
             right_entries: Vec::new(),
             right_entry_render_cache: Vec::new(),
             right_selected_index: 0,
+            right_marked_indices: HashSet::new(),
             right_table_state: TableState::default(),
             right_sort_mode: SortMode::NameAsc,
             right_show_hidden: false,
@@ -974,7 +988,25 @@ IFS= read -rsn1 _
     }
 
     fn set_status(&mut self, msg: impl Into<String>) {
-        self.status_message = msg.into();
+        let msg = msg.into();
+        if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
+            self.right_status_message = msg;
+        } else {
+            self.status_message = msg;
+        }
+    }
+
+    fn panel_status_message(&self, side: DualPanelSide) -> Option<&str> {
+        let msg = match side {
+            DualPanelSide::Left => self.status_message.as_str(),
+            DualPanelSide::Right => self.right_status_message.as_str(),
+        };
+
+        if msg.is_empty() {
+            None
+        } else {
+            Some(msg)
+        }
     }
 
     fn decorate_footer_message(&self, msg: &str) -> String {
@@ -1205,11 +1237,15 @@ IFS= read -rsn1 _
         }
     }
 
-    fn current_remote_mount(&self) -> Option<&SshMount> {
+    fn remote_mount_for_path(&self, path: &PathBuf) -> Option<&SshMount> {
         self.ssh_mounts
             .iter()
-            .filter(|mount| self.current_dir == mount.mount_path || self.current_dir.starts_with(&mount.mount_path))
+            .filter(|mount| path == &mount.mount_path || path.starts_with(&mount.mount_path))
             .max_by_key(|mount| mount.mount_path.components().count())
+    }
+
+    fn current_remote_mount(&self) -> Option<&SshMount> {
+        self.remote_mount_for_path(&self.current_dir)
     }
 
     fn current_header_identity(&self, local_user: &str, local_host: &str) -> String {
@@ -1218,9 +1254,9 @@ IFS= read -rsn1 _
             .unwrap_or_else(|| format!("{}@{}", local_user, local_host))
     }
 
-    fn current_dir_display_path(&self) -> String {
-        let Some(mount) = self.current_remote_mount() else {
-            let path_str = self.current_dir.to_string_lossy().into_owned();
+    fn display_path_for(&self, path: &PathBuf) -> String {
+        let Some(mount) = self.remote_mount_for_path(path) else {
+            let path_str = path.to_string_lossy().into_owned();
             if let Ok(home) = env::var("HOME") {
                 if path_str == home {
                     return "~".to_string();
@@ -1233,8 +1269,7 @@ IFS= read -rsn1 _
             return path_str;
         };
 
-        let rel = self
-            .current_dir
+        let rel = path
             .strip_prefix(&mount.mount_path)
             .ok()
             .map(|path| path.to_string_lossy().into_owned())
@@ -1251,6 +1286,10 @@ IFS= read -rsn1 _
         } else {
             format!("{}/{}", mount.remote_root, rel)
         }
+    }
+
+    fn current_dir_display_path(&self) -> String {
+        self.display_path_for(&self.current_dir)
     }
 
     fn path_filter_suffix_text(&self) -> Option<String> {
@@ -3080,11 +3119,19 @@ IFS= read -rsn1 _
                 (sources, self.right_dir.clone())
             }
             DualPanelSide::Right => {
-                let sources = self
-                    .right_entries
-                    .get(self.right_selected_index)
-                    .map(|e| vec![e.path()])
-                    .unwrap_or_default();
+                let sources = if !self.right_marked_indices.is_empty() {
+                    self.right_entries
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| self.right_marked_indices.contains(i))
+                        .map(|(_, e)| e.path())
+                        .collect()
+                } else {
+                    self.right_entries
+                        .get(self.right_selected_index)
+                        .map(|e| vec![e.path()])
+                        .unwrap_or_default()
+                };
                 (sources, self.current_dir.clone())
             }
         };

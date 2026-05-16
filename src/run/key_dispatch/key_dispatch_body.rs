@@ -72,6 +72,11 @@ pub(crate) fn handle_app_key_event_body(
                         DualPanelSide::Left => DualPanelSide::Right,
                         DualPanelSide::Right => DualPanelSide::Left,
                     };
+                    if app.folder_size_enabled {
+                        app.refresh_current_dir_free_space();
+                        app.start_current_dir_total_size_scan();
+                        app.start_selected_total_size_scan();
+                    }
                 } else if app.is_preview_mode() {
                     app.toggle_preview_pane_focus();
                 } else {
@@ -80,7 +85,20 @@ pub(crate) fn handle_app_key_event_body(
                 }
             }
             KeyCode::Char(' ') | KeyCode::Insert => {
-                if !app.entries.is_empty() {
+                if app.is_dual_panel_mode() && app.active_panel == crate::DualPanelSide::Right {
+                    if !app.right_entries.is_empty() {
+                        if app.right_marked_indices.contains(&app.right_selected_index) {
+                            app.right_marked_indices.remove(&app.right_selected_index);
+                        } else {
+                            app.right_marked_indices.insert(app.right_selected_index);
+                        }
+                        app.start_selected_total_size_scan();
+                        if app.right_selected_index < app.right_entries.len() - 1 {
+                            app.right_selected_index += 1;
+                            app.right_table_state.select(Some(app.right_selected_index));
+                        }
+                    }
+                } else if !app.entries.is_empty() {
                     if app.marked_indices.contains(&app.selected_index) {
                         app.marked_indices.remove(&app.selected_index);
                     } else {
@@ -94,7 +112,16 @@ pub(crate) fn handle_app_key_event_body(
                 }
             }
             KeyCode::Char('*') => {
-                if !app.entries.is_empty() {
+                if app.is_dual_panel_mode() && app.active_panel == crate::DualPanelSide::Right {
+                    if !app.right_entries.is_empty() {
+                        if app.right_marked_indices.len() == app.right_entries.len() {
+                            app.right_marked_indices.clear();
+                        } else {
+                            app.right_marked_indices = (0..app.right_entries.len()).collect();
+                        }
+                        app.start_selected_total_size_scan();
+                    }
+                } else if !app.entries.is_empty() {
                     if app.marked_indices.len() == app.entries.len() {
                         app.marked_indices.clear();
                     } else {

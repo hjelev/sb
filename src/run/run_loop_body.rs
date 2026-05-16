@@ -371,36 +371,46 @@ pub(crate) fn run_tui_body(
                 (content_area, None)
             };
 
+            let build_panel_title = |path: &_, path_text: String, editing: bool| -> Line {
+                let is_symlink = fs::symlink_metadata(path)
+                    .map(|m| m.file_type().is_symlink())
+                    .unwrap_or(false);
+                let (folder_icon, folder_icon_style) = App::icon_for_path(
+                    path,
+                    app.show_icons,
+                    app.nerd_font_active,
+                    is_symlink,
+                );
+
+                let mut title_spans: Vec<Span> = Vec::new();
+                title_spans.push(Span::raw(" "));
+                if !folder_icon.is_empty() {
+                    title_spans.push(Span::styled(folder_icon, folder_icon_style));
+                    title_spans.push(Span::raw(" "));
+                }
+                if editing {
+                    title_spans.push(Span::styled(
+                        path_text,
+                        Style::default().fg(Color::Rgb(255, 220, 120)),
+                    ));
+                } else {
+                    title_spans.push(Span::styled(path_text, Style::default().fg(Color::White)));
+                }
+                title_spans.push(Span::raw(" "));
+                Line::from(title_spans)
+            };
+
             if app.is_preview_mode() || app.is_dual_panel_mode() {
                 let path_text = if app.mode == AppMode::PathEditing {
                     app.input_buffer.clone()
                 } else {
                     app.current_dir_display_path_with_filter()
                 };
-                let cwd_symlink = fs::symlink_metadata(&app.current_dir)
-                    .map(|m| m.file_type().is_symlink())
-                    .unwrap_or(false);
-                let (folder_icon, folder_icon_style) = App::icon_for_path(
+                let left_title = build_panel_title(
                     &app.current_dir,
-                    app.show_icons,
-                    app.nerd_font_active,
-                    cwd_symlink,
+                    path_text,
+                    app.mode == AppMode::PathEditing,
                 );
-                let mut left_title_spans: Vec<Span> = Vec::new();
-                left_title_spans.push(Span::raw(" "));
-                if !folder_icon.is_empty() {
-                    left_title_spans.push(Span::styled(folder_icon, folder_icon_style));
-                    left_title_spans.push(Span::raw(" "));
-                }
-                if app.mode == AppMode::PathEditing {
-                    left_title_spans.push(Span::styled(
-                        path_text,
-                        Style::default().fg(Color::Rgb(255, 220, 120)),
-                    ));
-                } else {
-                    left_title_spans.push(Span::styled(path_text, Style::default().fg(Color::White)));
-                }
-                left_title_spans.push(Span::raw(" "));
 
                 let left_border_color = if app.is_dual_panel_mode() {
                     if app.active_panel == crate::DualPanelSide::Left {
@@ -416,7 +426,7 @@ pub(crate) fn run_tui_body(
                 let left_block = Block::default()
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
-                    .title(Line::from(left_title_spans))
+                    .title(left_title)
                     .border_style(Style::default().fg(left_border_color));
                 f.render_widget(left_block, list_frame_area);
             }
@@ -981,31 +991,11 @@ pub(crate) fn run_tui_body(
                     } else {
                         app.right_dir.clone()
                     };
-                    let right_title = {
-                        let name = right_path
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .filter(|n| !n.is_empty())
-                            .unwrap_or("Right")
-                            .to_string();
-                        let is_symlink = fs::symlink_metadata(&right_path)
-                            .map(|m| m.file_type().is_symlink())
-                            .unwrap_or(false);
-                        let (icon_glyph, icon_style) = App::icon_for_path(
-                            &right_path,
-                            app.show_icons,
-                            app.nerd_font_active,
-                            is_symlink,
-                        );
-                        let mut spans = vec![Span::raw(" ")];
-                        if !icon_glyph.is_empty() {
-                            spans.push(Span::styled(icon_glyph, icon_style));
-                            spans.push(Span::raw(" "));
-                        }
-                        spans.push(Span::styled(name, Style::default().fg(Color::Rgb(220, 220, 220))));
-                        spans.push(Span::raw(" "));
-                        Line::from(spans)
-                    };
+                    let right_title = build_panel_title(
+                        &right_path,
+                        app.display_path_for(&right_path),
+                        false,
+                    );
 
                     let right_block = Block::default()
                         .borders(Borders::ALL)
@@ -1016,10 +1006,15 @@ pub(crate) fn run_tui_body(
                         } else {
                             Color::Rgb(120, 120, 120)
                         }));
-                    let right_inner = right_block.inner(preview_area);
                     f.render_widget(right_block, preview_area);
+                    let right_body_area = Rect::new(
+                        preview_area.x + 1,
+                        preview_area.y + 1,
+                        preview_area.width.saturating_sub(2),
+                        preview_area.height.saturating_sub(2),
+                    );
 
-                    let right_term_w = right_inner.width.saturating_sub(2).max(1);
+                    let right_term_w = right_body_area.width.max(1);
                     let right_show_date = right_term_w >= 50;
                     let right_show_size = right_term_w >= 70;
                     let right_size_min_max = if right_show_size {
@@ -1057,6 +1052,7 @@ pub(crate) fn run_tui_body(
                         .enumerate()
                         .map(|(idx, entry_cache)| {
                             let name = truncate_with_ellipsis(&entry_cache.raw_name, right_name_width);
+                            let right_is_marked = app.right_marked_indices.contains(&idx);
                             let mut spans = Vec::new();
                             if app.show_icons && !entry_cache.icon_glyph.is_empty() {
                                 spans.push(Span::raw(" "));
@@ -1087,6 +1083,8 @@ pub(crate) fn run_tui_body(
                             }
                             Row::new(cells).style(if idx == app.right_selected_index {
                                 right_selection_style
+                            } else if right_is_marked {
+                                Style::default().bg(Color::Rgb(0, 100, 150))
                             } else {
                                 Style::default()
                             })
@@ -1104,7 +1102,65 @@ pub(crate) fn run_tui_body(
                         .highlight_style(right_selection_style)
                         .highlight_symbol("");
                     app.right_table_state.select(Some(app.right_selected_index));
-                    f.render_stateful_widget(right_table, right_inner, &mut app.right_table_state);
+                    f.render_stateful_widget(right_table, right_body_area, &mut app.right_table_state);
+                }
+            }
+
+            if app.is_preview_mode() || app.is_dual_panel_mode() {
+                let active_side = if app.is_dual_panel_mode() {
+                    app.active_panel
+                } else {
+                    crate::DualPanelSide::Left
+                };
+                let active_status = if app.copy_rx.is_none() && app.archive_rx.is_none() {
+                    app.selected_total_size_status_for(active_side)
+                } else {
+                    None
+                }
+                .or_else(|| app.panel_status_message(active_side).map(|s| s.to_string()));
+
+                let active_frame_area = if app.is_dual_panel_mode() && active_side == crate::DualPanelSide::Right {
+                    preview_frame_area
+                } else if app.is_preview_mode() && app.preview_focus_is_preview() {
+                    preview_frame_area
+                } else {
+                    Some(list_frame_area)
+                };
+
+                if let (Some(status_text), Some(frame_area)) = (active_status, active_frame_area) {
+                    let lower_msg = status_text.to_ascii_lowercase();
+                    let selected_total_is_shown = lower_msg.starts_with("selected:");
+                    let is_error = lower_msg.contains("error")
+                        || lower_msg.contains("failed")
+                        || lower_msg.contains("not found")
+                        || lower_msg.contains("refresh failed");
+                    let msg_style = if selected_total_is_shown {
+                        Style::default().fg(Color::Rgb(150, 220, 150))
+                    } else if app.copy_rx.is_some() || app.archive_rx.is_some() {
+                        Style::default().fg(Color::Rgb(120, 200, 255))
+                    } else if is_error {
+                        Style::default().fg(Color::Rgb(255, 120, 120))
+                    } else {
+                        Style::default().fg(Color::White)
+                    };
+                    let msg_area = Rect::new(
+                        frame_area.x.saturating_add(1),
+                        frame_area.y + frame_area.height.saturating_sub(1),
+                        frame_area.width.saturating_sub(2),
+                        1,
+                    );
+                    if msg_area.width > 0 {
+                        let decorated = app.decorate_footer_message(&status_text);
+                        let core = format!("─── {} ", decorated);
+                        let width = msg_area.width as usize;
+                        let core_len = core.chars().count();
+                        let line_msg = if core_len >= width {
+                            core.chars().take(width).collect::<String>()
+                        } else {
+                            format!("{}{}", core, "─".repeat(width - core_len))
+                        };
+                        f.render_widget(Paragraph::new(line_msg).style(msg_style), msg_area);
+                    }
                 }
             }
 
@@ -2100,17 +2156,31 @@ pub(crate) fn run_tui_body(
             }
 
             // --- Footer ---
-            let total_entries = app.entries.len();
-            let selected_ordinal = if total_entries == 0 {
-                0
+            let left_status = if app.is_dual_panel_mode() && app.active_panel == crate::DualPanelSide::Right {
+                let total_entries = app.right_entries.len();
+                let selected_ordinal = if total_entries == 0 {
+                    0
+                } else {
+                    app.right_selected_index.min(total_entries - 1) + 1
+                };
+                let mut left_status_parts = vec![format!("{}/{}", selected_ordinal, total_entries)];
+                if !app.clipboard.is_empty() {
+                    left_status_parts.push(format!("Clipboard:{}", app.clipboard.len()));
+                }
+                left_status_parts.join(" │ ")
             } else {
-                app.selected_index.min(total_entries - 1) + 1
+                let total_entries = app.entries.len();
+                let selected_ordinal = if total_entries == 0 {
+                    0
+                } else {
+                    app.selected_index.min(total_entries - 1) + 1
+                };
+                let mut left_status_parts = vec![format!("{}/{}", selected_ordinal, total_entries)];
+                if !app.clipboard.is_empty() {
+                    left_status_parts.push(format!("Clipboard:{}", app.clipboard.len()));
+                }
+                left_status_parts.join(" │ ")
             };
-            let mut left_status_parts = vec![format!("{}/{}", selected_ordinal, total_entries)];
-            if !app.clipboard.is_empty() {
-                left_status_parts.push(format!("Clipboard:{}", app.clipboard.len()));
-            }
-            let left_status = left_status_parts.join(" │ ");
             let right_status = "c:Copy v:paste m:Move r:Rename w:Web d:Del e:Edit s:Size o:Open-GUI f:Find `:preview h:Help q:Quit";
             let width = chunks[1].width as usize;
             let left_len = left_status.chars().count();
@@ -2139,17 +2209,45 @@ pub(crate) fn run_tui_body(
                 (" ".to_string(), right_trimmed)
             };
 
-            let mut left_spans: Vec<Span> = vec![
-                Span::styled(selected_ordinal.to_string(), Style::default().fg(Color::White)),
-                Span::styled("/", Style::default().fg(Color::DarkGray)),
-                Span::styled(total_entries.to_string(), Style::default().fg(Color::White)),
-            ];
-            if !app.clipboard.is_empty() {
-                left_spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
-                left_spans.push(Span::styled("Clipboard", Style::default().fg(Color::DarkGray)));
-                left_spans.push(Span::styled(":", Style::default().fg(Color::DarkGray)));
-                left_spans.push(Span::styled(app.clipboard.len().to_string(), Style::default().fg(Color::White)));
-            }
+            let left_spans: Vec<Span> = if app.is_dual_panel_mode() && app.active_panel == crate::DualPanelSide::Right {
+                let total_entries = app.right_entries.len();
+                let selected_ordinal = if total_entries == 0 {
+                    0
+                } else {
+                    app.right_selected_index.min(total_entries - 1) + 1
+                };
+                let mut spans = vec![
+                    Span::styled(selected_ordinal.to_string(), Style::default().fg(Color::White)),
+                    Span::styled("/", Style::default().fg(Color::DarkGray)),
+                    Span::styled(total_entries.to_string(), Style::default().fg(Color::White)),
+                ];
+                if !app.clipboard.is_empty() {
+                    spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+                    spans.push(Span::styled("Clipboard", Style::default().fg(Color::DarkGray)));
+                    spans.push(Span::styled(":", Style::default().fg(Color::DarkGray)));
+                    spans.push(Span::styled(app.clipboard.len().to_string(), Style::default().fg(Color::White)));
+                }
+                spans
+            } else {
+                let total_entries = app.entries.len();
+                let selected_ordinal = if total_entries == 0 {
+                    0
+                } else {
+                    app.selected_index.min(total_entries - 1) + 1
+                };
+                let mut spans = vec![
+                    Span::styled(selected_ordinal.to_string(), Style::default().fg(Color::White)),
+                    Span::styled("/", Style::default().fg(Color::DarkGray)),
+                    Span::styled(total_entries.to_string(), Style::default().fg(Color::White)),
+                ];
+                if !app.clipboard.is_empty() {
+                    spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+                    spans.push(Span::styled("Clipboard", Style::default().fg(Color::DarkGray)));
+                    spans.push(Span::styled(":", Style::default().fg(Color::DarkGray)));
+                    spans.push(Span::styled(app.clipboard.len().to_string(), Style::default().fg(Color::White)));
+                }
+                spans
+            };
 
             let mut right_spans: Vec<Span> = Vec::new();
             let mut segment = String::new();
@@ -2201,52 +2299,54 @@ pub(crate) fn run_tui_body(
                 .border_type(BorderType::Rounded)
                 .border_style(Style::default().fg(Color::DarkGray));
             f.render_widget(Paragraph::new(status).block(footer_block), chunks[1]);
-            let selected_total_status = if app.copy_rx.is_none() && app.archive_rx.is_none() {
-                app.selected_total_size_status()
-            } else {
-                None
-            };
-
-            let selected_total_is_shown = selected_total_status.is_some();
-            let status_line_message = selected_total_status.or_else(|| {
-                if app.status_message.is_empty() {
+            if !app.is_preview_mode() && !app.is_dual_panel_mode() {
+                let selected_total_status = if app.copy_rx.is_none() && app.archive_rx.is_none() {
+                    app.selected_total_size_status()
+                } else {
                     None
-                } else {
-                    Some(app.status_message.clone())
-                }
-            });
+                };
 
-            if let Some(status_text) = status_line_message {
-                let msg_area = Rect::new(chunks[1].x, chunks[1].y, chunks[1].width, 1);
-                let lower_msg = status_text.to_ascii_lowercase();
-                let is_error = lower_msg.contains("error")
-                    || lower_msg.contains("failed")
-                    || lower_msg.contains("not found")
-                    || lower_msg.contains("refresh failed");
-                let msg_style = if selected_total_is_shown {
-                    Style::default().fg(Color::Rgb(150, 220, 150))
-                } else if app.copy_rx.is_some() || app.archive_rx.is_some() {
-                    Style::default().fg(Color::Rgb(120, 200, 255))
-                } else if is_error {
-                    Style::default().fg(Color::Rgb(255, 120, 120))
-                } else {
-                    Style::default().fg(Color::White)
-                };
-                let decorated = app.decorate_footer_message(&status_text);
-                let message = decorated.as_str();
-                let core = format!("─── {} ", message);
-                let core_len = core.chars().count();
-                let width = msg_area.width as usize;
-                let line_msg = if core_len >= width {
-                    core.chars().take(width).collect::<String>()
-                } else {
-                    let remaining = width - core_len;
-                    format!("{}{}", core, "─".repeat(remaining))
-                };
-                f.render_widget(
-                    Paragraph::new(line_msg).style(msg_style),
-                    msg_area,
-                );
+                let selected_total_is_shown = selected_total_status.is_some();
+                let status_line_message = selected_total_status.or_else(|| {
+                    if app.status_message.is_empty() {
+                        None
+                    } else {
+                        Some(app.status_message.clone())
+                    }
+                });
+
+                if let Some(status_text) = status_line_message {
+                    let msg_area = Rect::new(chunks[1].x, chunks[1].y, chunks[1].width, 1);
+                    let lower_msg = status_text.to_ascii_lowercase();
+                    let is_error = lower_msg.contains("error")
+                        || lower_msg.contains("failed")
+                        || lower_msg.contains("not found")
+                        || lower_msg.contains("refresh failed");
+                    let msg_style = if selected_total_is_shown {
+                        Style::default().fg(Color::Rgb(150, 220, 150))
+                    } else if app.copy_rx.is_some() || app.archive_rx.is_some() {
+                        Style::default().fg(Color::Rgb(120, 200, 255))
+                    } else if is_error {
+                        Style::default().fg(Color::Rgb(255, 120, 120))
+                    } else {
+                        Style::default().fg(Color::White)
+                    };
+                    let decorated = app.decorate_footer_message(&status_text);
+                    let message = decorated.as_str();
+                    let core = format!("─── {} ", message);
+                    let core_len = core.chars().count();
+                    let width = msg_area.width as usize;
+                    let line_msg = if core_len >= width {
+                        core.chars().take(width).collect::<String>()
+                    } else {
+                        let remaining = width - core_len;
+                        format!("{}{}", core, "─".repeat(remaining))
+                    };
+                    f.render_widget(
+                        Paragraph::new(line_msg).style(msg_style),
+                        msg_area,
+                    );
+                }
             }
 
             // Render scrollbar corners on top of all other elements only if no overlay is active

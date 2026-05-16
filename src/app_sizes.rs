@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs, io,
     path::PathBuf,
     process::Command,
@@ -15,23 +16,14 @@ use crate::{
 };
 
 impl App {
-    pub(crate) fn apply_cached_folder_size_columns(&mut self) {
-        if !self.folder_size_enabled {
-            return;
-        }
-
-        let size_width = 6usize;
-        for (idx, entry) in self.entries.iter().enumerate() {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-
-            if let Some(size) = self.folder_size_cache.get(&path).copied() {
-                self.entry_render_cache[idx].size_col =
-                    format!("{:>width$}", Self::format_size(size), width = size_width);
-                self.entry_render_cache[idx].size_bytes = Some(size);
-            }
+    fn active_size_context_dir(&self) -> PathBuf {
+        if self.is_dual_panel_mode()
+            && self.active_panel == crate::DualPanelSide::Right
+            && !self.right_dir.as_os_str().is_empty()
+        {
+            self.right_dir.clone()
+        } else {
+            self.current_dir.clone()
         }
     }
 
@@ -39,12 +31,23 @@ impl App {
         self.recursive_mtime_scan_id = self.recursive_mtime_scan_id.wrapping_add(1);
         let scan_id = self.recursive_mtime_scan_id;
 
-        let dir_paths: Vec<PathBuf> = self
+        let mut unique_dirs: HashSet<PathBuf> = self
             .entries
             .iter()
             .map(|e| e.path())
             .filter(|p| p.is_dir())
             .collect();
+        if self.is_dual_panel_mode() {
+            for path in self
+                .right_entries
+                .iter()
+                .map(|e| e.path())
+                .filter(|p| p.is_dir())
+            {
+                unique_dirs.insert(path);
+            }
+        }
+        let dir_paths: Vec<PathBuf> = unique_dirs.into_iter().collect();
 
         if dir_paths.is_empty() {
             self.recursive_mtime_rx = None;
@@ -80,8 +83,13 @@ impl App {
                     }
                     if let Some(idx) = self.entries.iter().position(|e| e.path() == dir_path) {
                         self.entry_render_cache[idx].modified_unix = Some(unix_secs);
-                        self.entry_render_cache[idx].date_col =
-                            format!("{:>width$}", crate::util::format::format_mtime(UNIX_EPOCH + std::time::Duration::from_secs(unix_secs)), width = 16);
+                        self.entry_render_cache[idx].date_col = format!(
+                            "{:>width$}",
+                            crate::util::format::format_mtime(
+                                UNIX_EPOCH + std::time::Duration::from_secs(unix_secs)
+                            ),
+                            width = 16
+                        );
                     }
                 }
                 Ok(RecursiveMtimeMsg::Finished(scan_id)) => {
@@ -133,41 +141,95 @@ impl App {
         Ok(latest)
     }
 
+    pub(crate) fn clear_selected_total_size_state_for(&mut self, side: crate::DualPanelSide) {
+        match side {
+            crate::DualPanelSide::Left => {
+                self.selected_total_size_scan_id = self.selected_total_size_scan_id.wrapping_add(1);
+                self.selected_total_size_rx = None;
+                self.selected_total_size_pending = false;
+                self.selected_total_size_bytes = None;
+                self.selected_total_size_items = 0;
+            }
+            crate::DualPanelSide::Right => {
+                self.right_selected_total_size_scan_id = self.right_selected_total_size_scan_id.wrapping_add(1);
+                self.right_selected_total_size_rx = None;
+                self.right_selected_total_size_pending = false;
+                self.right_selected_total_size_bytes = None;
+                self.right_selected_total_size_items = 0;
+            }
+        }
+    }
+
     pub(crate) fn clear_selected_total_size_state(&mut self) {
-        self.selected_total_size_scan_id = self.selected_total_size_scan_id.wrapping_add(1);
-        self.selected_total_size_rx = None;
-        self.selected_total_size_pending = false;
-        self.selected_total_size_bytes = None;
-        self.selected_total_size_items = 0;
+        let side = if self.is_dual_panel_mode() && self.active_panel == crate::DualPanelSide::Right {
+            crate::DualPanelSide::Right
+        } else {
+            crate::DualPanelSide::Left
+        };
+        self.clear_selected_total_size_state_for(side);
     }
 
     pub(crate) fn start_selected_total_size_scan(&mut self) {
-        if !self.folder_size_enabled || self.marked_indices.len() < 2 {
-            self.clear_selected_total_size_state();
-            return;
-        }
+        let side = if self.is_dual_panel_mode() && self.active_panel == crate::DualPanelSide::Right {
+            crate::DualPanelSide::Right
+        } else {
+            crate::DualPanelSide::Left
+        };
 
-        let targets: Vec<PathBuf> = self
-            .entries
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| self.marked_indices.contains(i))
-            .map(|(_, e)| e.path())
-            .collect();
+        let targets: Vec<PathBuf> = match side {
+            crate::DualPanelSide::Left => {
+                if !self.folder_size_enabled || self.marked_indices.len() < 2 {
+                    self.clear_selected_total_size_state_for(side);
+                    return;
+                }
+
+                self.entries
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| self.marked_indices.contains(i))
+                    .map(|(_, e)| e.path())
+                    .collect()
+            }
+            crate::DualPanelSide::Right => {
+                if !self.folder_size_enabled || self.right_marked_indices.len() < 2 {
+                    self.clear_selected_total_size_state_for(side);
+                    return;
+                }
+
+                self.right_entries
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| self.right_marked_indices.contains(i))
+                    .map(|(_, e)| e.path())
+                    .collect()
+            }
+        };
 
         if targets.len() < 2 {
-            self.clear_selected_total_size_state();
+            self.clear_selected_total_size_state_for(side);
             return;
         }
 
-        self.selected_total_size_scan_id = self.selected_total_size_scan_id.wrapping_add(1);
-        let scan_id = self.selected_total_size_scan_id;
-        self.selected_total_size_items = targets.len();
-        self.selected_total_size_pending = true;
-        self.selected_total_size_bytes = None;
-
         let (tx, rx) = mpsc::channel();
-        self.selected_total_size_rx = Some(rx);
+        let scan_id = match side {
+            crate::DualPanelSide::Left => {
+                self.selected_total_size_scan_id = self.selected_total_size_scan_id.wrapping_add(1);
+                self.selected_total_size_items = targets.len();
+                self.selected_total_size_pending = true;
+                self.selected_total_size_bytes = None;
+                self.selected_total_size_rx = Some(rx);
+                self.selected_total_size_scan_id
+            }
+            crate::DualPanelSide::Right => {
+                self.right_selected_total_size_scan_id = self.right_selected_total_size_scan_id.wrapping_add(1);
+                self.right_selected_total_size_items = targets.len();
+                self.right_selected_total_size_pending = true;
+                self.right_selected_total_size_bytes = None;
+                self.right_selected_total_size_rx = Some(rx);
+                self.right_selected_total_size_scan_id
+            }
+        };
+
         thread::spawn(move || {
             let total = targets
                 .par_iter()
@@ -178,35 +240,80 @@ impl App {
     }
 
     pub(crate) fn pump_selected_total_size_progress(&mut self) {
-        let Some(rx) = self.selected_total_size_rx.take() else {
-            return;
-        };
-
-        let mut keep_rx = true;
-        loop {
-            match rx.try_recv() {
-                Ok(SelectedTotalSizeMsg::Finished(scan_id, bytes)) => {
-                    if scan_id == self.selected_total_size_scan_id {
-                        self.selected_total_size_bytes = Some(bytes);
-                        self.selected_total_size_pending = false;
+        if let Some(rx) = self.selected_total_size_rx.take() {
+            let mut keep_rx = true;
+            loop {
+                match rx.try_recv() {
+                    Ok(SelectedTotalSizeMsg::Finished(scan_id, bytes)) => {
+                        if scan_id == self.selected_total_size_scan_id {
+                            self.selected_total_size_bytes = Some(bytes);
+                            self.selected_total_size_pending = false;
+                            keep_rx = false;
+                        }
+                    }
+                    Err(mpsc::TryRecvError::Empty) => break,
+                    Err(mpsc::TryRecvError::Disconnected) => {
                         keep_rx = false;
+                        break;
                     }
                 }
-                Err(mpsc::TryRecvError::Empty) => break,
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    keep_rx = false;
-                    break;
-                }
+            }
+
+            if keep_rx && self.folder_size_enabled {
+                self.selected_total_size_rx = Some(rx);
             }
         }
 
-        if keep_rx && self.folder_size_enabled {
-            self.selected_total_size_rx = Some(rx);
+        if let Some(rx) = self.right_selected_total_size_rx.take() {
+            let mut keep_rx = true;
+            loop {
+                match rx.try_recv() {
+                    Ok(SelectedTotalSizeMsg::Finished(scan_id, bytes)) => {
+                        if scan_id == self.right_selected_total_size_scan_id {
+                            self.right_selected_total_size_bytes = Some(bytes);
+                            self.right_selected_total_size_pending = false;
+                            keep_rx = false;
+                        }
+                    }
+                    Err(mpsc::TryRecvError::Empty) => break,
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        keep_rx = false;
+                        break;
+                    }
+                }
+            }
+
+            if keep_rx && self.folder_size_enabled {
+                self.right_selected_total_size_rx = Some(rx);
+            }
         }
     }
 
     pub(crate) fn selected_total_size_status(&self) -> Option<String> {
-        let selected_count = self.marked_indices.len();
+        let side = if self.is_dual_panel_mode() && self.active_panel == crate::DualPanelSide::Right {
+            crate::DualPanelSide::Right
+        } else {
+            crate::DualPanelSide::Left
+        };
+        self.selected_total_size_status_for(side)
+    }
+
+    pub(crate) fn selected_total_size_status_for(&self, side: crate::DualPanelSide) -> Option<String> {
+        let (selected_count, pending, bytes, items) = match side {
+            crate::DualPanelSide::Left => (
+                self.marked_indices.len(),
+                self.selected_total_size_pending,
+                self.selected_total_size_bytes,
+                self.selected_total_size_items,
+            ),
+            crate::DualPanelSide::Right => (
+                self.right_marked_indices.len(),
+                self.right_selected_total_size_pending,
+                self.right_selected_total_size_bytes,
+                self.right_selected_total_size_items,
+            ),
+        };
+
         if selected_count == 0 {
             return None;
         }
@@ -216,18 +323,18 @@ impl App {
             return Some(format!("selected: {} {}", selected_count, noun));
         }
 
-        if self.selected_total_size_pending {
+        if pending {
             return Some(format!(
                 "selected: {} {} | total size: scanning...",
-                self.selected_total_size_items.max(selected_count),
+                items.max(selected_count),
                 noun
             ));
         }
 
-        Some(match self.selected_total_size_bytes {
+        Some(match bytes {
             Some(bytes) => format!(
                 "selected: {} {} | total size: {}",
-                self.selected_total_size_items.max(selected_count),
+                items.max(selected_count),
                 noun,
                 Self::format_size(bytes)
             ),
@@ -295,7 +402,8 @@ impl App {
     }
 
     pub(crate) fn refresh_current_dir_free_space(&mut self) {
-        if let Some((total, free)) = Self::filesystem_space_info(&self.current_dir) {
+        let context_dir = self.active_size_context_dir();
+        if let Some((total, free)) = Self::filesystem_space_info(&context_dir) {
             self.current_dir_total_space_bytes = Some(total);
             self.current_dir_free_bytes = Some(free);
         } else {
@@ -311,7 +419,7 @@ impl App {
 
         self.current_dir_total_size_scan_id = self.current_dir_total_size_scan_id.wrapping_add(1);
         let scan_id = self.current_dir_total_size_scan_id;
-        let current_dir = self.current_dir.clone();
+        let current_dir = self.active_size_context_dir();
         self.current_dir_total_size_pending = true;
         self.current_dir_total_size_bytes = None;
 
@@ -400,6 +508,39 @@ impl App {
                 self.entry_render_cache[idx].size_bytes = None;
             }
         }
+        for (idx, entry) in self.right_entries.iter().enumerate() {
+            if entry.path().is_dir() {
+                self.right_entry_render_cache[idx].size_col = format!("{:>width$}", "-", width = size_width);
+                self.right_entry_render_cache[idx].size_bytes = None;
+            }
+        }
+    }
+
+    pub(crate) fn apply_cached_folder_size_columns(&mut self) {
+        for (idx, entry) in self.entries.iter().enumerate() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+
+            if let Some(size) = self.folder_size_cache.get(&path).copied() {
+                self.entry_render_cache[idx].size_col =
+                    format!("{:>width$}", Self::format_size(size), width = 6);
+                self.entry_render_cache[idx].size_bytes = Some(size);
+            }
+        }
+        for (idx, entry) in self.right_entries.iter().enumerate() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+
+            if let Some(size) = self.folder_size_cache.get(&path).copied() {
+                self.right_entry_render_cache[idx].size_col =
+                    format!("{:>width$}", Self::format_size(size), width = 6);
+                self.right_entry_render_cache[idx].size_bytes = Some(size);
+            }
+        }
     }
 
     pub(crate) fn set_folder_size_enabled(&mut self, enabled: bool) {
@@ -446,6 +587,11 @@ impl App {
                         self.entry_render_cache[idx].size_col =
                             format!("{:>width$}", Self::format_size(size), width = 6);
                         self.entry_render_cache[idx].size_bytes = Some(size);
+                    }
+                    if let Some(idx) = self.right_entries.iter().position(|e| e.path() == dir_path) {
+                        self.right_entry_render_cache[idx].size_col =
+                            format!("{:>width$}", Self::format_size(size), width = 6);
+                        self.right_entry_render_cache[idx].size_bytes = Some(size);
                     }
                 }
                 Ok(FolderSizeMsg::Finished(scan_id)) => {
