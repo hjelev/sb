@@ -125,6 +125,8 @@ struct App {
     confirm_delete_max_offset: u16,
     file_list_scroll_dragging: bool,
     file_list_scroll_grab_offset: u16,
+    right_list_scroll_dragging: bool,
+    right_list_scroll_grab_offset: u16,
     confirm_delete_button_focus: u8,
     confirm_integration_install_button_focus: u8,
     git_info_cache: Option<GitInfoCache>,
@@ -136,6 +138,7 @@ struct App {
     tree_expansion_levels: HashMap<PathBuf, usize>,
     tree_last_tap: Option<(char, Instant)>,
     main_list_last_click: Option<(PathBuf, usize, Instant)>,
+    right_list_last_click: Option<(PathBuf, usize, Instant)>,
     tree_row_prefixes: Vec<String>,
     current_dir_total_size_rx: Option<Receiver<CurrentDirTotalSizeMsg>>,
     current_dir_total_size_scan_id: u64,
@@ -343,6 +346,8 @@ impl App {
             confirm_delete_max_offset: 0,
             file_list_scroll_dragging: false,
             file_list_scroll_grab_offset: 0,
+            right_list_scroll_dragging: false,
+            right_list_scroll_grab_offset: 0,
             confirm_delete_button_focus: 0,
             confirm_integration_install_button_focus: 0,
             git_info_cache: None,
@@ -354,6 +359,7 @@ impl App {
             tree_expansion_levels: HashMap::new(),
             tree_last_tap: None,
             main_list_last_click: None,
+            right_list_last_click: None,
             tree_row_prefixes: Vec::new(),
             current_dir_total_size_rx: None,
             current_dir_total_size_scan_id: 0,
@@ -4283,6 +4289,61 @@ IFS= read -rsn1 _
         Some((table_area, list_area))
     }
 
+    fn dual_panel_frame_areas(&self, area: Rect) -> Option<(Rect, Rect)> {
+        if !self.is_dual_panel_mode() || self.mode != AppMode::Browsing {
+            return None;
+        }
+
+        let footer_height = 1;
+        let header_reserved_rows = 1;
+        let chunks = Layout::default()
+            .constraints([Constraint::Min(3), Constraint::Length(footer_height)])
+            .split(area);
+
+        let content_area = Rect::new(
+            chunks[0].x,
+            chunks[0].y + header_reserved_rows,
+            chunks[0].width,
+            chunks[0].height.saturating_sub(header_reserved_rows),
+        );
+
+        let split = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(content_area);
+        Some((split[0], split[1]))
+    }
+
+    fn right_table_and_list_areas(&self, area: Rect) -> Option<(Rect, Rect)> {
+        let (_, right_frame_area) = self.dual_panel_frame_areas(area)?;
+
+        let table_area = Rect::new(
+            right_frame_area.x + 1,
+            right_frame_area.y + 1,
+            right_frame_area.width.saturating_sub(2),
+            right_frame_area.height.saturating_sub(2),
+        );
+
+        if table_area.height == 0 || table_area.width == 0 {
+            return None;
+        }
+
+        let needs_scroll = self.right_entries.len() > table_area.height as usize;
+        let can_draw_scrollbar = table_area.width > 2 && needs_scroll;
+        let list_area = if can_draw_scrollbar {
+            Rect::new(
+                table_area.x,
+                table_area.y,
+                table_area.width.saturating_sub(1),
+                table_area.height,
+            )
+        } else {
+            table_area
+        };
+
+        Some((table_area, list_area))
+    }
+
     fn preview_pane_frame_areas(&self, area: Rect) -> Option<(Rect, Rect)> {
         if !self.is_preview_mode() || !matches!(self.mode, AppMode::Browsing | AppMode::PathEditing) {
             return None;
@@ -4334,6 +4395,31 @@ IFS= read -rsn1 _
         false
     }
 
+    fn update_list_double_click_state(
+        last_click: &mut Option<(PathBuf, usize, Instant)>,
+        current_dir: &PathBuf,
+        target_idx: usize,
+    ) -> bool {
+        let now = Instant::now();
+        let is_double_click = last_click
+            .as_ref()
+            .map(|(last_dir, last_idx, last_ts)| {
+                *last_idx == target_idx
+                    && *last_dir == *current_dir
+                    && now.duration_since(*last_ts)
+                        <= Duration::from_millis(MAIN_LIST_DOUBLE_CLICK_WINDOW_MS)
+            })
+            .unwrap_or(false);
+
+        *last_click = if is_double_click {
+            None
+        } else {
+            Some((current_dir.clone(), target_idx, now))
+        };
+
+        is_double_click
+    }
+
     fn main_table_scrollbar_area(&self, area: Rect) -> Option<Rect> {
         let (table_area, list_area) = self.main_table_and_list_areas(area)?;
         if list_area.width >= table_area.width || list_area.height == 0 {
@@ -4346,6 +4432,53 @@ IFS= read -rsn1 _
             1,
             list_area.height,
         ))
+    }
+
+    fn right_table_scrollbar_area(&self, area: Rect) -> Option<Rect> {
+        let (table_area, list_area) = self.right_table_and_list_areas(area)?;
+        if list_area.width >= table_area.width || list_area.height == 0 {
+            return None;
+        }
+
+        Some(Rect::new(
+            list_area.x + list_area.width,
+            list_area.y,
+            1,
+            list_area.height,
+        ))
+    }
+
+    fn scrollbar_grab_offset_for_row(
+        sb_area: Rect,
+        total_rows: usize,
+        offset: usize,
+        row: u16,
+    ) -> Option<u16> {
+        let track_h = sb_area.height as usize;
+        let visible_rows = sb_area.height.max(1) as usize;
+        let max_scroll = total_rows.saturating_sub(visible_rows);
+        if track_h == 0 || max_scroll == 0 {
+            return None;
+        }
+
+        let offset = offset.min(max_scroll);
+        let thumb_h = ((visible_rows * track_h + total_rows.saturating_sub(1)) / total_rows)
+            .max(1)
+            .min(track_h);
+        let scroll_space = track_h.saturating_sub(thumb_h);
+        let thumb_y = if max_scroll == 0 {
+            0
+        } else {
+            (offset * scroll_space + (max_scroll / 2)) / max_scroll
+        };
+
+        let row_rel = row.saturating_sub(sb_area.y) as usize;
+        let in_thumb = row_rel >= thumb_y && row_rel < thumb_y + thumb_h;
+        Some(if in_thumb {
+            (row_rel.saturating_sub(thumb_y)) as u16
+        } else {
+            (thumb_h / 2) as u16
+        })
     }
 
     fn handle_main_list_click(&mut self, column: u16, row: u16, area: Rect) -> Option<KeyEvent> {
@@ -4369,24 +4502,51 @@ IFS= read -rsn1 _
 
         self.selected_index = target_idx;
         self.table_state.select(Some(target_idx));
+        if self.is_dual_panel_mode() {
+            self.active_panel = DualPanelSide::Left;
+        }
 
-        let now = Instant::now();
-        let is_double_click = self
-            .main_list_last_click
-            .as_ref()
-            .map(|(last_dir, last_idx, last_ts)| {
-                *last_idx == target_idx
-                    && *last_dir == self.current_dir
-                    && now.duration_since(*last_ts)
-                        <= Duration::from_millis(MAIN_LIST_DOUBLE_CLICK_WINDOW_MS)
-            })
-            .unwrap_or(false);
+        let is_double_click = Self::update_list_double_click_state(
+            &mut self.main_list_last_click,
+            &self.current_dir,
+            target_idx,
+        );
 
-        self.main_list_last_click = if is_double_click {
-            None
+        if is_double_click {
+            Some(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE))
         } else {
-            Some((self.current_dir.clone(), target_idx, now))
-        };
+            None
+        }
+    }
+
+    fn handle_right_list_click(&mut self, column: u16, row: u16, area: Rect) -> Option<KeyEvent> {
+        let (_, list_area) = self.right_table_and_list_areas(area)?;
+        if list_area.width == 0 || list_area.height == 0 {
+            return None;
+        }
+        if column < list_area.x
+            || column >= list_area.x + list_area.width
+            || row < list_area.y
+            || row >= list_area.y + list_area.height
+        {
+            return None;
+        }
+
+        let row_rel = row.saturating_sub(list_area.y) as usize;
+        let target_idx = self.right_table_state.offset().saturating_add(row_rel);
+        if target_idx >= self.right_entries.len() {
+            return None;
+        }
+
+        self.right_selected_index = target_idx;
+        self.right_table_state.select(Some(target_idx));
+        self.active_panel = DualPanelSide::Right;
+
+        let is_double_click = Self::update_list_double_click_state(
+            &mut self.right_list_last_click,
+            &self.right_dir,
+            target_idx,
+        );
 
         if is_double_click {
             Some(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE))
@@ -4424,6 +4584,41 @@ IFS= read -rsn1 _
         let target_index = target_offset.min(self.entries.len().saturating_sub(1));
         self.selected_index = target_index;
         self.table_state.select(Some(target_index));
+        if self.is_dual_panel_mode() {
+            self.active_panel = DualPanelSide::Left;
+        }
+    }
+
+    fn scroll_right_list_from_scrollbar_row(&mut self, area: Rect, row: u16, grab_offset: u16) {
+        let Some(sb_area) = self.right_table_scrollbar_area(area) else {
+            return;
+        };
+        let track_h = sb_area.height as usize;
+        if track_h == 0 || self.right_entries.is_empty() {
+            return;
+        }
+        let visible_rows = sb_area.height.max(1) as usize;
+        let total_rows = self.right_entries.len();
+        let max_scroll = total_rows.saturating_sub(visible_rows);
+        if max_scroll == 0 {
+            return;
+        }
+
+        let thumb_h = ((visible_rows * track_h + total_rows.saturating_sub(1)) / total_rows)
+            .max(1)
+            .min(track_h);
+        let scroll_space = track_h.saturating_sub(thumb_h);
+        if scroll_space == 0 {
+            return;
+        }
+
+        let row_rel = row.saturating_sub(sb_area.y) as usize;
+        let thumb_top = row_rel.saturating_sub(grab_offset as usize).min(scroll_space);
+        let target_offset = (thumb_top * max_scroll + (scroll_space / 2)) / scroll_space;
+        let target_index = target_offset.min(self.right_entries.len().saturating_sub(1));
+        self.right_selected_index = target_index;
+        self.right_table_state.select(Some(target_index));
+        self.active_panel = DualPanelSide::Right;
     }
 
     fn handle_mouse_event(&mut self, mouse: MouseEvent, area: Rect) -> Option<KeyEvent> {
@@ -4444,34 +4639,63 @@ IFS= read -rsn1 _
                 }
             }
             MouseEventKind::Down(MouseButton::Left) => {
+                if self.is_dual_panel_mode() {
+                    if let Some((left_frame, right_frame)) = self.dual_panel_frame_areas(area) {
+                        let in_left = mouse.column >= left_frame.x
+                            && mouse.column < left_frame.x + left_frame.width
+                            && mouse.row >= left_frame.y
+                            && mouse.row < left_frame.y + left_frame.height;
+                        let in_right = mouse.column >= right_frame.x
+                            && mouse.column < right_frame.x + right_frame.width
+                            && mouse.row >= right_frame.y
+                            && mouse.row < right_frame.y + right_frame.height;
+                        if in_left {
+                            self.active_panel = DualPanelSide::Left;
+                        } else if in_right {
+                            self.active_panel = DualPanelSide::Right;
+                        }
+                    }
+
+                    if let Some(sb_area) = self.right_table_scrollbar_area(area) {
+                        if mouse.column >= sb_area.x
+                            && mouse.column < sb_area.x + sb_area.width
+                            && mouse.row >= sb_area.y
+                            && mouse.row < sb_area.y + sb_area.height
+                        {
+                            let total_rows = self.right_entries.len();
+                            if let Some(grab_offset) = Self::scrollbar_grab_offset_for_row(
+                                sb_area,
+                                total_rows,
+                                self.right_table_state.offset(),
+                                mouse.row,
+                            ) {
+                                self.right_list_scroll_grab_offset = grab_offset;
+                                self.right_list_scroll_dragging = true;
+                                self.scroll_right_list_from_scrollbar_row(
+                                    area,
+                                    mouse.row,
+                                    self.right_list_scroll_grab_offset,
+                                );
+                                return None;
+                            }
+                        }
+                    }
+                }
+
                 if let Some(sb_area) = self.main_table_scrollbar_area(area) {
                     if mouse.column >= sb_area.x
                         && mouse.column < sb_area.x + sb_area.width
                         && mouse.row >= sb_area.y
                         && mouse.row < sb_area.y + sb_area.height
                     {
-                        let track_h = sb_area.height as usize;
-                        let visible_rows = sb_area.height.max(1) as usize;
                         let total_rows = self.entries.len();
-                        let max_scroll = total_rows.saturating_sub(visible_rows);
-                        if track_h > 0 && max_scroll > 0 {
-                            let offset = self.table_state.offset().min(max_scroll);
-                            let thumb_h = ((visible_rows * track_h + total_rows.saturating_sub(1)) / total_rows)
-                                .max(1)
-                                .min(track_h);
-                            let scroll_space = track_h.saturating_sub(thumb_h);
-                            let thumb_y = if max_scroll == 0 {
-                                0
-                            } else {
-                                (offset * scroll_space + (max_scroll / 2)) / max_scroll
-                            };
-                            let row_rel = mouse.row.saturating_sub(sb_area.y) as usize;
-                            let in_thumb = row_rel >= thumb_y && row_rel < thumb_y + thumb_h;
-                            self.file_list_scroll_grab_offset = if in_thumb {
-                                (row_rel.saturating_sub(thumb_y)) as u16
-                            } else {
-                                (thumb_h / 2) as u16
-                            };
+                        if let Some(grab_offset) = Self::scrollbar_grab_offset_for_row(
+                            sb_area,
+                            total_rows,
+                            self.table_state.offset(),
+                            mouse.row,
+                        ) {
+                            self.file_list_scroll_grab_offset = grab_offset;
                             self.file_list_scroll_dragging = true;
                             self.scroll_main_list_from_scrollbar_row(
                                 area,
@@ -4483,10 +4707,14 @@ IFS= read -rsn1 _
                     }
                 }
                 self.file_list_scroll_dragging = false;
+                self.right_list_scroll_dragging = false;
                 if self.handle_preview_pane_tab_click(mouse.column, mouse.row, area) {
                     return None;
                 }
                 if let Some(key) = self.handle_main_list_click(mouse.column, mouse.row, area) {
+                    return Some(key);
+                }
+                if let Some(key) = self.handle_right_list_click(mouse.column, mouse.row, area) {
                     return Some(key);
                 }
                 if self.handle_tab_close_click(mouse.column, mouse.row, area) {
@@ -4512,9 +4740,18 @@ IFS= read -rsn1 _
                     );
                     return None;
                 }
+                if self.right_list_scroll_dragging {
+                    self.scroll_right_list_from_scrollbar_row(
+                        area,
+                        mouse.row,
+                        self.right_list_scroll_grab_offset,
+                    );
+                    return None;
+                }
             }
             MouseEventKind::Up(MouseButton::Left) => {
                 self.file_list_scroll_dragging = false;
+                self.right_list_scroll_dragging = false;
             }
             _ => {}
         }
@@ -4608,6 +4845,6 @@ fn main() -> io::Result<()> {
         TermClear(ClearType::All),
         MoveTo(0, 0)
     )?;
-    let _ = std::fs::write("/tmp/sb_path", app.current_dir.to_string_lossy().as_bytes());
+    let _ = std::fs::write("/tmp/sb_path", app.active_panel_dir().to_string_lossy().as_bytes());
     Ok(())
 }

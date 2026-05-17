@@ -64,7 +64,7 @@ impl App {
                 .map(|ext| ext.eq_ignore_ascii_case("age"))
                 .unwrap_or(false)
             {
-                ("".to_string(), Style::default().fg(Palette::WARNING_ALT))
+                ("\u{f023}".to_string(), Style::default().fg(Palette::WARNING_ALT))
             } else if let Some((custom_icon, (r, g, b))) = named_file_icon(name) {
                 (custom_icon.to_string(), Style::default().fg(Color::Rgb(r, g, b))) // custom per-file icon
             } else {

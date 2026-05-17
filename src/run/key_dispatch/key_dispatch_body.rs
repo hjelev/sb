@@ -21,8 +21,9 @@ pub(crate) fn handle_app_key_event_body(
                 app.mode = AppMode::Help;
             }
             KeyCode::Char('H') => {
+                let work_dir = app.active_panel_dir();
                 if app.integration_active("git")
-                    && App::get_git_info(&app.current_dir).is_some()
+                    && App::get_git_info(&work_dir).is_some()
                 {
                     let fmt = "%C(bold blue)%h%C(reset) - %C(cyan)%ad%C(reset) | %C(yellow)%d%C(reset) %C(white)%s%C(reset) %C(green)[%an]%C(reset)";
                     disable_raw_mode()?;
@@ -37,7 +38,7 @@ pub(crate) fn handle_app_key_event_body(
                             "--all",
                             "--color=always",
                         ])
-                        .current_dir(&app.current_dir)
+                        .current_dir(&work_dir)
                         .stdout(Stdio::piped())
                         .stderr(Stdio::null())
                         .spawn();
@@ -55,7 +56,7 @@ pub(crate) fn handle_app_key_event_body(
                                 "--date=short",
                                 "--all",
                             ])
-                            .current_dir(&app.current_dir)
+                            .current_dir(&work_dir)
                             .status();
                     }
                     execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
@@ -496,19 +497,16 @@ pub(crate) fn handle_app_key_event_body(
                 }
             }
             KeyCode::Enter | KeyCode::Right => {
-                if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
-                    if let Some(selected_path) = app.right_entries.get(app.right_selected_index).map(|e| e.path()) {
-                        if selected_path.is_dir() {
-                            app.right_dir = selected_path;
-                            let _ = app.refresh_right_panel_entries();
-                        } else {
-                            app.set_status("right panel file selected");
-                        }
+                let selected_path = if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
+                    app.right_entries.get(app.right_selected_index).map(|e| e.path())
+                } else {
+                    app.entries.get(app.selected_index).map(|e| e.path())
+                };
+
+                if let Some(selected_path) = selected_path {
+                    if selected_path.is_dir() {
+                        app.try_enter_dir_on_active_panel(selected_path);
                     }
-                    return Ok(KeyDispatchOutcome::ContinueLoop);
-                }
-                if let Some(selected_path) = app.entries.get(app.selected_index).map(|e| e.path()) {
-                    if selected_path.is_dir() { app.try_enter_dir(selected_path); }
                     else if App::is_age_protected_file(&selected_path) {
                         if !app.integration_active("age") {
                             app.set_status("age not found in PATH");
@@ -726,6 +724,7 @@ pub(crate) fn handle_app_key_event_body(
                 }
             }
             KeyCode::Char('g') => {
+                let work_dir = app.active_panel_dir();
                 let has_rg  = app.integration_active("rg");
                 let has_fzf = app.integration_active("fzf");
                 if has_rg {
@@ -750,7 +749,7 @@ pub(crate) fn handle_app_key_event_body(
                     disable_raw_mode()?; execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
                     let _ = Command::new("sh")
                         .args(["-c", &cmd])
-                        .current_dir(&app.current_dir)
+                        .current_dir(&work_dir)
                         .stdin(Stdio::inherit())
                         .stdout(Stdio::inherit())
                         .stderr(Stdio::inherit())
@@ -761,9 +760,9 @@ pub(crate) fn handle_app_key_event_body(
                     let _ = fs::remove_file(&tmp);
                     let first_line = selected.lines().next().unwrap_or("").trim().to_string();
                     if !first_line.is_empty() {
-                        let selected_path = app.current_dir.join(&first_line);
+                        let selected_path = work_dir.join(&first_line);
                         if let Some(parent) = selected_path.parent() {
-                            app.try_enter_dir(parent.to_path_buf());
+                            app.try_enter_dir_on_active_panel(parent.to_path_buf());
                             if let Some(name) = selected_path.file_name() {
                                 app.select_entry_named(&name.to_string_lossy());
                             }
@@ -775,10 +774,11 @@ pub(crate) fn handle_app_key_event_body(
                 }
             }
             KeyCode::Char('G') => {
+                let work_dir = app.active_panel_dir();
                 if !app.integration_active("git") {
                     app.set_status("git not found in PATH");
                 } else {
-                    match App::get_git_info(&app.current_dir) {
+                    match App::get_git_info(&work_dir) {
                         Some((_, true, _)) => {
                             let confirmed = app.preview_git_diff_and_confirm_commit()?;
                             terminal.clear()?;
@@ -799,6 +799,7 @@ pub(crate) fn handle_app_key_event_body(
                 }
             }
             KeyCode::Char('f') => {
+                let work_dir = app.active_panel_dir();
                 if app.integration_active("fzf") {
                     let tmp = App::create_temp_selection_path("sbrs_fzf_selection");
                     let cmd = format!(
@@ -808,7 +809,7 @@ pub(crate) fn handle_app_key_event_body(
                     disable_raw_mode()?; execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
                     let _ = Command::new("sh")
                         .args(["-c", &cmd])
-                        .current_dir(&app.current_dir)
+                        .current_dir(&work_dir)
                         .stdin(Stdio::inherit())
                         .stdout(Stdio::inherit())
                         .stderr(Stdio::inherit())
@@ -819,9 +820,9 @@ pub(crate) fn handle_app_key_event_body(
                     let _ = fs::remove_file(&tmp);
                     let selected = selected.trim().to_string();
                     if !selected.is_empty() {
-                        let selected_path = app.current_dir.join(&selected);
+                        let selected_path = work_dir.join(&selected);
                         if let Some(parent) = selected_path.parent() {
-                            app.try_enter_dir(parent.to_path_buf());
+                            app.try_enter_dir_on_active_panel(parent.to_path_buf());
                             if let Some(name) = selected_path.file_name() {
                                 app.select_entry_named(&name.to_string_lossy());
                             }

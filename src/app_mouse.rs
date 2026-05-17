@@ -784,6 +784,149 @@ impl App {
         self.table_state.select(Some(target_index));
     }
 
+    fn right_table_and_list_areas(&self, area: Rect) -> Option<(Rect, Rect)> {
+        if !self.is_dual_panel_mode() || self.mode != AppMode::Browsing {
+            return None;
+        }
+
+        let footer_height = 1;
+        let header_reserved_rows = 1;
+        let chunks = Layout::default()
+            .constraints([Constraint::Min(3), Constraint::Length(footer_height)])
+            .split(area);
+
+        let content_area = Rect::new(
+            chunks[0].x,
+            chunks[0].y + header_reserved_rows,
+            chunks[0].width,
+            chunks[0].height.saturating_sub(header_reserved_rows),
+        );
+
+        let right_frame_area = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(content_area)[1];
+
+        let table_area = Rect::new(
+            right_frame_area.x + 1,
+            right_frame_area.y + 1,
+            right_frame_area.width.saturating_sub(2),
+            right_frame_area.height.saturating_sub(2),
+        );
+
+        if table_area.height == 0 || table_area.width == 0 {
+            return None;
+        }
+
+        let needs_scroll = self.right_entries.len() > table_area.height as usize;
+        let can_draw_scrollbar = table_area.width > 2 && needs_scroll;
+        let list_area = if can_draw_scrollbar {
+            Rect::new(
+                table_area.x,
+                table_area.y,
+                table_area.width.saturating_sub(1),
+                table_area.height,
+            )
+        } else {
+            table_area
+        };
+
+        Some((table_area, list_area))
+    }
+
+    fn right_table_scrollbar_area(&self, area: Rect) -> Option<Rect> {
+        let (table_area, list_area) = self.right_table_and_list_areas(area)?;
+        if table_area.width.saturating_sub(list_area.width) == 0 {
+            return None;
+        }
+        Some(Rect::new(
+            table_area.x + list_area.width,
+            list_area.y,
+            table_area.width.saturating_sub(list_area.width),
+            list_area.height,
+        ))
+    }
+
+    fn handle_right_list_click(&mut self, column: u16, row: u16, area: Rect) -> Option<KeyEvent> {
+        let (_, list_area) = self.right_table_and_list_areas(area)?;
+        if list_area.width == 0 || list_area.height == 0 {
+            return None;
+        }
+        if column < list_area.x
+            || column >= list_area.x + list_area.width
+            || row < list_area.y
+            || row >= list_area.y + list_area.height
+        {
+            return None;
+        }
+
+        let row_rel = row.saturating_sub(list_area.y) as usize;
+        let target_idx = self.right_table_state.offset().saturating_add(row_rel);
+        if target_idx >= self.right_entries.len() {
+            return None;
+        }
+
+        self.right_selected_index = target_idx;
+        self.right_table_state.select(Some(target_idx));
+
+        let now = Instant::now();
+        let is_double_click = self
+            .right_list_last_click
+            .as_ref()
+            .map(|(last_dir, last_idx, last_ts)| {
+                *last_idx == target_idx
+                    && *last_dir == self.right_dir
+                    && now.duration_since(*last_ts)
+                        <= Duration::from_millis(MAIN_LIST_DOUBLE_CLICK_WINDOW_MS)
+            })
+            .unwrap_or(false);
+
+        self.right_list_last_click = if is_double_click {
+            None
+        } else {
+            Some((self.right_dir.clone(), target_idx, now))
+        };
+
+        if is_double_click {
+            // Switch to right panel and emit enter key
+            self.active_panel = crate::DualPanelSide::Right;
+            Some(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE))
+        } else {
+            None
+        }
+    }
+
+    fn scroll_right_list_from_scrollbar_row(&mut self, area: Rect, row: u16, grab_offset: u16) {
+        let Some(sb_area) = self.right_table_scrollbar_area(area) else {
+            return;
+        };
+        let track_h = sb_area.height as usize;
+        if track_h == 0 || self.right_entries.is_empty() {
+            return;
+        }
+        let visible_rows = sb_area.height.max(1) as usize;
+        let total_rows = self.right_entries.len();
+        let max_scroll = total_rows.saturating_sub(visible_rows);
+        if max_scroll == 0 {
+            return;
+        }
+
+        let thumb_h = ((visible_rows * track_h + total_rows.saturating_sub(1)) / total_rows)
+            .max(1)
+            .min(track_h);
+        let scroll_space = track_h.saturating_sub(thumb_h);
+        if scroll_space == 0 {
+            return;
+        }
+
+        let row_rel = row.saturating_sub(sb_area.y) as usize;
+        let thumb_top = row_rel.saturating_sub(grab_offset as usize).min(scroll_space);
+        let target_offset = (thumb_top * max_scroll + (scroll_space / 2)) / scroll_space;
+        let target_index = target_offset.min(self.right_entries.len().saturating_sub(1));
+        self.right_selected_index = target_index;
+        self.right_table_state.select(Some(target_index));
+    }
+
     pub(crate) fn handle_mouse_event(&mut self, mouse: MouseEvent, area: Rect) -> Option<KeyEvent> {
         match mouse.kind {
             MouseEventKind::ScrollUp => self.handle_mouse_scroll(true),
@@ -795,6 +938,49 @@ impl App {
                 }
             }
             MouseEventKind::Down(MouseButton::Left) => {
+                // Handle right panel scrollbar in dual panel mode
+                if self.is_dual_panel_mode() {
+                    if let Some(sb_area) = self.right_table_scrollbar_area(area) {
+                        if mouse.column >= sb_area.x
+                            && mouse.column < sb_area.x + sb_area.width
+                            && mouse.row >= sb_area.y
+                            && mouse.row < sb_area.y + sb_area.height
+                        {
+                            let track_h = sb_area.height as usize;
+                            let visible_rows = sb_area.height.max(1) as usize;
+                            let total_rows = self.right_entries.len();
+                            let max_scroll = total_rows.saturating_sub(visible_rows);
+                            if track_h > 0 && max_scroll > 0 {
+                                let offset = self.right_table_state.offset().min(max_scroll);
+                                let thumb_h = ((visible_rows * track_h + total_rows.saturating_sub(1)) / total_rows)
+                                    .max(1)
+                                    .min(track_h);
+                                let scroll_space = track_h.saturating_sub(thumb_h);
+                                let thumb_y = if max_scroll == 0 {
+                                    0
+                                } else {
+                                    (offset * scroll_space + (max_scroll / 2)) / max_scroll
+                                };
+                                let row_rel = mouse.row.saturating_sub(sb_area.y) as usize;
+                                let in_thumb = row_rel >= thumb_y && row_rel < thumb_y + thumb_h;
+                                self.right_list_scroll_grab_offset = if in_thumb {
+                                    (row_rel.saturating_sub(thumb_y)) as u16
+                                } else {
+                                    (thumb_h / 2) as u16
+                                };
+                                self.right_list_scroll_dragging = true;
+                                self.scroll_right_list_from_scrollbar_row(
+                                    area,
+                                    mouse.row,
+                                    self.right_list_scroll_grab_offset,
+                                );
+                                return None;
+                            }
+                        }
+                    }
+                }
+                
+                // Handle left panel scrollbar
                 if let Some(sb_area) = self.main_table_scrollbar_area(area) {
                     if mouse.column >= sb_area.x
                         && mouse.column < sb_area.x + sb_area.width
@@ -834,11 +1020,17 @@ impl App {
                     }
                 }
                 self.file_list_scroll_dragging = false;
+                self.right_list_scroll_dragging = false;
                 if self.handle_preview_pane_tab_click(mouse.column, mouse.row, area) {
                     return None;
                 }
                 if let Some(key) = self.handle_main_list_click(mouse.column, mouse.row, area) {
                     return Some(key);
+                }
+                if self.is_dual_panel_mode() {
+                    if let Some(key) = self.handle_right_list_click(mouse.column, mouse.row, area) {
+                        return Some(key);
+                    }
                 }
                 if self.handle_tab_close_click(mouse.column, mouse.row, area) {
                     return None;
@@ -863,9 +1055,18 @@ impl App {
                     );
                     return None;
                 }
+                if self.right_list_scroll_dragging {
+                    self.scroll_right_list_from_scrollbar_row(
+                        area,
+                        mouse.row,
+                        self.right_list_scroll_grab_offset,
+                    );
+                    return None;
+                }
             }
             MouseEventKind::Up(MouseButton::Left) => {
                 self.file_list_scroll_dragging = false;
+                self.right_list_scroll_dragging = false;
             }
             _ => {}
         }

@@ -1,4 +1,102 @@
 use super::*;
+use crate::EntryRenderCache;
+
+fn panel_size_width(cache: &[EntryRenderCache], show_size: bool) -> usize {
+    if show_size {
+        cache.iter()
+            .map(|entry| entry.size_col.trim().chars().count())
+            .max()
+            .unwrap_or(1)
+            .max(1)
+    } else {
+        1
+    }
+}
+
+fn panel_percent_total(cache: &[EntryRenderCache], show_pct: bool) -> Option<u64> {
+    if show_pct && cache.iter().all(|entry| entry.size_bytes.is_some()) {
+        Some(
+            cache.iter()
+                .filter_map(|entry| entry.size_bytes)
+                .fold(0u64, |acc, size| acc.saturating_add(size)),
+        )
+    } else {
+        None
+    }
+}
+
+fn format_percent_col(total_bytes: Option<u64>, entry_bytes: Option<u64>, width: usize) -> String {
+    match (total_bytes, entry_bytes) {
+        (Some(total), Some(entry_size)) if total > 0 => {
+            let pct = (entry_size as f64 * 100.0) / (total as f64);
+            format!("{:>width$}", format!("{:.0}%", pct), width = width)
+        }
+        _ => format!("{:>width$}", "-", width = width),
+    }
+}
+
+fn panel_name_width(
+    term_w: u16,
+    show_size: bool,
+    size_width: usize,
+    show_pct: bool,
+    pct_width: usize,
+    show_date: bool,
+    date_width: usize,
+) -> usize {
+    (term_w as usize)
+        .saturating_sub(
+            (if show_size { size_width } else { 0 })
+                + (if show_pct { pct_width } else { 0 })
+                + (if show_date { date_width } else { 0 }),
+        )
+        .max(1)
+}
+
+fn push_metric_cells(
+    cells: &mut Vec<Cell>,
+    entry_cache: &EntryRenderCache,
+    show_size: bool,
+    size_width: usize,
+    size_style: Style,
+    show_pct: bool,
+    pct_width: usize,
+    total_for_pct: Option<u64>,
+    show_date: bool,
+    date_style: Style,
+) {
+    if show_size {
+        let size_col = format!("{:>width$}", entry_cache.size_col.trim(), width = size_width);
+        cells.push(Cell::from(Span::styled(size_col, size_style)));
+        if show_pct {
+            let pct_col = format_percent_col(total_for_pct, entry_cache.size_bytes, pct_width);
+            cells.push(Cell::from(Span::styled(pct_col, size_style)));
+        }
+    }
+    if show_date {
+        cells.push(Cell::from(Span::styled(entry_cache.date_col.clone(), date_style)));
+    }
+}
+
+fn push_metric_constraints(
+    constraints: &mut Vec<Constraint>,
+    show_size: bool,
+    size_width: usize,
+    show_pct: bool,
+    pct_width: usize,
+    show_date: bool,
+    date_width: usize,
+) {
+    if show_size {
+        constraints.push(Constraint::Length(size_width as u16));
+    }
+    if show_pct {
+        constraints.push(Constraint::Length(pct_width as u16));
+    }
+    if show_date {
+        constraints.push(Constraint::Length(date_width as u16));
+    }
+}
 
 pub(crate) fn run_tui_body(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
@@ -47,7 +145,7 @@ pub(crate) fn run_tui_body(
             execute!(terminal.backend_mut(), SetCursorStyle::DefaultUserShape)?;
         }
         terminal.draw(|f| {
-            let footer_height = 2;
+            let footer_height = if app.is_preview_mode() || app.is_dual_panel_mode() { 1 } else { 2 };
             let header_reserved_rows = if app.is_preview_mode() || app.is_dual_panel_mode() { 1 } else { 2 };
             let chunks = Layout::default()
                 .constraints([Constraint::Min(3), Constraint::Length(footer_height)])
@@ -443,16 +541,7 @@ pub(crate) fn run_tui_body(
             let perms_width = 11usize;
             let group_width = app.meta_group_width.max(1);
             let owner_width = app.meta_owner_width.max(1);
-            let size_width = if show_size {
-                app.entry_render_cache
-                    .iter()
-                    .map(|entry| entry.size_col.trim().chars().count())
-                    .max()
-                    .unwrap_or(1)
-                    .max(1)
-            } else {
-                1
-            };
+            let size_width = panel_size_width(&app.entry_render_cache, show_size);
             let pct_width = 4usize;
             let date_width = 16usize;
             let reserved_width = (if show_meta { perms_width + group_width + owner_width } else { 0 })
@@ -515,6 +604,7 @@ pub(crate) fn run_tui_body(
             } else {
                 None
             };
+            let left_total_for_pct = panel_percent_total(&app.entry_render_cache, show_pct);
 
             let date_rank_by_ts = if show_date {
                 ui::list_temperature::date_rank_map_from_unix(
@@ -535,7 +625,6 @@ pub(crate) fn run_tui_body(
                     entry_cache.size_bytes,
                     size_min_max,
                 ));
-                let pct_style = size_style;
                 let date_style =
                     Style::default().fg(ui::list_temperature::date_color_for(
                         entry_cache.modified_unix,
@@ -622,23 +711,18 @@ pub(crate) fn run_tui_body(
                         owner_style,
                     )));
                 }
-                if show_size {
-                    let size_col = format!("{:>width$}", entry_cache.size_col.trim(), width = size_width);
-                    cells.push(Cell::from(Span::styled(size_col, size_style)));
-                }
-                if show_pct {
-                    let pct_col = match (app.current_dir_total_size_bytes, entry_cache.size_bytes) {
-                        (Some(total), Some(entry_bytes)) if total > 0 => {
-                            let pct = (entry_bytes as f64 * 100.0) / (total as f64);
-                            format!("{:>width$}", format!("{:.0}%", pct), width = pct_width)
-                        }
-                        _ => format!("{:>width$}", "-", width = pct_width),
-                    };
-                    cells.push(Cell::from(Span::styled(pct_col, pct_style)));
-                }
-                if show_date {
-                    cells.push(Cell::from(Span::styled(entry_cache.date_col.as_str(), date_style)));
-                }
+                push_metric_cells(
+                    &mut cells,
+                    entry_cache,
+                    show_size,
+                    size_width,
+                    size_style,
+                    show_pct,
+                    pct_width,
+                    left_total_for_pct,
+                    show_date,
+                    date_style,
+                );
                 Row::new(cells).style(if is_marked { Style::default().bg(Color::Rgb(0, 100, 150)) } else { Style::default() })
             }).collect();
 
@@ -648,9 +732,15 @@ pub(crate) fn run_tui_body(
                 col_constraints.push(Constraint::Length(group_width as u16));
                 col_constraints.push(Constraint::Length(owner_width as u16));
             }
-            if show_size { col_constraints.push(Constraint::Length(size_width as u16)); }
-            if show_pct { col_constraints.push(Constraint::Length(pct_width as u16)); }
-            if show_date { col_constraints.push(Constraint::Length(date_width as u16)); }
+            push_metric_constraints(
+                &mut col_constraints,
+                show_size,
+                size_width,
+                show_pct,
+                pct_width,
+                show_date,
+                date_width,
+            );
             let table = Table::new(rows, col_constraints)
                 .highlight_style(selection_style)
                 .highlight_symbol(""); 
@@ -1017,6 +1107,7 @@ pub(crate) fn run_tui_body(
                     let right_term_w = right_body_area.width.max(1);
                     let right_show_date = right_term_w >= 50;
                     let right_show_size = right_term_w >= 70;
+                    let right_show_pct = app.folder_size_enabled && right_show_size;
                     let right_size_min_max = if right_show_size {
                         ui::list_temperature::size_min_max_from_sizes(
                             app.right_entry_render_cache.iter().map(|entry| entry.size_bytes),
@@ -1031,20 +1122,19 @@ pub(crate) fn run_tui_body(
                     } else {
                         HashMap::new()
                     };
-                    let right_size_width = if right_show_size {
-                        app.right_entry_render_cache
-                            .iter()
-                            .map(|entry| entry.size_col.trim().chars().count())
-                            .max()
-                            .unwrap_or(1)
-                            .max(1)
-                    } else {
-                        1
-                    };
+                    let right_size_width = panel_size_width(&app.right_entry_render_cache, right_show_size);
+                    let right_pct_width = 4usize;
                     let right_date_width = 16usize;
-                    let right_name_width = (right_term_w as usize)
-                        .saturating_sub((if right_show_size { right_size_width } else { 0 }) + if right_show_date { right_date_width } else { 0 })
-                        .max(1);
+                    let right_total_for_pct = panel_percent_total(&app.right_entry_render_cache, right_show_pct);
+                    let right_name_width = panel_name_width(
+                        right_term_w,
+                        right_show_size,
+                        right_size_width,
+                        right_show_pct,
+                        right_pct_width,
+                        right_show_date,
+                        right_date_width,
+                    );
 
                     let right_rows: Vec<Row> = app
                         .right_entry_render_cache
@@ -1061,26 +1151,26 @@ pub(crate) fn run_tui_body(
                             spans.push(Span::styled(name, entry_cache.name_style));
                             let name_cell = Cell::from(Line::from(spans));
                             let mut cells = vec![name_cell];
-                            if right_show_size {
-                                let right_size_style = Style::default().fg(ui::list_temperature::size_color_for(
-                                    entry_cache.size_bytes,
-                                    right_size_min_max,
-                                ));
-                                cells.push(Cell::from(Span::styled(
-                                    format!("{:>width$}", entry_cache.size_col.trim(), width = right_size_width),
-                                    right_size_style,
-                                )));
-                            }
-                            if right_show_date {
-                                let right_date_style = Style::default().fg(ui::list_temperature::date_color_for(
-                                    entry_cache.modified_unix,
-                                    &right_date_rank_by_ts,
-                                ));
-                                cells.push(Cell::from(Span::styled(
-                                    entry_cache.date_col.clone(),
-                                    right_date_style,
-                                )));
-                            }
+                            let right_size_style = Style::default().fg(ui::list_temperature::size_color_for(
+                                entry_cache.size_bytes,
+                                right_size_min_max,
+                            ));
+                            let right_date_style = Style::default().fg(ui::list_temperature::date_color_for(
+                                entry_cache.modified_unix,
+                                &right_date_rank_by_ts,
+                            ));
+                            push_metric_cells(
+                                &mut cells,
+                                entry_cache,
+                                right_show_size,
+                                right_size_width,
+                                right_size_style,
+                                right_show_pct,
+                                right_pct_width,
+                                right_total_for_pct,
+                                right_show_date,
+                                right_date_style,
+                            );
                             Row::new(cells).style(if idx == app.right_selected_index {
                                 right_selection_style
                             } else if right_is_marked {
@@ -1092,12 +1182,15 @@ pub(crate) fn run_tui_body(
                         .collect();
 
                     let mut right_constraints: Vec<Constraint> = vec![Constraint::Min(0)];
-                    if right_show_size {
-                        right_constraints.push(Constraint::Length(right_size_width as u16));
-                    }
-                    if right_show_date {
-                        right_constraints.push(Constraint::Length(right_date_width as u16));
-                    }
+                    push_metric_constraints(
+                        &mut right_constraints,
+                        right_show_size,
+                        right_size_width,
+                        right_show_pct,
+                        right_pct_width,
+                        right_show_date,
+                        right_date_width,
+                    );
                     let right_table = Table::new(right_rows, right_constraints)
                         .highlight_style(right_selection_style)
                         .highlight_symbol("");
@@ -2294,10 +2387,14 @@ pub(crate) fn run_tui_body(
             status_spans.push(Span::raw(gap));
             status_spans.extend(right_spans);
             let status = Line::from(status_spans);
-            let footer_block = Block::default()
-                .borders(Borders::TOP)
-                .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(Color::DarkGray));
+            let footer_block = if app.is_preview_mode() || app.is_dual_panel_mode() {
+                Block::default().borders(Borders::NONE)
+            } else {
+                Block::default()
+                    .borders(Borders::TOP)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(Color::DarkGray))
+            };
             f.render_widget(Paragraph::new(status).block(footer_block), chunks[1]);
             if !app.is_preview_mode() && !app.is_dual_panel_mode() {
                 let selected_total_status = if app.copy_rx.is_none() && app.archive_rx.is_none() {

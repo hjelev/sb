@@ -26,6 +26,8 @@ impl App {
                 let _ = self.refresh_right_panel_entries();
             }
             ViewMode::DualPanel => {
+                // Preserve the active panel's directory when returning to normal mode
+                self.current_dir = self.active_panel_dir();
                 self.view_mode = ViewMode::Normal;
                 self.right_dir = std::path::PathBuf::new();
                 self.right_entries.clear();
@@ -36,6 +38,8 @@ impl App {
                 self.right_status_message.clear();
                 self.right_table_state = ratatui::widgets::TableState::default();
                 self.active_panel = DualPanelSide::Left;
+                // Refresh entries to match the new current_dir
+                let _ = self.refresh_entries();
             }
         }
     }
@@ -93,10 +97,9 @@ impl App {
         self.right_entries = entries;
         if self.folder_size_enabled {
             self.apply_cached_folder_size_columns();
-            if self.active_panel == DualPanelSide::Right {
-                self.refresh_current_dir_free_space();
-                self.start_current_dir_total_size_scan();
-            }
+            self.start_folder_size_scan();
+            self.refresh_current_dir_free_space();
+            self.start_current_dir_total_size_scan();
         }
         self.right_marked_indices.clear();
         self.clear_selected_total_size_state_for(DualPanelSide::Right);

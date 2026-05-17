@@ -350,12 +350,23 @@ impl App {
         self.folder_size_scan_id = self.folder_size_scan_id.wrapping_add(1);
         let scan_id = self.folder_size_scan_id;
 
-        let dir_paths: Vec<PathBuf> = self
+        let mut unique_dirs: HashSet<PathBuf> = self
             .entries
             .iter()
             .map(|e| e.path())
             .filter(|p| p.is_dir())
             .collect();
+        if self.is_dual_panel_mode() {
+            for path in self
+                .right_entries
+                .iter()
+                .map(|e| e.path())
+                .filter(|p| p.is_dir())
+            {
+                unique_dirs.insert(path);
+            }
+        }
+        let dir_paths: Vec<PathBuf> = unique_dirs.into_iter().collect();
 
         if dir_paths.is_empty() {
             self.folder_size_rx = None;
