@@ -1511,6 +1511,42 @@ IFS= read -rsn1 _
         true
     }
 
+    fn open_ssh_shell_session(&mut self, host: &SshHost) -> io::Result<()> {
+        disable_raw_mode()?;
+        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        execute!(io::stdout(), Show)?;
+
+        // Match normal terminal behavior exactly: rely on OpenSSH host alias resolution
+        // and config processing instead of overriding with parsed options.
+        let mut cmd = Command::new("ssh");
+        cmd.arg(&host.alias);
+
+        let status = cmd.status();
+
+        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+        enable_raw_mode()?;
+        execute!(io::stdout(), Hide)?;
+
+        match status {
+            Ok(exit_status) => {
+                if exit_status.success() {
+                    self.set_status(format!("SSH session closed: {}", host.alias));
+                } else if let Some(code) = exit_status.code() {
+                    self.set_status(format!("ssh exited with code {} for {}", code, host.alias));
+                } else {
+                    self.set_status(format!("ssh session ended for {}", host.alias));
+                }
+            }
+            Err(e) => {
+                self.set_status(format!("failed to start ssh session for {}: {}", host.alias, e));
+            }
+        }
+
+        self.refresh_entries_or_status();
+        Ok(())
+    }
+
     fn remember_current_selection(&mut self) {
         self.directory_selection
             .insert(self.current_dir.clone(), self.selected_index);

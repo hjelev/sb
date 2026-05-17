@@ -1528,6 +1528,19 @@ pub(crate) fn handle_app_key_event_body(
                     app.refresh_remote_entries();
                 }
             }
+            KeyCode::Char('s') | KeyCode::Char('S') => {
+                if let Some(entry) = app.remote_entries.get(app.ssh_picker_selection).cloned() {
+                    match entry {
+                        RemoteEntry::Ssh(host) => {
+                            app.open_ssh_shell_session(&host)?;
+                            terminal.clear()?;
+                        }
+                        _ => {
+                            app.set_status("'s' is available only for SSH hosts");
+                        }
+                    }
+                }
+            }
             _ => {}
         },
         AppMode::Bookmarks => match key.code {

@@ -7,6 +7,15 @@ use std::{
     time::Duration,
 };
 
+use crossterm::{
+    cursor::{Hide, MoveTo, Show},
+    event::{DisableMouseCapture, EnableMouseCapture},
+    execute,
+    terminal::{
+        disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType, EnterAlternateScreen,
+        LeaveAlternateScreen,
+    },
+};
 use ratatui::style::Color;
 
 use crate::{App, AppMode, PathFilterMode, RemoteEntry, SshHost, SshMount};
@@ -435,5 +444,46 @@ impl App {
         let _ = CommandBuilder::unmount_archive(&mount.mount_path);
         let _ = safe_cleanup_path(&mount.mount_path);
         true
+    }
+
+    pub(crate) fn open_ssh_shell_session(&mut self, host: &SshHost) -> io::Result<()> {
+        disable_raw_mode()?;
+        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        execute!(io::stdout(), Show)?;
+
+        let mut cmd = Command::new("ssh");
+        if let Some(port) = host.port {
+            cmd.args(["-p", &port.to_string()]);
+        }
+        if let Some(idf) = &host.identity_file {
+            let expanded = idf.replace('~', &env::var("HOME").unwrap_or_default());
+            cmd.args(["-i", &expanded]);
+        }
+        cmd.arg(&host.alias);
+
+        let status = cmd.status();
+
+        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+        enable_raw_mode()?;
+        execute!(io::stdout(), Hide)?;
+
+        match status {
+            Ok(exit_status) => {
+                if exit_status.success() {
+                    self.set_status(format!("SSH session closed: {}", host.alias));
+                } else if let Some(code) = exit_status.code() {
+                    self.set_status(format!("ssh exited with code {} for {}", code, host.alias));
+                } else {
+                    self.set_status(format!("ssh session ended for {}", host.alias));
+                }
+            }
+            Err(e) => {
+                self.set_status(format!("failed to start ssh session for {}: {}", host.alias, e));
+            }
+        }
+
+        self.refresh_entries_or_status();
+        Ok(())
     }
 }

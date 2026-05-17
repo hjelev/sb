@@ -2151,6 +2151,7 @@ pub(crate) fn run_tui_body(
                     Paragraph::new(ui::panels::shortcut_footer_lines(&[
                         ("↑↓", "navigate"),
                         ("Enter/→", "open or mount"),
+                        ("s", "ssh shell"),
                         ("u/Delete", "unmount"),
                         ("Tab", "switch tabs"),
                         ("Esc", "close"),
