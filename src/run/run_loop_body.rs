@@ -646,7 +646,7 @@ pub(crate) fn run_tui_body(
                     .unwrap_or("");
                 let tree_prefix = app.tree_row_prefixes.get(idx).map(|s| s.as_str()).unwrap_or("");
                 let icon_prefix_width = if app.show_icons && !entry_cache.icon_glyph.is_empty() {
-                    if app.is_preview_mode() || app.is_dual_panel_mode() { 3usize } else { 2usize }
+                    2usize
                 } else {
                     0usize
                 };
@@ -676,11 +676,7 @@ pub(crate) fn run_tui_body(
                         spans.push(Span::styled(tree_prefix.to_string(), tree_style));
                     }
                     if app.show_icons {
-                        let icon_text = if app.is_preview_mode() || app.is_dual_panel_mode() {
-                            format!(" {} ", entry_cache.icon_glyph)
-                        } else {
-                            format!("{} ", entry_cache.icon_glyph)
-                        };
+                        let icon_text = format!("{} ", entry_cache.icon_glyph);
                         spans.push(Span::styled(icon_text, icon_style));
                     }
                     spans.push(Span::styled(rendered_name, name_style));
@@ -784,7 +780,8 @@ pub(crate) fn run_tui_body(
                 if let Some(entry_cache) = app.entry_render_cache.get(selected_idx) {
                     let tree_prefix = app.tree_row_prefixes.get(selected_idx).map(|s| s.as_str()).unwrap_or("");
                     let full_name = entry_cache.raw_name.as_str();
-                    if tree_prefix.chars().count() + full_name.chars().count() > file_name_width {
+                    let prefix_width_for_check = tree_prefix.chars().count() + (if app.is_dual_panel_mode() && !tree_prefix.is_empty() { 1 } else { 0 });
+                    if prefix_width_for_check + full_name.chars().count() > file_name_width {
                         let offset = app.table_state.offset();
                         if selected_idx >= offset {
                             let row_in_view = selected_idx - offset;
@@ -826,7 +823,12 @@ pub(crate) fn run_tui_body(
                                             spans.push(Span::raw(marker));
                                         }
                                         if !tree_prefix.is_empty() {
-                                            spans.push(Span::styled(tree_prefix.to_string(), tree_style));
+                                            let adjusted_prefix = if app.is_dual_panel_mode() {
+                                                format!(" {}", tree_prefix)
+                                            } else {
+                                                tree_prefix.to_string()
+                                            };
+                                            spans.push(Span::styled(adjusted_prefix, tree_style));
                                         }
                                         if app.show_icons {
                                             let icon_text = if app.is_preview_mode() || app.is_dual_panel_mode() {
@@ -1141,11 +1143,27 @@ pub(crate) fn run_tui_body(
                         .iter()
                         .enumerate()
                         .map(|(idx, entry_cache)| {
-                            let name = truncate_with_ellipsis(&entry_cache.raw_name, right_name_width);
                             let right_is_marked = app.right_marked_indices.contains(&idx);
+                            let tree_prefix = app
+                                .right_tree_row_prefixes
+                                .get(idx)
+                                .map(|s| s.as_str())
+                                .unwrap_or("");
+                            let icon_prefix_width = if app.show_icons && !entry_cache.icon_glyph.is_empty() {
+                                2usize
+                            } else {
+                                0usize
+                            };
+                            let prefix_width = tree_prefix.chars().count();
+                            let available_name_width = right_name_width
+                                .saturating_sub(prefix_width + icon_prefix_width)
+                                .max(1);
+                            let name = truncate_with_ellipsis(&entry_cache.raw_name, available_name_width);
                             let mut spans = Vec::new();
+                            if !tree_prefix.is_empty() {
+                                spans.push(Span::styled(tree_prefix.to_string(), tree_style));
+                            }
                             if app.show_icons && !entry_cache.icon_glyph.is_empty() {
-                                spans.push(Span::raw(" "));
                                 spans.push(Span::styled(format!("{} ", entry_cache.icon_glyph), entry_cache.icon_style));
                             }
                             spans.push(Span::styled(name, entry_cache.name_style));
@@ -1196,6 +1214,46 @@ pub(crate) fn run_tui_body(
                         .highlight_symbol("");
                     app.right_table_state.select(Some(app.right_selected_index));
                     f.render_stateful_widget(right_table, right_body_area, &mut app.right_table_state);
+
+                    // Render right panel scrollbar
+                    let right_needs_scroll = app.right_entries.len() > right_body_area.height as usize;
+                    let right_can_draw_scrollbar = right_body_area.width > 2 && right_needs_scroll;
+                    if right_can_draw_scrollbar {
+                        let right_sb_area = Rect::new(
+                            preview_area.x + preview_area.width.saturating_sub(1),
+                            right_body_area.y,
+                            1,
+                            right_body_area.height,
+                        );
+                        let right_track_h = right_sb_area.height as usize;
+                        if right_track_h > 0 {
+                            let right_visible_rows = right_body_area.height.max(1) as usize;
+                            let right_total_rows = app.right_entries.len();
+                            let right_max_scroll = right_total_rows.saturating_sub(right_visible_rows);
+                            let right_offset = app.right_table_state.offset().min(right_max_scroll);
+                            let right_thumb_h = ((right_visible_rows * right_track_h + right_total_rows.saturating_sub(1)) / right_total_rows)
+                                .max(1)
+                                .min(right_track_h);
+                            let right_scroll_space = right_track_h.saturating_sub(right_thumb_h);
+                            let right_thumb_y = if right_max_scroll == 0 {
+                                0
+                            } else {
+                                (right_offset * right_scroll_space + (right_max_scroll / 2)) / right_max_scroll
+                            };
+
+                            let mut right_sb_lines: Vec<Line> = Vec::with_capacity(right_track_h);
+                            for row in 0..right_track_h {
+                                let in_thumb = row >= right_thumb_y && row < right_thumb_y + right_thumb_h;
+                                let (ch, color) = if in_thumb {
+                                    ("┃", Color::Rgb(120, 200, 190))
+                                } else {
+                                    ("│", Color::DarkGray)
+                                };
+                                right_sb_lines.push(Line::from(Span::styled(ch, Style::default().fg(color))));
+                            }
+                            f.render_widget(Paragraph::new(right_sb_lines), right_sb_area);
+                        }
+                    }
                 }
             }
 

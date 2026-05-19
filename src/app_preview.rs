@@ -31,6 +31,7 @@ impl App {
                 self.view_mode = ViewMode::Normal;
                 self.right_dir = std::path::PathBuf::new();
                 self.right_entries.clear();
+                self.right_tree_row_prefixes.clear();
                 self.right_entry_render_cache.clear();
                 self.right_selected_index = 0;
                 self.right_marked_indices.clear();
@@ -79,11 +80,32 @@ impl App {
     }
 
     pub(crate) fn refresh_right_panel_entries(&mut self) -> std::io::Result<()> {
-        let mut entries: Vec<_> = std::fs::read_dir(&self.right_dir)?
-            .filter_map(|res| res.ok())
-            .filter(|e| self.right_show_hidden || !e.file_name().to_string_lossy().starts_with('.'))
-            .collect();
-        Self::sort_entries_by_mode(&mut entries, self.right_sort_mode, None);
+        let folder_size_cache = if self.folder_size_enabled {
+            Some(&self.folder_size_cache)
+        } else {
+            None
+        };
+        let entries: Vec<_> = if !self.tree_expansion_levels.is_empty() {
+            let rows = crate::ui::tree::collect_tree_rows_with_expansions(
+                &self.right_dir,
+                self.right_show_hidden,
+                self.right_sort_mode,
+                folder_size_cache,
+                &self.tree_expansion_levels,
+            )?;
+            self.right_tree_row_prefixes = rows.iter().map(|row| row.prefix.clone()).collect();
+            rows.into_iter().map(|row| row.entry).collect()
+        } else {
+            let mut direct_entries: Vec<_> = std::fs::read_dir(&self.right_dir)?
+                .filter_map(|res| res.ok())
+                .filter(|e| {
+                    self.right_show_hidden || !e.file_name().to_string_lossy().starts_with('.')
+                })
+                .collect();
+            Self::sort_entries_by_mode(&mut direct_entries, self.right_sort_mode, folder_size_cache);
+            self.right_tree_row_prefixes = vec![String::new(); direct_entries.len()];
+            direct_entries
+        };
         let config = EntryRenderConfig {
             nerd_font_active: self.nerd_font_active,
             show_icons: self.show_icons,

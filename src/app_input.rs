@@ -2,11 +2,36 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use crate::{App, AppMode, PathFilterMode, PathInputFilter};
+use crate::{App, AppMode, DualPanelSide, PathFilterMode, PathInputFilter};
 
 const TREE_DOUBLE_TAP_WINDOW_MS: u64 = 320;
 
 impl App {
+    fn active_panel_show_hidden(&self) -> bool {
+        if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
+            self.right_show_hidden
+        } else {
+            self.show_hidden
+        }
+    }
+
+    fn refresh_active_panel_entries_or_status(&mut self) -> bool {
+        if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
+            match self.refresh_right_panel_entries() {
+                Ok(()) => {
+                    self.right_status_message.clear();
+                    true
+                }
+                Err(e) => {
+                    self.set_status(format!("refresh failed: {}", e));
+                    false
+                }
+            }
+        } else {
+            self.refresh_entries_or_status()
+        }
+    }
+
     pub(crate) fn consume_quick_tree_double_tap(&mut self, key: char) -> bool {
         let now = Instant::now();
         let is_double = self
@@ -28,7 +53,7 @@ impl App {
         };
 
         read_dir.filter_map(|entry| entry.ok()).any(|entry| {
-            if self.show_hidden {
+            if self.active_panel_show_hidden() {
                 true
             } else {
                 !entry.file_name().to_string_lossy().starts_with('.')
@@ -43,7 +68,10 @@ impl App {
 
         read_dir
             .filter_map(|entry| entry.ok())
-            .filter(|entry| self.show_hidden || !entry.file_name().to_string_lossy().starts_with('.'))
+            .filter(|entry| {
+                self.active_panel_show_hidden()
+                    || !entry.file_name().to_string_lossy().starts_with('.')
+            })
             .map(|entry| entry.path())
             .filter(|entry_path| entry_path.is_dir())
             .collect()
@@ -64,7 +92,25 @@ impl App {
 
     fn selected_or_marked_dir_paths(&self) -> Vec<PathBuf> {
         let mut dirs = Vec::new();
-        if !self.marked_indices.is_empty() {
+        let is_right_panel = self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right;
+
+        if is_right_panel {
+            if !self.right_marked_indices.is_empty() {
+                for idx in &self.right_marked_indices {
+                    if let Some(entry) = self.right_entries.get(*idx) {
+                        let path = entry.path();
+                        if path.is_dir() && self.dir_has_visible_children(&path) {
+                            dirs.push(path);
+                        }
+                    }
+                }
+            } else if let Some(entry) = self.right_entries.get(self.right_selected_index) {
+                let path = entry.path();
+                if path.is_dir() && self.dir_has_visible_children(&path) {
+                    dirs.push(path);
+                }
+            }
+        } else if !self.marked_indices.is_empty() {
             for idx in &self.marked_indices {
                 if let Some(entry) = self.entries.get(*idx) {
                     let path = entry.path();
@@ -97,7 +143,7 @@ impl App {
             self.tree_expansion_levels
                 .insert(path, current.saturating_add(step).min(max_expand));
         }
-        self.refresh_entries_or_status();
+        self.refresh_active_panel_entries_or_status();
     }
 
     pub(crate) fn contract_tree_on_selected_dirs(&mut self, levels: usize) {
@@ -115,12 +161,12 @@ impl App {
                 self.tree_expansion_levels.insert(path, next);
             }
         }
-        self.refresh_entries_or_status();
+        self.refresh_active_panel_entries_or_status();
     }
 
     pub(crate) fn collapse_all_tree_expansions(&mut self) {
         self.tree_expansion_levels.clear();
-        self.refresh_entries_or_status();
+        self.refresh_active_panel_entries_or_status();
     }
 
     pub(crate) fn expand_tree_to_max_on_selected_dirs(&mut self) {
@@ -133,7 +179,7 @@ impl App {
             let max_expand = self.max_expand_level_for_dir(&path);
             self.tree_expansion_levels.insert(path, max_expand);
         }
-        self.refresh_entries_or_status();
+        self.refresh_active_panel_entries_or_status();
     }
 
     pub(crate) fn parse_path_filter_suffix(raw: &str) -> Option<(String, PathInputFilter)> {
