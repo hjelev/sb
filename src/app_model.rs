@@ -195,7 +195,7 @@ pub(crate) enum PreviewPaneFocus {
     Preview,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub(crate) enum ViewMode {
     #[default]
     Normal,

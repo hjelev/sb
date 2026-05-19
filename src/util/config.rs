@@ -92,6 +92,76 @@ fn env_flag_true(names: &[&str]) -> bool {
     false
 }
 
+/// Returns the path to the persistent config file: `$XDG_CONFIG_HOME/sb/config`
+/// or `~/.config/sb/config` if the env var is unset.
+fn persist_config_path() -> std::path::PathBuf {
+    let base = env::var("XDG_CONFIG_HOME")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            env::var("HOME")
+                .ok()
+                .map(|h| std::path::PathBuf::from(h).join(".config"))
+        })
+        .unwrap_or_else(|| std::path::PathBuf::from(".config"));
+    base.join("sb").join("config")
+}
+
+/// Persistent (file-based) configuration stored in `~/.config/sb/config`.
+///
+/// This is separate from [`AppConfig`] (which is env-only / runtime flags).
+/// Settings here survive across application restarts.
+#[derive(Debug, Clone)]
+pub struct SbPersistConfig {
+    /// The view mode to restore on next launch: `"Normal"`, `"Preview"`, or `"DualPanel"`.
+    pub view_mode: String,
+}
+
+impl Default for SbPersistConfig {
+    fn default() -> Self {
+        Self {
+            view_mode: "Normal".to_string(),
+        }
+    }
+}
+
+impl SbPersistConfig {
+    /// Load persistent config from disk. Falls back to defaults on any error.
+    pub fn load() -> Self {
+        let path = persist_config_path();
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => return Self::default(),
+        };
+        let mut cfg = Self::default();
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some((key, val)) = line.split_once('=') {
+                let key = key.trim();
+                let val = val.trim();
+                if key == "view_mode" {
+                    cfg.view_mode = val.to_string();
+                }
+            }
+        }
+        cfg
+    }
+
+    /// Save persistent config to disk. Creates parent directories as needed.
+    pub fn save(&self) -> std::io::Result<()> {
+        let path = persist_config_path();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let content = format!("# sb config\nview_mode = {}\n", self.view_mode);
+        std::fs::write(&path, content)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

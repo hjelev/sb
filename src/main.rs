@@ -444,6 +444,16 @@ impl App {
         app.refresh_entries()?;
         app.request_notes_for_current_dir_once();
         app.request_git_info_for_current_dir_once();
+        // Restore persisted view mode from ~/.config/sb/config
+        let persist = util::config::SbPersistConfig::load();
+        match persist.view_mode.as_str() {
+            "Preview" => app.cycle_view_mode(),
+            "DualPanel" => {
+                app.cycle_view_mode();
+                app.cycle_view_mode();
+            }
+            _ => {}
+        }
         Ok(app)
     }
 
@@ -4873,6 +4883,7 @@ fn main() -> io::Result<()> {
     run::run_tui(&mut terminal, &mut app)?;
     app.cleanup_archive_mounts();
     app.cleanup_ssh_mounts();
+    let _ = util::config::SbPersistConfig { view_mode: format!("{:?}", app.view_mode) }.save();
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
