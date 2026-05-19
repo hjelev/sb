@@ -111,23 +111,28 @@ fn persist_config_path() -> std::path::PathBuf {
 /// Persistent (file-based) configuration stored in `~/.config/sb/config`.
 ///
 /// This is separate from [`AppConfig`] (which is env-only / runtime flags).
-/// Settings here survive across application restarts.
+/// Settings here survive across application restarts. Unknown settings are preserved
+/// for forward compatibility (allowing new settings to be added without loss).
 #[derive(Debug, Clone)]
 pub struct SbPersistConfig {
     /// The view mode to restore on next launch: `"Normal"`, `"Preview"`, or `"DualPanel"`.
     pub view_mode: String,
+    /// Unknown settings (future-proofing: preserve any unrecognized key-value pairs).
+    unknown: std::collections::HashMap<String, String>,
 }
 
 impl Default for SbPersistConfig {
     fn default() -> Self {
         Self {
             view_mode: "Normal".to_string(),
+            unknown: std::collections::HashMap::new(),
         }
     }
 }
 
 impl SbPersistConfig {
     /// Load persistent config from disk. Falls back to defaults on any error.
+    /// Preserves any unknown settings for future compatibility.
     pub fn load() -> Self {
         let path = persist_config_path();
         let content = match std::fs::read_to_string(&path) {
@@ -143,8 +148,11 @@ impl SbPersistConfig {
             if let Some((key, val)) = line.split_once('=') {
                 let key = key.trim();
                 let val = val.trim();
-                if key == "view_mode" {
-                    cfg.view_mode = val.to_string();
+                match key {
+                    "view_mode" => cfg.view_mode = val.to_string(),
+                    _ => {
+                        cfg.unknown.insert(key.to_string(), val.to_string());
+                    }
                 }
             }
         }
@@ -152,12 +160,18 @@ impl SbPersistConfig {
     }
 
     /// Save persistent config to disk. Creates parent directories as needed.
+    /// Only updates view_mode; all other settings are preserved.
     pub fn save(&self) -> std::io::Result<()> {
         let path = persist_config_path();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let content = format!("# sb config\nview_mode = {}\n", self.view_mode);
+        let mut lines = vec!["# sb config".to_string()];
+        lines.push(format!("view_mode = {}", self.view_mode));
+        for (key, val) in &self.unknown {
+            lines.push(format!("{} = {}", key, val));
+        }
+        let content = lines.join("\n") + "\n";
         std::fs::write(&path, content)
     }
 }

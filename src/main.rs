@@ -4883,7 +4883,9 @@ fn main() -> io::Result<()> {
     run::run_tui(&mut terminal, &mut app)?;
     app.cleanup_archive_mounts();
     app.cleanup_ssh_mounts();
-    let _ = util::config::SbPersistConfig { view_mode: format!("{:?}", app.view_mode) }.save();
+    let mut persist = util::config::SbPersistConfig::load();
+    persist.view_mode = format!("{:?}", app.view_mode);
+    let _ = persist.save();
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
