@@ -23,6 +23,9 @@ base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["gif", "ico", "jpeg", "png", "webp"] }
 icy_sixel = "0.5"
 
+[dev-dependencies]
+temp_env = "0.3"
+
 
 [profile.release]
 opt-level = 3       # Optimize for speed — see https://doc.rust-lang.org/cargo/reference/profiles.html#opt-level
