@@ -25,7 +25,7 @@ icy_sixel = "0.5"
 
 
 [profile.release]
-opt-level = 'z'     # Optimize for size (use 's' for slightly faster/bigger)
+opt-level = 3       # Optimize for speed — see https://doc.rust-lang.org/cargo/reference/profiles.html#opt-level
 lto = true          # Enable Link Time Optimization (huge help)
 codegen-units = 1   # Reduces parallel builds to allow better optimization
 panic = 'abort'     # Removes stack unwinding code (saves space)
