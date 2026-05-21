@@ -153,7 +153,7 @@ Use the installer there if you want the fastest setup without building from sour
 - `Z`: archive create/extract flow
 - `C`: compare marked file vs cursor file with `delta`
 - `G`: Git commit workflow with diff preview, `git status`, commit/push, and optional post-push tag creation
-- `o`: open with system GUI opener (`xdg-open`/`gio open`)
+- `o`: open with system GUI opener (`open` on macOS, `xdg-open`/`gio open` elsewhere)
 - `f`: open Search overlay (filename search; uses built-in search if `fzf` is missing)
 - `g`: content search (`rg`, optional `fzf` handoff; falls back to built-in Search content mode when `rg` is missing)
 - `;`: open command prompt, run shell command, then wait for keypress before returning to TUI

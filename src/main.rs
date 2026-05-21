@@ -2968,11 +2968,6 @@ IFS= read -rsn1 _
     }
 
 
-
-
-
-
-
     fn run_delta_compare(&mut self) -> io::Result<()> {
         if !self.integration_active("delta") {
             self.set_status("delta not found in PATH");
@@ -3041,6 +3036,20 @@ IFS= read -rsn1 _
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| path.to_string_lossy().into_owned());
 
+        #[cfg(target_os = "macos")]
+        let opened = if Self::integration_probe("open").0 {
+            Command::new("open")
+                .arg(&path)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .is_ok()
+        } else {
+            false
+        };
+
+        #[cfg(not(target_os = "macos"))]
         let opened = if Self::integration_probe("xdg-open").0 {
             Command::new("xdg-open")
                 .arg(&path)
@@ -3065,6 +3074,10 @@ IFS= read -rsn1 _
         if opened {
             self.set_status(format!("opened with default app: {}", display_name));
         } else {
+            #[cfg(target_os = "macos")]
+            self.set_status("no default opener found (tried open)");
+
+            #[cfg(not(target_os = "macos"))]
             self.set_status("no default opener found (tried xdg-open, gio open)");
         }
 
