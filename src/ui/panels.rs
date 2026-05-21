@@ -88,6 +88,26 @@ pub fn shortcut_footer_lines(
     vec![Line::from(""), shortcut_footer_line(entries, theme_id)]
 }
 
+fn selector_edge_spans(is_selected: bool, spec: &crate::ui::theme::ThemeSpec) -> (Span<'static>, Span<'static>) {
+    if is_selected {
+        (
+            Span::styled(
+                "",
+                Style::default().fg(spec.bg_selected).bg(spec.bg_panel),
+            ),
+            Span::styled(
+                "",
+                Style::default().fg(spec.bg_selected).bg(spec.bg_panel),
+            ),
+        )
+    } else {
+        (
+            Span::styled(" ", Style::default().bg(spec.bg_panel)),
+            Span::styled(" ", Style::default().bg(spec.bg_panel)),
+        )
+    }
+}
+
 pub fn render_integrations_overlay(
     f: &mut Frame,
     area: Rect,
@@ -100,6 +120,7 @@ pub fn render_integrations_overlay(
     let spec = theme_spec(theme_id);
     let int_w = (area.width * 5 / 6).max(70).min(tab_overlay_anchor.width);
     let int_content_w = int_w.saturating_sub(2) as usize;
+    let int_row_inner_w = int_content_w.saturating_sub(2);
 
     let mut lines: Vec<Line> = vec![Line::from("")];
     for (i, row) in integrations.iter().enumerate() {
@@ -149,7 +170,9 @@ pub fn render_integrations_overlay(
         );
         let category_span = Span::styled(category_text.clone(), base_style);
         let purpose_span = Span::styled(purpose_text.clone(), base_style);
+        let (left_cap, right_cap) = selector_edge_spans(is_selected, spec);
         let mut spans = vec![
+            left_cap,
             Span::styled(status_text.clone(), base_style.patch(status_style)),
             name_span,
             state_span,
@@ -163,10 +186,12 @@ pub fn render_integrations_overlay(
                 + UnicodeWidthStr::width(state_text.as_str())
                 + UnicodeWidthStr::width(category_text.as_str())
                 + UnicodeWidthStr::width(purpose_text.as_str());
-            if int_content_w > used_w {
-                spans.push(Span::styled(" ".repeat(int_content_w - used_w), base_style));
+            if int_row_inner_w > used_w {
+                spans.push(Span::styled(" ".repeat(int_row_inner_w - used_w), base_style));
             }
         }
+
+        spans.push(right_cap);
 
         lines.push(Line::from(spans));
     }
@@ -508,6 +533,7 @@ pub fn render_bookmarks_overlay(
     let mut lines: Vec<Line> = vec![Line::from("")];
     let bm_w = tab_overlay_anchor.width;
     let bm_content_w = bm_w.saturating_sub(2) as usize;
+    let bm_row_inner_w = bm_content_w.saturating_sub(2);
     for (row_idx, (i, path)) in bookmarks.iter().enumerate() {
         let is_selected = row_idx == bookmark_selected;
         let base_style = if is_selected {
@@ -529,16 +555,20 @@ pub fn render_bookmarks_overlay(
 
         let padded_label = if is_selected {
             let used_w = UnicodeWidthStr::width(label.as_str());
-            if bm_content_w > used_w {
-                format!("{}{}", label, " ".repeat(bm_content_w - used_w))
+            if bm_row_inner_w > used_w {
+                format!("{}{}", label, " ".repeat(bm_row_inner_w - used_w))
             } else {
                 label
             }
         } else {
             label
         };
-
-        lines.push(Line::from(Span::styled(padded_label, style)));
+        let (left_cap, right_cap) = selector_edge_spans(is_selected, spec);
+        lines.push(Line::from(vec![
+            left_cap,
+            Span::styled(padded_label, style),
+            right_cap,
+        ]));
     }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(" Add to your shell config to set bookmarks:", Style::default().fg(Color::Rgb(200, 180, 80)))));
@@ -602,6 +632,7 @@ pub fn render_sort_overlay(
     let spec = theme_spec(theme_id);
     let sort_w = tab_overlay_anchor.width;
     let sort_content_w = sort_w.saturating_sub(2) as usize;
+    let sort_row_inner_w = sort_content_w.saturating_sub(2);
     let mut lines: Vec<Line> = vec![Line::from("")];
     for (idx, mode) in options.iter().enumerate() {
         let is_selected = idx == sort_menu_selected;
@@ -623,8 +654,8 @@ pub fn render_sort_overlay(
         let row_text = format!(" {}  {}", sort_icon, mode.label());
         let row_text = if is_selected {
             let used_w = UnicodeWidthStr::width(row_text.as_str());
-            if sort_content_w > used_w {
-                format!("{}{}", row_text, " ".repeat(sort_content_w - used_w))
+            if sort_row_inner_w > used_w {
+                format!("{}{}", row_text, " ".repeat(sort_row_inner_w - used_w))
             } else {
                 row_text
             }
@@ -638,7 +669,12 @@ pub fn render_sort_overlay(
         } else {
             Style::default().fg(spec.text_normal)
         };
-        lines.push(Line::from(Span::styled(row_text, style)));
+        let (left_cap, right_cap) = selector_edge_spans(is_selected, spec);
+        lines.push(Line::from(vec![
+            left_cap,
+            Span::styled(row_text, style),
+            right_cap,
+        ]));
     }
 
     let sort_h = (lines.len() as u16 + 4).max(10).min(tab_overlay_anchor.height);
@@ -695,6 +731,8 @@ pub fn render_themes_overlay(
 ) {
     let current = theme_spec(theme_id);
     let theme_w = tab_overlay_anchor.width;
+    let theme_content_w = theme_w.saturating_sub(2) as usize;
+    let theme_row_inner_w = theme_content_w.saturating_sub(2);
     let mut lines: Vec<Line> = vec![Line::from("")];
     for (idx, theme) in THEMES.iter().enumerate() {
         let is_selected = idx == selected;
@@ -710,12 +748,15 @@ pub fn render_themes_overlay(
             theme.name,
             if is_applied { "[x]" } else { "[ ]" }
         );
+        let row_text_w = UnicodeWidthStr::width(row_text.as_str());
         let swatch_bg = if is_selected {
             Style::default().bg(current.bg_selected)
         } else {
             Style::default()
         };
-        let row = vec![
+        let (left_cap, right_cap) = selector_edge_spans(is_selected, current);
+        let mut row = vec![
+            left_cap,
             Span::styled(row_text, base_style),
             Span::styled("  ", swatch_bg),
             Span::styled("bg", Style::default().bg(spec.bg_panel).fg(spec.text_normal)),
@@ -730,6 +771,13 @@ pub fn render_themes_overlay(
             Span::styled(" ", swatch_bg),
             Span::styled("██", swatch_bg.fg(spec.error)),
         ];
+        if is_selected {
+            let used_w = row_text_w + 19;
+            if theme_row_inner_w > used_w {
+                row.push(Span::styled(" ".repeat(theme_row_inner_w - used_w), swatch_bg));
+            }
+        }
+        row.push(right_cap);
         lines.push(Line::from(row));
     }
 

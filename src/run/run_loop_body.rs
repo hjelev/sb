@@ -648,7 +648,8 @@ pub(crate) fn run_tui_body(
                 (s, s)
             };
             let marker_width = if app.no_color { 3 } else { 0 };
-            let name_text_width = file_name_width.saturating_sub(marker_width).max(1);
+            let name_cell_text_width = name_cell_width.saturating_sub(marker_width).max(1);
+            let name_truncate_width = file_name_width.saturating_sub(marker_width).max(1);
             let entry_styles = |mut icon_style: Style, mut name_style: Style, is_selected: bool| {
                 if app.no_color && !is_selected {
                     icon_style.fg = None;
@@ -673,10 +674,13 @@ pub(crate) fn run_tui_body(
             } else {
                 HashMap::new()
             };
+            let use_main_pill = !app.is_preview_mode() && !app.is_dual_panel_mode();
 
             let rows: Vec<Row> = app.entry_render_cache.iter().enumerate().map(|(idx, entry_cache)| {
                 let is_marked = app.marked_indices.contains(&idx);
                 let is_selected = idx == app.selected_index;
+                let pill_mode = use_main_pill;
+                let pill_selected = is_selected && pill_mode;
                 let (icon_style, name_style) = entry_styles(entry_cache.icon_style, entry_cache.name_style, is_selected);
 
                 let group_style = Style::default().fg(Color::Rgb(172, 136, 98));
@@ -710,16 +714,20 @@ pub(crate) fn run_tui_body(
                 } else {
                     0usize
                 };
+                let pill_edge_width = if pill_mode { 2usize } else { 0usize };
+                let effective_name_width = name_cell_text_width.saturating_sub(pill_edge_width).max(1);
                 let prefix_width = tree_prefix.chars().count();
-                let available_name_width = name_text_width.saturating_sub(prefix_width + icon_prefix_width).max(1);
+                let available_name_width = name_truncate_width
+                    .saturating_sub(prefix_width + icon_prefix_width)
+                    .max(1);
                 let rendered_name = truncate_with_ellipsis(&entry_cache.raw_name, available_name_width);
                 let mut rendered_note = String::new();
                 if !note_text.is_empty() {
                     let used = prefix_width + icon_prefix_width + rendered_name.chars().count();
                     let sep = "  ";
                     let sep_len = sep.chars().count();
-                    if used + sep_len < name_text_width {
-                        let remaining = name_text_width - used - sep_len;
+                    if used + sep_len < name_truncate_width {
+                        let remaining = name_truncate_width - used - sep_len;
                         let clipped_note = truncate_with_ellipsis(note_text, remaining);
                         if !clipped_note.is_empty() {
                             rendered_note = format!("{}{}", sep, clipped_note);
@@ -729,19 +737,79 @@ pub(crate) fn run_tui_body(
 
                 let mut cells = vec![Cell::from(Line::from({
                     let mut spans = vec![];
+                    let row_fill = Style::default().bg(active_theme.bg_selected);
+                    if pill_mode {
+                        if pill_selected {
+                            spans.push(Span::styled(
+                                "",
+                                Style::default()
+                                    .fg(active_theme.bg_selected)
+                                    .bg(active_theme.bg_panel),
+                            ));
+                        } else {
+                            spans.push(Span::raw(" "));
+                        }
+                    }
                     if !marker.is_empty() {
-                        spans.push(Span::raw(marker));
+                        if pill_selected {
+                            spans.push(Span::styled(marker, row_fill));
+                        } else {
+                            spans.push(Span::raw(marker));
+                        }
                     }
                     if !tree_prefix.is_empty() {
-                        spans.push(Span::styled(tree_prefix.to_string(), tree_style));
+                        let style = if pill_selected {
+                            tree_style.patch(row_fill)
+                        } else {
+                            tree_style
+                        };
+                        spans.push(Span::styled(tree_prefix.to_string(), style));
                     }
                     if app.show_icons {
                         let icon_text = format!("{} ", entry_cache.icon_glyph);
-                        spans.push(Span::styled(icon_text, icon_style));
+                        let style = if pill_selected {
+                            icon_style.patch(row_fill)
+                        } else {
+                            icon_style
+                        };
+                        spans.push(Span::styled(icon_text, style));
                     }
+                    let name_style = if pill_selected {
+                        name_style.patch(row_fill)
+                    } else {
+                        name_style
+                    };
                     spans.push(Span::styled(rendered_name, name_style));
                     if !rendered_note.is_empty() {
+                        let note_style = if pill_selected {
+                            note_style.patch(row_fill)
+                        } else {
+                            note_style
+                        };
                         spans.push(Span::styled(rendered_note, note_style));
+                    }
+                    if pill_mode {
+                        let used_inner: usize = spans
+                            .iter()
+                            .skip(1)
+                            .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
+                            .sum();
+                        if effective_name_width > used_inner {
+                            spans.push(Span::styled(
+                                " ".repeat(effective_name_width - used_inner),
+                                if pill_selected { row_fill } else { Style::default() },
+                            ));
+                        }
+                        if pill_selected {
+                            spans.push(Span::styled(
+                                "",
+                                Style::default()
+                                    .fg(active_theme.bg_selected)
+                                    .bg(active_theme.bg_panel),
+                            ));
+                        } else {
+                            spans.push(Span::raw(" "));
+                        }
                     }
                     spans
                 }))];
@@ -779,7 +847,13 @@ pub(crate) fn run_tui_body(
                     show_date,
                     date_style,
                 );
-                Row::new(cells).style(if is_marked { Style::default().bg(Color::Rgb(0, 100, 150)) } else { Style::default() })
+                Row::new(cells).style(if is_selected {
+                    Style::default().bg(active_theme.bg_selected)
+                } else if is_marked {
+                    Style::default().bg(Color::Rgb(0, 100, 150))
+                } else {
+                    Style::default()
+                })
             }).collect();
 
             let mut col_constraints: Vec<Constraint> = vec![Constraint::Min(0)];
@@ -798,7 +872,11 @@ pub(crate) fn run_tui_body(
                 date_width,
             );
             let table = Table::new(rows, col_constraints)
-                .highlight_style(selection_style)
+                .highlight_style(if app.is_preview_mode() || app.is_dual_panel_mode() {
+                    selection_style
+                } else {
+                    Style::default()
+                })
                 .highlight_symbol(""); 
 
             let table_area = if app.is_preview_mode() || app.is_dual_panel_mode() {
@@ -818,8 +896,18 @@ pub(crate) fn run_tui_body(
             } else {
                 table_area
             };
-            app.page_size = (list_area.height as usize).saturating_sub(1).max(1);
-            f.render_stateful_widget(table, list_area, &mut app.table_state);
+            let table_render_area = if use_main_pill {
+                Rect::new(
+                    list_area.x,
+                    list_area.y,
+                    list_area.width.saturating_sub(1),
+                    list_area.height,
+                )
+            } else {
+                list_area
+            };
+            app.page_size = (table_render_area.height as usize).saturating_sub(1).max(1);
+            f.render_stateful_widget(table, table_render_area, &mut app.table_state);
 
             if app.entries.is_empty() {
                 f.render_widget(
@@ -830,7 +918,7 @@ pub(crate) fn run_tui_body(
                             .add_modifier(Modifier::ITALIC),
                     )))
                     .alignment(Alignment::Left),
-                    list_area,
+                    table_render_area,
                 );
             }
 
@@ -841,15 +929,15 @@ pub(crate) fn run_tui_body(
                     let tree_prefix = app.tree_row_prefixes.get(selected_idx).map(|s| s.as_str()).unwrap_or("");
                     let full_name = entry_cache.raw_name.as_str();
                     let prefix_width_for_check = tree_prefix.chars().count();
-                    if prefix_width_for_check + full_name.chars().count() > file_name_width {
+                    if prefix_width_for_check + full_name.chars().count() > name_truncate_width {
                         let offset = app.table_state.offset();
                         if selected_idx >= offset {
                             let row_in_view = selected_idx - offset;
-                            if row_in_view < list_area.height as usize {
+                            if row_in_view < table_render_area.height as usize {
                                 let row_area = Rect::new(
-                                    list_area.x,
-                                    list_area.y + row_in_view as u16,
-                                    list_area.width,
+                                    table_render_area.x,
+                                    table_render_area.y + row_in_view as u16,
+                                    table_render_area.width,
                                     1,
                                 );
                                 let is_marked = app.marked_indices.contains(&selected_idx);
@@ -872,6 +960,7 @@ pub(crate) fn run_tui_body(
                                 };
 
                                 f.render_widget(Clear, row_area);
+                                let pill_selected = !app.is_preview_mode() && !app.is_dual_panel_mode();
                                 f.render_widget(
                                     Block::default().style(selection_style),
                                     row_area,
@@ -879,25 +968,106 @@ pub(crate) fn run_tui_body(
                                 f.render_widget(
                                     Paragraph::new(Line::from({
                                         let mut spans = vec![];
+                                        if pill_selected {
+                                            spans.push(Span::styled(
+                                                "",
+                                                Style::default()
+                                                    .fg(active_theme.bg_selected)
+                                                    .bg(active_theme.bg_panel),
+                                            ));
+                                        }
                                         if !marker.is_empty() {
-                                            spans.push(Span::raw(marker));
+                                            if pill_selected {
+                                                spans.push(Span::styled(
+                                                    marker,
+                                                    Style::default().bg(active_theme.bg_selected),
+                                                ));
+                                            } else {
+                                                spans.push(Span::raw(marker));
+                                            }
                                         }
                                         if !tree_prefix.is_empty() {
-                                            spans.push(Span::styled(tree_prefix.to_string(), tree_style));
+                                            let style = if pill_selected {
+                                                tree_style.bg(active_theme.bg_selected)
+                                            } else {
+                                                tree_style
+                                            };
+                                            spans.push(Span::styled(tree_prefix.to_string(), style));
                                         }
                                         if app.show_icons {
                                             let icon_text = format!("{} ", entry_cache.icon_glyph);
-                                            spans.push(Span::styled(icon_text, icon_style));
+                                            let style = if pill_selected {
+                                                icon_style.bg(active_theme.bg_selected)
+                                            } else {
+                                                icon_style
+                                            };
+                                            spans.push(Span::styled(icon_text, style));
                                         }
-                                        spans.push(Span::styled(full_name.to_string(), name_style));
+                                        let style = if pill_selected {
+                                            name_style.bg(active_theme.bg_selected)
+                                        } else {
+                                            name_style
+                                        };
+                                        spans.push(Span::styled(full_name.to_string(), style));
                                         if !note_suffix.is_empty() {
-                                            spans.push(Span::styled(note_suffix, note_style));
+                                            let style = if pill_selected {
+                                                note_style.bg(active_theme.bg_selected)
+                                            } else {
+                                                note_style
+                                            };
+                                            spans.push(Span::styled(note_suffix, style));
+                                        }
+                                        if pill_selected {
+                                            let used_inner: usize = spans
+                                                .iter()
+                                                .skip(1)
+                                                .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
+                                                .sum();
+                                            let effective_name_width = name_cell_text_width.saturating_sub(2).max(1);
+                                            if effective_name_width > used_inner {
+                                                spans.push(Span::styled(
+                                                    " ".repeat(effective_name_width - used_inner),
+                                                    Style::default().bg(active_theme.bg_selected),
+                                                ));
+                                            }
+                                            spans.push(Span::styled(
+                                                "",
+                                                Style::default()
+                                                    .fg(active_theme.bg_selected)
+                                                    .bg(active_theme.bg_panel),
+                                            ));
                                         }
                                         spans
                                     })),
                                     row_area,
                                 );
                             }
+                        }
+                    }
+                }
+            }
+
+            if use_main_pill {
+                if let Some(selected_idx) = app.table_state.selected() {
+                    let offset = app.table_state.offset();
+                    if selected_idx >= offset {
+                        let row_in_view = selected_idx - offset;
+                        if row_in_view < table_render_area.height as usize {
+                            let cap_area = Rect::new(
+                                table_render_area.x + table_render_area.width,
+                                table_render_area.y + row_in_view as u16,
+                                1,
+                                1,
+                            );
+                            f.render_widget(
+                                Paragraph::new(Span::styled(
+                                    "",
+                                    Style::default()
+                                        .fg(active_theme.bg_selected)
+                                        .bg(active_theme.bg_panel),
+                                )),
+                                cap_area,
+                            );
                         }
                     }
                 }
@@ -1578,25 +1748,46 @@ pub(crate) fn run_tui_body(
                     {
                         let absolute_idx = offset + display_idx;
                         let is_selected = absolute_idx == selected;
+                        let row_inner_w = body_content_w.saturating_sub(2);
+                        let (left_cap, right_cap) = if is_selected {
+                            (
+                                Span::styled(
+                                    "",
+                                    Style::default()
+                                        .fg(active_theme.bg_selected)
+                                        .bg(active_theme.bg_panel),
+                                ),
+                                Span::styled(
+                                    "",
+                                    Style::default()
+                                        .fg(active_theme.bg_selected)
+                                        .bg(active_theme.bg_panel),
+                                ),
+                            )
+                        } else {
+                            (
+                                Span::styled(" ", Style::default().bg(active_theme.bg_panel)),
+                                Span::styled(" ", Style::default().bg(active_theme.bg_panel)),
+                            )
+                        };
                         let base_style = if is_selected {
                             Style::default()
-                                .fg(Color::White)
-                                .bg(Color::Rgb(60, 60, 60))
+                                .fg(active_theme.text_normal)
+                                .bg(active_theme.bg_selected)
                         } else {
                             Style::default().fg(Color::Rgb(200, 200, 200))
                         };
                         let match_style = if is_selected {
                             Style::default()
-                                .fg(Color::Rgb(255, 240, 170))
-                                .bg(Color::Rgb(60, 60, 60))
+                                .fg(active_theme.warning)
+                                .bg(active_theme.bg_selected)
                                 .add_modifier(Modifier::BOLD)
                         } else {
                             Style::default()
                                 .fg(Color::Rgb(255, 220, 120))
                                 .add_modifier(Modifier::BOLD)
                         };
-                        let marker = "  ";
-                        let mut spans: Vec<Span> = vec![Span::styled(marker, base_style)];
+                        let mut spans: Vec<Span> = vec![left_cap];
 
                         let rel_path_for_icon = match result_idx {
                             InternalSearchResult::Filename { rel_path, .. } => rel_path,
@@ -1623,7 +1814,7 @@ pub(crate) fn run_tui_body(
                         );
                         let icon_span = if app.show_icons && !icon_glyph.is_empty() {
                             let adjusted_icon_style = if is_selected {
-                                icon_style.bg(Color::Rgb(60, 60, 60))
+                                icon_style.bg(active_theme.bg_selected)
                             } else {
                                 icon_style
                             };
@@ -1711,13 +1902,14 @@ pub(crate) fn run_tui_body(
                                 .iter()
                                 .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
                                 .sum();
-                            if body_content_w > used_w {
+                            if row_inner_w > used_w {
                                 spans.push(Span::styled(
-                                    " ".repeat(body_content_w - used_w),
+                                    " ".repeat(row_inner_w - used_w),
                                     base_style,
                                 ));
                             }
                         }
+                        spans.push(right_cap);
 
                         lines.push(Line::from(spans));
                     }
@@ -2182,6 +2374,7 @@ pub(crate) fn run_tui_body(
             } else if app.mode == AppMode::SshPicker {
                 let ssh_popup_w = tab_overlay_anchor.width;
                 let ssh_content_w = ssh_popup_w.saturating_sub(2) as usize;
+                let ssh_row_inner_w = ssh_content_w.saturating_sub(2);
                 let content_w = ssh_popup_w.saturating_sub(4) as usize;
                 let type_w = 6usize;
                 let mounted_w = 10usize;
@@ -2248,8 +2441,8 @@ pub(crate) fn run_tui_body(
                         let label = format!(" {} {} {}{}", type_col, alias_col, detail_col, mount_tag);
                         let label = if is_selected {
                             let used_w = UnicodeWidthStr::width(label.as_str());
-                            if ssh_content_w > used_w {
-                                format!("{}{}", label, " ".repeat(ssh_content_w - used_w))
+                            if ssh_row_inner_w > used_w {
+                                format!("{}{}", label, " ".repeat(ssh_row_inner_w - used_w))
                             } else {
                                 label
                             }
@@ -2257,13 +2450,41 @@ pub(crate) fn run_tui_body(
                             label
                         };
                         let style = if is_selected {
-                            Style::default().fg(Color::White).bg(Color::Rgb(60, 60, 60)).add_modifier(Modifier::BOLD)
+                            Style::default()
+                                .fg(active_theme.text_normal)
+                                .bg(active_theme.bg_selected)
+                                .add_modifier(Modifier::BOLD)
                         } else if is_mounted {
                             Style::default().fg(Color::Rgb(80, 220, 160))
                         } else {
                             Style::default().fg(Color::Rgb(200, 200, 200))
                         };
-                        lines.push(Line::from(Span::styled(label, style)));
+                        let (left_cap, right_cap) = if is_selected {
+                            (
+                                Span::styled(
+                                    "",
+                                    Style::default()
+                                        .fg(active_theme.bg_selected)
+                                        .bg(active_theme.bg_panel),
+                                ),
+                                Span::styled(
+                                    "",
+                                    Style::default()
+                                        .fg(active_theme.bg_selected)
+                                        .bg(active_theme.bg_panel),
+                                ),
+                            )
+                        } else {
+                            (
+                                Span::styled(" ", Style::default().bg(active_theme.bg_panel)),
+                                Span::styled(" ", Style::default().bg(active_theme.bg_panel)),
+                            )
+                        };
+                        lines.push(Line::from(vec![
+                            left_cap,
+                            Span::styled(label, style),
+                            right_cap,
+                        ]));
                     }
                 }
                 let ssh_h = (lines.len() as u16 + 4).max(8).min(tab_overlay_anchor.height);
