@@ -1,6 +1,6 @@
 [package]
 name = "sbrs"
-version = "0.6.5"
+version = "0.6.8"
 edition = "2024"
 description = "Shell Buddy (sb)"
 repository = "https://github.com/hjelev/sbrs"
@@ -22,9 +22,6 @@ unicode-width = "0.2"
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["gif", "ico", "jpeg", "png", "webp"] }
 icy_sixel = "0.5"
-
-[dev-dependencies]
-temp_env = "0.3"
 
 
 [profile.release]

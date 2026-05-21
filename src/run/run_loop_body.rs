@@ -469,7 +469,36 @@ pub(crate) fn run_tui_body(
                 (content_area, None)
             };
 
-            let build_panel_title = |path: &_, path_text: String, editing: bool| -> Line {
+            let truncate_to_display_width = |s: &str, max_width: usize| -> String {
+                if max_width == 0 {
+                    return String::new();
+                }
+
+                let full_width = UnicodeWidthStr::width(s);
+                if full_width <= max_width {
+                    return s.to_string();
+                }
+
+                if max_width == 1 {
+                    return "…".to_string();
+                }
+
+                let mut out = String::new();
+                let mut used = 0usize;
+                for ch in s.chars() {
+                    let ch_s = ch.to_string();
+                    let ch_width = UnicodeWidthStr::width(ch_s.as_str());
+                    if used + ch_width >= max_width {
+                        break;
+                    }
+                    out.push(ch);
+                    used += ch_width;
+                }
+                out.push('…');
+                out
+            };
+
+            let build_panel_title = |path: &_, path_text: String, editing: bool, title_width: u16| -> Line {
                 let is_symlink = fs::symlink_metadata(path)
                     .map(|m| m.file_type().is_symlink())
                     .unwrap_or(false);
@@ -480,6 +509,16 @@ pub(crate) fn run_tui_body(
                     is_symlink,
                 );
 
+                let title_inner_width = title_width.saturating_sub(2) as usize;
+                let icon_width = if folder_icon.is_empty() {
+                    0
+                } else {
+                    UnicodeWidthStr::width(folder_icon.as_str()) + 1
+                };
+                let prefix_width = 1 + icon_width;
+                let text_max_width = title_inner_width.saturating_sub(prefix_width).max(1);
+                let display_text = truncate_to_display_width(&path_text, text_max_width);
+
                 let mut title_spans: Vec<Span> = Vec::new();
                 title_spans.push(Span::raw(" "));
                 if !folder_icon.is_empty() {
@@ -488,13 +527,17 @@ pub(crate) fn run_tui_body(
                 }
                 if editing {
                     title_spans.push(Span::styled(
-                        path_text,
+                        display_text.clone(),
                         Style::default().fg(Color::Rgb(255, 220, 120)),
                     ));
                 } else {
-                    title_spans.push(Span::styled(path_text, Style::default().fg(Color::White)));
+                    title_spans.push(Span::styled(display_text.clone(), Style::default().fg(Color::White)));
                 }
-                title_spans.push(Span::raw(" "));
+
+                let used_width = prefix_width + UnicodeWidthStr::width(display_text.as_str());
+                if used_width < title_inner_width {
+                    title_spans.push(Span::raw(" "));
+                }
                 Line::from(title_spans)
             };
 
@@ -508,6 +551,7 @@ pub(crate) fn run_tui_body(
                     &app.current_dir,
                     path_text,
                     app.mode == AppMode::PathEditing,
+                    list_frame_area.width,
                 );
 
                 let left_border_color = if app.is_dual_panel_mode() {
@@ -780,7 +824,7 @@ pub(crate) fn run_tui_body(
                 if let Some(entry_cache) = app.entry_render_cache.get(selected_idx) {
                     let tree_prefix = app.tree_row_prefixes.get(selected_idx).map(|s| s.as_str()).unwrap_or("");
                     let full_name = entry_cache.raw_name.as_str();
-                    let prefix_width_for_check = tree_prefix.chars().count() + (if app.is_dual_panel_mode() && !tree_prefix.is_empty() { 1 } else { 0 });
+                    let prefix_width_for_check = tree_prefix.chars().count();
                     if prefix_width_for_check + full_name.chars().count() > file_name_width {
                         let offset = app.table_state.offset();
                         if selected_idx >= offset {
@@ -823,19 +867,10 @@ pub(crate) fn run_tui_body(
                                             spans.push(Span::raw(marker));
                                         }
                                         if !tree_prefix.is_empty() {
-                                            let adjusted_prefix = if app.is_dual_panel_mode() {
-                                                format!(" {}", tree_prefix)
-                                            } else {
-                                                tree_prefix.to_string()
-                                            };
-                                            spans.push(Span::styled(adjusted_prefix, tree_style));
+                                            spans.push(Span::styled(tree_prefix.to_string(), tree_style));
                                         }
                                         if app.show_icons {
-                                            let icon_text = if app.is_preview_mode() || app.is_dual_panel_mode() {
-                                                format!(" {} ", entry_cache.icon_glyph)
-                                            } else {
-                                                format!("{} ", entry_cache.icon_glyph)
-                                            };
+                                            let icon_text = format!("{} ", entry_cache.icon_glyph);
                                             spans.push(Span::styled(icon_text, icon_style));
                                         }
                                         spans.push(Span::styled(full_name.to_string(), name_style));
@@ -923,14 +958,31 @@ pub(crate) fn run_tui_body(
                         app.nerd_font_active,
                         is_symlink,
                     );
+                    let title_width = preview_area.width.saturating_sub(2) as usize;
+                    let icon_width = if icon_glyph.is_empty() {
+                        0
+                    } else {
+                        UnicodeWidthStr::width(icon_glyph.as_str()) + 1
+                    };
+                    let prefix_width = 1 + icon_width;
+                    let name_max_width = title_width.saturating_sub(prefix_width).max(1);
+                    let display_name = truncate_to_display_width(&name, name_max_width);
+
                     let mut spans = Vec::new();
                     spans.push(Span::raw(" "));
                     if !icon_glyph.is_empty() {
                         spans.push(Span::styled(icon_glyph, icon_style));
                         spans.push(Span::raw(" "));
                     }
-                    spans.push(Span::styled(name, Style::default().fg(Color::Rgb(220, 220, 220))));
-                    spans.push(Span::raw(" "));
+                    spans.push(Span::styled(
+                        display_name.clone(),
+                        Style::default().fg(Color::Rgb(220, 220, 220)),
+                    ));
+
+                    let used_width = prefix_width + UnicodeWidthStr::width(display_name.as_str());
+                    if used_width < title_width {
+                        spans.push(Span::raw(" "));
+                    }
                     Line::from(spans)
                 } else {
                     Line::from(Span::raw(" Preview "))
@@ -1087,6 +1139,7 @@ pub(crate) fn run_tui_body(
                         &right_path,
                         app.display_path_for(&right_path),
                         false,
+                        preview_area.width,
                     );
 
                     let right_block = Block::default()
