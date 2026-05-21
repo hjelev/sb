@@ -1685,6 +1685,7 @@ IFS= read -rsn1 _
     }
 
     fn create_entries_from_input(&mut self, default_is_dir: bool) {
+        let target_dir = self.active_panel_dir();
         let mut specs: Vec<(String, bool)> = Vec::new();
         for raw_line in self.input_buffer.lines() {
             let line = raw_line.trim();
@@ -1711,7 +1712,7 @@ IFS= read -rsn1 _
         let mut first_error: Option<String> = None;
 
         for (name, is_dir) in specs {
-            let target = self.current_dir.join(&name);
+            let target = target_dir.join(&name);
             if target.exists() {
                 failed += 1;
                 if first_error.is_none() {
@@ -1748,9 +1749,26 @@ IFS= read -rsn1 _
         let last_created = created.last().cloned();
         self.mode = AppMode::Browsing;
         self.clear_input_edit();
-        self.refresh_entries_or_status();
-        if let Some(name) = last_created {
-            self.select_entry_named(&name);
+        if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
+            if self.refresh_right_panel_entries().is_err() {
+                self.set_status("refresh failed");
+                return;
+            }
+            if let Some(name) = last_created {
+                if let Some(index) = self
+                    .right_entries
+                    .iter()
+                    .position(|entry| entry.file_name().to_string_lossy() == name)
+                {
+                    self.right_selected_index = index;
+                    self.right_table_state.select(Some(index));
+                }
+            }
+        } else {
+            self.refresh_entries_or_status();
+            if let Some(name) = last_created {
+                self.select_entry_named(&name);
+            }
         }
 
         if failed == 0 {
