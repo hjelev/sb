@@ -300,7 +300,7 @@ impl App {
         if status.success() {
             Self::wait_for_mount_ready(&mount_dir);
             let remote_os_icon = ui::icons::remote_os_nerd_icon(&mount_dir)
-                .map(|(g, (r, g2, b))| (g, Color::Rgb(r, g2, b)));
+                .map(|(g, _)| (g, ui::theme::theme_spec(self.active_theme).icon_os));
             self.ssh_mounts.push(SshMount {
                 _host_alias: name.to_string(),
                 mount_path: mount_dir.clone(),
@@ -318,7 +318,7 @@ impl App {
         }
     }
 
-    pub(crate) fn detect_ssh_remote_os_icon(host: &SshHost) -> Option<(&'static str, Color)> {
+    pub(crate) fn detect_ssh_remote_os_icon(host: &SshHost, theme_id: crate::ui::theme::ThemeId) -> Option<(&'static str, Color)> {
         let target = match &host.user {
             Some(u) => format!("{}@{}", u, host.hostname),
             None => host.hostname.clone(),
@@ -337,7 +337,7 @@ impl App {
         }
         let content = String::from_utf8_lossy(&output.stdout);
         ui::icons::os_nerd_icon_from_os_release_content(content.as_ref())
-            .map(|(g, (r, g2, b))| (g, Color::Rgb(r, g2, b)))
+            .map(|(g, _)| (g, ui::theme::theme_spec(theme_id).icon_os))
     }
 
     pub(crate) fn mount_ssh_host(&mut self, host: &SshHost) -> io::Result<()> {
@@ -348,7 +348,7 @@ impl App {
         {
             existing.return_dir = self.current_dir.clone();
             if existing.remote_os_icon.is_none() {
-                existing.remote_os_icon = Self::detect_ssh_remote_os_icon(host);
+                existing.remote_os_icon = Self::detect_ssh_remote_os_icon(host, self.active_theme);
             }
             let mount_path = existing.mount_path.clone();
             self.mode = AppMode::Browsing;
@@ -382,8 +382,8 @@ impl App {
                 None => host.hostname.clone(),
             };
             let remote_os_icon = ui::icons::remote_os_nerd_icon(&mount_dir)
-                .map(|(g, (r, g2, b))| (g, Color::Rgb(r, g2, b)))
-                .or_else(|| Self::detect_ssh_remote_os_icon(host));
+                .map(|(g, _)| (g, ui::theme::theme_spec(self.active_theme).icon_os))
+                .or_else(|| Self::detect_ssh_remote_os_icon(host, self.active_theme));
             self.ssh_mounts.push(SshMount {
                 _host_alias: host.alias.clone(),
                 mount_path: mount_dir.clone(),

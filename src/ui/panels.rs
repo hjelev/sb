@@ -1,4 +1,5 @@
 use crate::integration::rows::IntegrationRow;
+use crate::ui::theme::{theme_spec, ThemeId, THEMES};
 use crate::SortMode;
 use ratatui::{
     prelude::*,
@@ -14,12 +15,14 @@ const PANEL_TABS: &[(&str, u8)] = &[
     (" Remote Mounts ", 3),
     (" Sorting ", 4),
     (" Integrations ", 5),
+    (" Themes ", 6),
 ];
 
-pub fn panel_tab_bar_line(active: u8) -> Line<'static> {
-    let active_style = Style::default().fg(Color::White).add_modifier(Modifier::BOLD);
-    let inactive_style = Style::default().fg(Color::Rgb(100, 100, 100));
-    let sep_style = Style::default().fg(Color::Rgb(80, 200, 180));
+pub fn panel_tab_bar_line(active: u8, theme_id: ThemeId) -> Line<'static> {
+    let spec = theme_spec(theme_id);
+    let active_style = Style::default().fg(spec.text_normal).add_modifier(Modifier::BOLD);
+    let inactive_style = Style::default().fg(Color::Rgb(120, 120, 120));
+    let sep_style = Style::default().fg(spec.divider);
     let mut spans: Vec<Span<'static>> = Vec::new();
     for (i, (label, idx)) in PANEL_TABS.iter().enumerate() {
         if i > 0 {
@@ -56,10 +59,14 @@ pub fn panel_tab_hit_test(relative_x: u16) -> Option<u8> {
     None
 }
 
-pub fn shortcut_footer_line(entries: &[(&'static str, &'static str)]) -> Line<'static> {
-    let shortcut_style = Style::default().fg(Color::White);
+pub fn shortcut_footer_line(
+    entries: &[(&'static str, &'static str)],
+    theme_id: ThemeId,
+) -> Line<'static> {
+    let spec = theme_spec(theme_id);
+    let shortcut_style = Style::default().fg(spec.text_normal);
     let desc_style = Style::default().fg(Color::DarkGray);
-    let sep_style = Style::default().fg(Color::DarkGray);
+    let sep_style = Style::default().fg(spec.divider);
     let mut spans: Vec<Span<'static>> = vec![Span::raw(" ")];
 
     for (idx, (shortcut, description)) in entries.iter().enumerate() {
@@ -74,8 +81,11 @@ pub fn shortcut_footer_line(entries: &[(&'static str, &'static str)]) -> Line<'s
     Line::from(spans)
 }
 
-pub fn shortcut_footer_lines(entries: &[(&'static str, &'static str)]) -> Vec<Line<'static>> {
-    vec![Line::from(""), shortcut_footer_line(entries)]
+pub fn shortcut_footer_lines(
+    entries: &[(&'static str, &'static str)],
+    theme_id: ThemeId,
+) -> Vec<Line<'static>> {
+    vec![Line::from(""), shortcut_footer_line(entries, theme_id)]
 }
 
 pub fn render_integrations_overlay(
@@ -83,9 +93,11 @@ pub fn render_integrations_overlay(
     area: Rect,
     tab_overlay_anchor: Rect,
     panel_tab: u8,
+    theme_id: ThemeId,
     integrations: &[IntegrationRow],
     integration_selected: usize,
 ) {
+    let spec = theme_spec(theme_id);
     let int_w = (area.width * 5 / 6).max(70).min(tab_overlay_anchor.width);
     let int_content_w = int_w.saturating_sub(2) as usize;
 
@@ -111,9 +123,9 @@ pub fn render_integrations_overlay(
             Style::default().fg(Color::Rgb(220, 80, 80))
         };
         let base_style = if is_selected {
-            Style::default().bg(Color::Rgb(60, 60, 60)).fg(Color::White)
+            Style::default().bg(spec.bg_selected).fg(spec.text_normal)
         } else {
-            Style::default().fg(Color::Rgb(190, 190, 190))
+            Style::default().fg(spec.text_normal)
         };
         let name_text = format!("  {:<12}", row.label);
         let state_text = format!(" {:<10}", row.state);
@@ -164,15 +176,16 @@ pub fn render_integrations_overlay(
     let int_block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .title(panel_tab_bar_line(panel_tab))
-        .title_style(Style::default().fg(Color::White))
-        .border_style(Style::default().fg(Color::Rgb(80, 200, 180)));
+        .title(panel_tab_bar_line(panel_tab, theme_id))
+        .title_style(Style::default().fg(spec.text_normal))
+        .style(Style::default().bg(spec.bg_panel).fg(spec.text_normal))
+        .border_style(Style::default().fg(spec.divider));
     let int_inner = int_block.inner(int_area);
     f.render_widget(int_block, int_area);
     f.render_widget(
         Paragraph::new(Span::styled(
             "x",
-            Style::default().fg(Color::Rgb(170, 170, 170)),
+            Style::default().fg(spec.text_normal),
         )),
         Rect::new(
             int_area.x + int_area.width.saturating_sub(2),
@@ -250,7 +263,7 @@ pub fn render_integrations_overlay(
             ("Enter", "install missing"),
             ("Tab", "switch tabs"),
             ("Esc", "close"),
-        ])),
+        ], theme_id)),
         int_chunks[1],
     );
 }
@@ -259,8 +272,10 @@ pub fn render_help_overlay(
     f: &mut Frame,
     tab_overlay_anchor: Rect,
     panel_tab: u8,
+    theme_id: ThemeId,
     help_scroll_offset: u16,
 ) -> (u16, u16) {
+    let spec = theme_spec(theme_id);
     let help_w = tab_overlay_anchor.width;
     let inner_w = help_w.saturating_sub(4) as usize;
     let shortcut_w = inner_w.clamp(10, 18);
@@ -386,15 +401,16 @@ pub fn render_help_overlay(
     let help_block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .title(panel_tab_bar_line(panel_tab))
-        .title_style(Style::default().fg(Color::White))
-        .border_style(Style::default().fg(Color::Rgb(80, 200, 180)));
+        .title(panel_tab_bar_line(panel_tab, theme_id))
+        .title_style(Style::default().fg(spec.text_normal))
+        .style(Style::default().bg(spec.bg_panel).fg(spec.text_normal))
+        .border_style(Style::default().fg(spec.divider));
     let help_inner = help_block.inner(help_area);
     f.render_widget(help_block, help_area);
     f.render_widget(
         Paragraph::new(Span::styled(
             "x",
-            Style::default().fg(Color::Rgb(170, 170, 170)),
+            Style::default().fg(spec.text_normal),
         )),
         Rect::new(
             help_area.x + help_area.width.saturating_sub(2),
@@ -473,7 +489,7 @@ pub fn render_help_overlay(
             ("↑↓", "navigate"),
             ("Tab", "switch tabs"),
             ("Esc", "close"),
-        ])),
+        ], theme_id)),
         help_footer_area,
     );
 
@@ -484,16 +500,18 @@ pub fn render_bookmarks_overlay(
     f: &mut Frame,
     tab_overlay_anchor: Rect,
     panel_tab: u8,
+    theme_id: ThemeId,
     bookmarks: &[(usize, Option<PathBuf>)],
     bookmark_selected: usize,
 ) {
+    let spec = theme_spec(theme_id);
     let mut lines: Vec<Line> = vec![Line::from("")];
     let bm_w = tab_overlay_anchor.width;
     let bm_content_w = bm_w.saturating_sub(2) as usize;
     for (row_idx, (i, path)) in bookmarks.iter().enumerate() {
         let is_selected = row_idx == bookmark_selected;
         let base_style = if is_selected {
-            Style::default().bg(Color::Rgb(60, 60, 60)).fg(Color::White)
+            Style::default().bg(spec.bg_selected).fg(spec.text_normal)
         } else {
             Style::default()
         };
@@ -537,15 +555,16 @@ pub fn render_bookmarks_overlay(
     let bm_block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .title(panel_tab_bar_line(panel_tab))
-        .title_style(Style::default().fg(Color::White))
-        .border_style(Style::default().fg(Color::Rgb(80, 200, 180)));
+        .title(panel_tab_bar_line(panel_tab, theme_id))
+        .title_style(Style::default().fg(spec.text_normal))
+        .style(Style::default().bg(spec.bg_panel).fg(spec.text_normal))
+        .border_style(Style::default().fg(spec.divider));
     let bm_inner = bm_block.inner(bm_area);
     f.render_widget(bm_block, bm_area);
     f.render_widget(
         Paragraph::new(Span::styled(
             "x",
-            Style::default().fg(Color::Rgb(170, 170, 170)),
+            Style::default().fg(spec.text_normal),
         )),
         Rect::new(
             bm_area.x + bm_area.width.saturating_sub(2),
@@ -565,7 +584,7 @@ pub fn render_bookmarks_overlay(
             ("Enter/0-9", "jump"),
             ("Tab", "switch tabs"),
             ("Esc", "close"),
-        ])),
+        ], theme_id)),
         bm_chunks[1],
     );
 }
@@ -574,11 +593,13 @@ pub fn render_sort_overlay(
     f: &mut Frame,
     tab_overlay_anchor: Rect,
     panel_tab: u8,
+    theme_id: ThemeId,
     options: &[SortMode],
     sort_menu_selected: usize,
     current_sort_mode: SortMode,
     nerd_font_active: bool,
 ) {
+    let spec = theme_spec(theme_id);
     let sort_w = tab_overlay_anchor.width;
     let sort_content_w = sort_w.saturating_sub(2) as usize;
     let mut lines: Vec<Line> = vec![Line::from("")];
@@ -611,11 +632,11 @@ pub fn render_sort_overlay(
             row_text
         };
         let style = if is_selected {
-            Style::default().bg(Color::Rgb(60, 60, 60)).fg(Color::White)
+            Style::default().bg(spec.bg_selected).fg(spec.text_normal)
         } else if is_current {
-            Style::default().fg(Color::Rgb(255, 220, 140))
+            Style::default().fg(spec.warning)
         } else {
-            Style::default().fg(Color::Rgb(190, 190, 190))
+            Style::default().fg(spec.text_normal)
         };
         lines.push(Line::from(Span::styled(row_text, style)));
     }
@@ -631,15 +652,16 @@ pub fn render_sort_overlay(
     let sort_block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .title(panel_tab_bar_line(panel_tab))
-        .title_style(Style::default().fg(Color::White))
-        .border_style(Style::default().fg(Color::Rgb(80, 200, 180)));
+        .title(panel_tab_bar_line(panel_tab, theme_id))
+        .title_style(Style::default().fg(spec.text_normal))
+        .style(Style::default().bg(spec.bg_panel).fg(spec.text_normal))
+        .border_style(Style::default().fg(spec.divider));
     let sort_inner = sort_block.inner(sort_area);
     f.render_widget(sort_block, sort_area);
     f.render_widget(
         Paragraph::new(Span::styled(
             "x",
-            Style::default().fg(Color::Rgb(170, 170, 170)),
+            Style::default().fg(spec.text_normal),
         )),
         Rect::new(
             sort_area.x + sort_area.width.saturating_sub(2),
@@ -659,7 +681,94 @@ pub fn render_sort_overlay(
             ("Enter", "apply"),
             ("Tab", "switch tabs"),
             ("Esc", "close"),
-        ])),
+        ], theme_id)),
         sort_chunks[1],
+    );
+}
+
+pub fn render_themes_overlay(
+    f: &mut Frame,
+    tab_overlay_anchor: Rect,
+    panel_tab: u8,
+    theme_id: ThemeId,
+    selected: usize,
+) {
+    let current = theme_spec(theme_id);
+    let theme_w = tab_overlay_anchor.width;
+    let mut lines: Vec<Line> = vec![Line::from("")];
+    for (idx, theme) in THEMES.iter().enumerate() {
+        let is_selected = idx == selected;
+        let is_applied = theme.id == theme_id;
+        let spec = theme_spec(theme.id);
+        let base_style = if is_selected {
+            Style::default().bg(current.bg_selected).fg(current.text_normal)
+        } else {
+            Style::default().fg(current.text_normal)
+        };
+        let row_text = format!(
+            " {:<12} {}",
+            theme.name,
+            if is_applied { "[x]" } else { "[ ]" }
+        );
+        let swatch_bg = if is_selected {
+            Style::default().bg(current.bg_selected)
+        } else {
+            Style::default()
+        };
+        let row = vec![
+            Span::styled(row_text, base_style),
+            Span::styled("  ", swatch_bg),
+            Span::styled("bg", Style::default().bg(spec.bg_panel).fg(spec.text_normal)),
+            Span::styled(" ", swatch_bg),
+            Span::styled("██", swatch_bg.fg(spec.text_normal)),
+            Span::styled(" ", swatch_bg),
+            Span::styled("██", swatch_bg.fg(spec.accent_primary)),
+            Span::styled(" ", swatch_bg),
+            Span::styled("██", swatch_bg.fg(spec.success)),
+            Span::styled(" ", swatch_bg),
+            Span::styled("██", swatch_bg.fg(spec.warning)),
+            Span::styled(" ", swatch_bg),
+            Span::styled("██", swatch_bg.fg(spec.error)),
+        ];
+        lines.push(Line::from(row));
+    }
+
+    let theme_h = (lines.len() as u16 + 7).max(12).min(tab_overlay_anchor.height);
+    let theme_area = Rect::new(tab_overlay_anchor.x, tab_overlay_anchor.y, theme_w, theme_h);
+    f.render_widget(Clear, theme_area);
+    let theme_block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title(panel_tab_bar_line(panel_tab, theme_id))
+        .title_style(Style::default().fg(current.text_normal))
+        .style(Style::default().bg(current.bg_panel).fg(current.text_normal))
+        .border_style(Style::default().fg(current.divider));
+    let theme_inner = theme_block.inner(theme_area);
+    f.render_widget(theme_block, theme_area);
+    f.render_widget(
+        Paragraph::new(Span::styled(
+            "x",
+            Style::default().fg(current.text_normal),
+        )),
+        Rect::new(
+            theme_area.x + theme_area.width.saturating_sub(2),
+            theme_area.y,
+            1,
+            1,
+        ),
+    );
+    let theme_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(2)])
+        .split(theme_inner);
+    f.render_widget(Paragraph::new(lines), theme_chunks[0]);
+    f.render_widget(
+        Paragraph::new(shortcut_footer_lines(&[
+            ("↑↓", "select"),
+            ("Enter/Space", "apply"),
+            ("T", "open themes"),
+            ("Esc", "close"),
+        ], theme_id)),
+        theme_chunks[1],
     );
 }

@@ -162,6 +162,8 @@ struct App {
     sort_mode: SortMode,
     sort_menu_selected: usize,
     panel_tab: u8,
+    active_theme: ui::theme::ThemeId,
+    theme_selected: usize,
     internal_search_candidates: Vec<PathBuf>,
     internal_search_results: Vec<InternalSearchResult>,
     internal_search_selected: usize,
@@ -331,7 +333,9 @@ impl App {
             archive_started_at: None,
             archive_name: String::new(),
             nerd_font_active: env::var("NERD_FONT_ACTIVE").map(|v| v == "1").unwrap_or(false),
-            os_icon: ui::icons::os_nerd_icon().map(|(g, (r, g2, b))| (g, Color::Rgb(r, g2, b))),
+            os_icon: ui::icons::os_nerd_icon().map(|(g, _)| {
+                (g, ui::theme::theme_spec(ui::theme::ThemeId::Original).icon_os)
+            }),
             no_color: env_flag_true(&["NO_COLOR"]),
             show_icons: env::var("TERMINAL_ICONS").map(|v| v != "0").unwrap_or(true),
             integration_selected: 0,
@@ -384,6 +388,8 @@ impl App {
             sort_mode: SortMode::NameAsc,
             sort_menu_selected: 0,
             panel_tab: 0,
+            active_theme: ui::theme::ThemeId::Original,
+            theme_selected: 0,
             internal_search_candidates: Vec::new(),
             internal_search_results: Vec::new(),
             internal_search_selected: 0,
@@ -456,6 +462,7 @@ impl App {
             }
             _ => {}
         }
+        app.set_active_theme(ui::theme::theme_by_name(&persist.current_theme));
         Ok(app)
     }
 
@@ -534,6 +541,7 @@ impl App {
         use_resvg: bool,
         show_icons: bool,
         nerd_font_active: bool,
+        theme_id: ui::theme::ThemeId,
     ) -> PreviewContentMsg {
         if path.is_dir() {
             let mut entries = Vec::new();
@@ -585,6 +593,7 @@ impl App {
                     show_icons,
                     nerd_font_active,
                     is_symlink,
+                    theme_id,
                 );
                 let icon_prefix = if show_icons && !icon_glyph.is_empty() {
                     format!(" {} ", icon_glyph)
@@ -960,7 +969,11 @@ IFS= read -rsn1 _
         };
         Self::sort_entries_by_mode(&mut self.entries, self.sort_mode, folder_size_cache);
 
-        let config = EntryRenderConfig { nerd_font_active: self.nerd_font_active, show_icons: self.show_icons };
+        let config = EntryRenderConfig {
+            nerd_font_active: self.nerd_font_active,
+            show_icons: self.show_icons,
+            theme_id: self.active_theme,
+        };
         let uid_cache = App::build_uid_cache(&self.entries);
         let gid_cache = App::build_gid_cache(&self.entries);
             self.entry_render_cache = self.entries.iter()
@@ -993,6 +1006,46 @@ IFS= read -rsn1 _
         self.panel_tab = 4;
         self.sort_menu_selected = Self::sort_mode_index(self.sort_mode);
         self.mode = AppMode::SortMenu;
+    }
+
+    fn set_active_theme(&mut self, theme_id: ui::theme::ThemeId) {
+        self.active_theme = theme_id;
+        self.theme_selected = ui::theme::THEMES
+            .iter()
+            .position(|theme| theme.id == theme_id)
+            .unwrap_or(0);
+        self.os_icon = ui::icons::os_nerd_icon().map(|(glyph, _)| {
+            (glyph, ui::theme::theme_spec(theme_id).icon_os)
+        });
+        self.rebuild_render_caches();
+    }
+
+    fn rebuild_render_caches(&mut self) {
+        let config = EntryRenderConfig {
+            nerd_font_active: self.nerd_font_active,
+            show_icons: self.show_icons,
+            theme_id: self.active_theme,
+        };
+        let uid_cache = App::build_uid_cache(&self.entries);
+        let gid_cache = App::build_gid_cache(&self.entries);
+        self.entry_render_cache = self.entries
+            .iter()
+            .map(|entry| App::build_entry_render_cache(entry, config, &uid_cache, &gid_cache))
+            .collect();
+        if !self.right_entries.is_empty() {
+            let uid_cache_r = App::build_uid_cache(&self.right_entries);
+            let gid_cache_r = App::build_gid_cache(&self.right_entries);
+            self.right_entry_render_cache = self.right_entries
+                .iter()
+                .map(|entry| App::build_entry_render_cache(entry, config, &uid_cache_r, &gid_cache_r))
+                .collect();
+        }
+    }
+
+    fn apply_selected_theme(&mut self) {
+        if let Some(theme) = ui::theme::THEMES.get(self.theme_selected) {
+            self.set_active_theme(theme.id);
+        }
     }
 
     fn commit_sort_menu_choice(&mut self) {
@@ -1365,7 +1418,7 @@ IFS= read -rsn1 _
         if status.success() {
             Self::wait_for_mount_ready(&mount_dir);
             let remote_os_icon = ui::icons::remote_os_nerd_icon(&mount_dir)
-                .map(|(g, (r, g2, b))| (g, Color::Rgb(r, g2, b)));
+                .map(|(g, _)| (g, ui::theme::theme_spec(self.active_theme).icon_os));
             self.ssh_mounts.push(SshMount {
                 _host_alias: name.to_string(),
                 mount_path: mount_dir.clone(),
@@ -1383,7 +1436,7 @@ IFS= read -rsn1 _
         }
     }
 
-    fn detect_ssh_remote_os_icon(host: &SshHost) -> Option<(&'static str, Color)> {
+    fn detect_ssh_remote_os_icon(host: &SshHost, theme_id: ui::theme::ThemeId) -> Option<(&'static str, Color)> {
         let target = match &host.user {
             Some(u) => format!("{}@{}", u, host.hostname),
             None => host.hostname.clone(),
@@ -1402,7 +1455,7 @@ IFS= read -rsn1 _
         }
         let content = String::from_utf8_lossy(&output.stdout);
         ui::icons::os_nerd_icon_from_os_release_content(content.as_ref())
-            .map(|(g, (r, g2, b))| (g, Color::Rgb(r, g2, b)))
+            .map(|(g, _)| (g, ui::theme::theme_spec(theme_id).icon_os))
     }
 
     fn mount_ssh_host(&mut self, host: &SshHost) -> io::Result<()> {
@@ -1411,7 +1464,7 @@ IFS= read -rsn1 _
         if let Some(existing) = self.ssh_mounts.iter_mut().find(|m| m._host_alias == host.alias) {
             existing.return_dir = return_dir.clone();
             if existing.remote_os_icon.is_none() {
-                existing.remote_os_icon = Self::detect_ssh_remote_os_icon(host);
+                existing.remote_os_icon = Self::detect_ssh_remote_os_icon(host, self.active_theme);
             }
             let mount_path = existing.mount_path.clone();
             self.mode = AppMode::Browsing;
@@ -1445,8 +1498,8 @@ IFS= read -rsn1 _
                 None => host.hostname.clone(),
             };
             let remote_os_icon = ui::icons::remote_os_nerd_icon(&mount_dir)
-                .map(|(g, (r, g2, b))| (g, Color::Rgb(r, g2, b)))
-                .or_else(|| Self::detect_ssh_remote_os_icon(host));
+                .map(|(g, _)| (g, ui::theme::theme_spec(self.active_theme).icon_os))
+                .or_else(|| Self::detect_ssh_remote_os_icon(host, self.active_theme));
             self.ssh_mounts.push(SshMount {
                 _host_alias: host.alias.clone(),
                 mount_path: mount_dir.clone(),
@@ -2135,7 +2188,11 @@ IFS= read -rsn1 _
         } else {
             vec![String::new(); self.entries.len()]
         };
-        let config = EntryRenderConfig { nerd_font_active: self.nerd_font_active, show_icons: self.show_icons };
+        let config = EntryRenderConfig {
+            nerd_font_active: self.nerd_font_active,
+            show_icons: self.show_icons,
+            theme_id: self.active_theme,
+        };
         let uid_cache = App::build_uid_cache(&self.entries);
         let gid_cache = App::build_gid_cache(&self.entries);
             self.entry_render_cache = self.entries.iter()
@@ -3731,8 +3788,8 @@ IFS= read -rsn1 _
         }
     }
 
-    fn panel_tab_bar_line(active: u8) -> Line<'static> {
-        ui::panels::panel_tab_bar_line(active)
+    fn panel_tab_bar_line(active: u8, theme_id: ui::theme::ThemeId) -> Line<'static> {
+        ui::panels::panel_tab_bar_line(active, theme_id)
     }
 
     fn panel_tab_hit_test(relative_x: u16) -> Option<u8> {
@@ -3776,6 +3833,7 @@ IFS= read -rsn1 _
                     | (3, AppMode::SshPicker)
                     | (4, AppMode::SortMenu)
                     | (5, AppMode::Integrations)
+                    | (6, AppMode::Themes)
             )
         {
             return;
@@ -3809,6 +3867,14 @@ IFS= read -rsn1 _
                 self.panel_tab = 5;
                 self.mode = AppMode::Integrations;
             }
+            6 => {
+                self.theme_selected = ui::theme::THEMES
+                    .iter()
+                    .position(|theme| theme.id == self.active_theme)
+                    .unwrap_or(0);
+                self.panel_tab = 6;
+                self.mode = AppMode::Themes;
+            }
             _ => {}
         }
     }
@@ -3824,6 +3890,7 @@ IFS= read -rsn1 _
             AppMode::Help
             | AppMode::Bookmarks
             | AppMode::Integrations
+            | AppMode::Themes
             | AppMode::SortMenu
             | AppMode::SshPicker => {
                 self.mode = AppMode::Browsing;
@@ -3839,6 +3906,7 @@ IFS= read -rsn1 _
                 | AppMode::Help
                 | AppMode::Bookmarks
                 | AppMode::Integrations
+                | AppMode::Themes
                 | AppMode::SortMenu
                 | AppMode::SshPicker
         ) {
@@ -3862,6 +3930,7 @@ IFS= read -rsn1 _
                 | AppMode::Help
                 | AppMode::Bookmarks
                 | AppMode::Integrations
+                | AppMode::Themes
                 | AppMode::SortMenu
                 | AppMode::SshPicker
         ) {
@@ -4918,6 +4987,7 @@ fn main() -> io::Result<()> {
     app.cleanup_ssh_mounts();
     let mut persist = util::config::SbPersistConfig::load();
     persist.view_mode = format!("{:?}", app.view_mode);
+    persist.current_theme = ui::theme::theme_name(app.active_theme).to_string();
     let _ = persist.save();
     disable_raw_mode()?;
     execute!(

@@ -145,6 +145,15 @@ pub(crate) fn run_tui_body(
             execute!(terminal.backend_mut(), SetCursorStyle::DefaultUserShape)?;
         }
         terminal.draw(|f| {
+            let active_theme = ui::theme::theme_spec(app.active_theme);
+            f.render_widget(
+                Block::default().style(
+                    Style::default()
+                        .bg(active_theme.bg_panel)
+                        .fg(active_theme.text_normal),
+                ),
+                f.size(),
+            );
             let footer_height = if app.is_preview_mode() || app.is_dual_panel_mode() { 1 } else { 2 };
             let header_reserved_rows = if app.is_preview_mode() || app.is_dual_panel_mode() { 1 } else { 2 };
             let chunks = Layout::default()
@@ -173,32 +182,33 @@ pub(crate) fn run_tui_body(
                 app.current_dir_display_path_with_filter()
             };
             let header_sep = if app.nerd_font_active { "\u{f0256} " } else { " » " };
-            let os_icon_info: Option<(&'static str, Color)> = if app.nerd_font_active {
+            let os_icon_glyph: Option<&'static str> = if app.nerd_font_active {
                 // Use the remote OS icon if we're inside an SSH/rclone mount
-                let active_remote_icon = app.ssh_mounts.iter()
+                app.ssh_mounts.iter()
                     .filter(|m| app.current_dir.starts_with(&m.mount_path))
                     .last()
-                    .and_then(|m| m.remote_os_icon);
-                active_remote_icon.or(app.os_icon)
+                    .and_then(|m| m.remote_os_icon.map(|(glyph, _)| glyph))
+                    .or_else(|| app.os_icon.map(|(glyph, _)| glyph))
             } else {
                 None
             };
+            let os_icon_color = ui::theme::theme_spec(app.active_theme).icon_os;
             let mut middle_spans: Vec<Span> = Vec::new();
             let os_icon_width: u16;
-            if let (Some((glyph, color)), Some((left_identity, right_identity))) =
-                (os_icon_info, header_identity.split_once('@'))
+            if let (Some(glyph), Some((left_identity, right_identity))) =
+                (os_icon_glyph, header_identity.split_once('@'))
             {
                 // Pad icon with a space on each side so the glyph has breathing room
                 // and renders at a readable size across different terminals.
                 let icon_text = format!("{} ", glyph);
                 os_icon_width = UnicodeWidthStr::width(icon_text.as_str()) as u16;
                 middle_spans.push(Span::raw(left_identity.to_string()));
-                middle_spans.push(Span::styled(icon_text, Style::default().fg(color)));
+                middle_spans.push(Span::styled(icon_text, Style::default().fg(os_icon_color)));
                 middle_spans.push(Span::raw(right_identity.to_string()));
             } else {
                 // Fallback: prepend icon (with trailing space) then identity
-                let os_icon_span: Option<Span> = os_icon_info.map(|(glyph, color)| {
-                    Span::styled(format!("{} ", glyph), Style::default().fg(color))
+                let os_icon_span: Option<Span> = os_icon_glyph.map(|glyph| {
+                    Span::styled(format!("{} ", glyph), Style::default().fg(os_icon_color))
                 });
                 os_icon_width = os_icon_span
                     .as_ref()
@@ -220,7 +230,7 @@ pub(crate) fn run_tui_body(
                 Span::styled(
                     header_sep,
                     Style::default()
-                        .fg(Color::Rgb(100, 160, 240))
+                        .fg(active_theme.accent_primary)
                         .add_modifier(Modifier::BOLD),
                 )
             } else {
@@ -232,7 +242,7 @@ pub(crate) fn run_tui_body(
                 vec![
                     header_sep_span,
                     if app.mode == AppMode::PathEditing {
-                        Span::styled(current_display_path.as_str(), Style::default().fg(Color::Rgb(255, 220, 120)))
+                        Span::styled(current_display_path.as_str(), Style::default().fg(active_theme.warning))
                     } else {
                         Span::raw(current_display_path.as_str())
                     },
@@ -507,6 +517,7 @@ pub(crate) fn run_tui_body(
                     app.show_icons,
                     app.nerd_font_active,
                     is_symlink,
+                    app.active_theme,
                 );
 
                 let title_inner_width = title_width.saturating_sub(2) as usize;
@@ -570,6 +581,11 @@ pub(crate) fn run_tui_body(
                     .border_type(BorderType::Rounded)
                     .title(left_title)
                     .border_style(Style::default().fg(left_border_color));
+                let left_block = left_block.style(
+                    Style::default()
+                        .bg(active_theme.bg_panel)
+                        .fg(active_theme.text_normal),
+                );
                 f.render_widget(left_block, list_frame_area);
             }
 
@@ -619,16 +635,16 @@ pub(crate) fn run_tui_body(
             let (selection_style, right_selection_style) = if app.is_dual_panel_mode() {
                 match app.active_panel {
                     crate::DualPanelSide::Left => (
-                        Style::default().bg(Color::Rgb(40, 65, 110)),
+                        Style::default().bg(active_theme.bg_selected),
                         Style::default().bg(Color::Rgb(38, 38, 45)),
                     ),
                     crate::DualPanelSide::Right => (
                         Style::default().bg(Color::Rgb(38, 38, 45)),
-                        Style::default().bg(Color::Rgb(40, 65, 110)),
+                        Style::default().bg(active_theme.bg_selected),
                     ),
                 }
             } else {
-                let s = Style::default().bg(Color::Rgb(50, 50, 50));
+                let s = Style::default().bg(active_theme.bg_selected);
                 (s, s)
             };
             let marker_width = if app.no_color { 3 } else { 0 };
@@ -810,7 +826,7 @@ pub(crate) fn run_tui_body(
                     Paragraph::new(Line::from(Span::styled(
                         "No files or folders yet. Use the 'n' button to break the silence.",
                         Style::default()
-                            .fg(Color::Rgb(140, 140, 140))
+                                .fg(Color::Rgb(140, 140, 140))
                             .add_modifier(Modifier::ITALIC),
                     )))
                     .alignment(Alignment::Left),
@@ -925,7 +941,7 @@ pub(crate) fn run_tui_body(
                     for row in 0..track_h {
                         let in_thumb = row >= thumb_y && row < thumb_y + thumb_h;
                         let (ch, color) = if in_thumb {
-                            ("┃", Color::Rgb(120, 200, 190))
+                            ("┃", active_theme.divider)
                         } else {
                             ("│", Color::DarkGray)
                         };
@@ -957,6 +973,7 @@ pub(crate) fn run_tui_body(
                         app.show_icons,
                         app.nerd_font_active,
                         is_symlink,
+                        app.active_theme,
                     );
                     let title_width = preview_area.width.saturating_sub(2) as usize;
                     let icon_width = if icon_glyph.is_empty() {
@@ -993,10 +1010,11 @@ pub(crate) fn run_tui_body(
                     .border_type(BorderType::Rounded)
                     .title(preview_title)
                     .border_style(Style::default().fg(if app.preview_focus_is_preview() {
-                        Color::White
+                        active_theme.accent_primary
                     } else {
                         Color::DarkGray
-                    }));
+                    }))
+                    .style(Style::default().bg(active_theme.bg_panel).fg(active_theme.text_normal));
                 let preview_inner = preview_block.inner(preview_area);
                 f.render_widget(preview_block, preview_area);
 
@@ -1120,7 +1138,7 @@ pub(crate) fn run_tui_body(
                         for row in 0..track_h {
                             let in_thumb = row >= thumb_y && row < thumb_y + thumb_h;
                             let (ch, color) = if in_thumb {
-                                ("┃", Color::Rgb(120, 200, 190))
+                                ("┃", active_theme.divider)
                             } else {
                                 ("│", Color::DarkGray)
                             };
@@ -1147,10 +1165,11 @@ pub(crate) fn run_tui_body(
                         .border_type(BorderType::Rounded)
                         .title(right_title)
                         .border_style(Style::default().fg(if app.active_panel == crate::DualPanelSide::Right {
-                            Color::White
+                            active_theme.accent_primary
                         } else {
                             Color::Rgb(120, 120, 120)
-                        }));
+                        }))
+                        .style(Style::default().bg(active_theme.bg_panel).fg(active_theme.text_normal));
                     f.render_widget(right_block, preview_area);
                     let right_body_area = Rect::new(
                         preview_area.x + 1,
@@ -1298,7 +1317,7 @@ pub(crate) fn run_tui_body(
                             for row in 0..right_track_h {
                                 let in_thumb = row >= right_thumb_y && row < right_thumb_y + right_thumb_h;
                                 let (ch, color) = if in_thumb {
-                                    ("┃", Color::Rgb(120, 200, 190))
+                                    ("┃", active_theme.divider)
                                 } else {
                                     ("│", Color::DarkGray)
                                 };
@@ -1392,15 +1411,16 @@ pub(crate) fn run_tui_body(
                 let popup_block = Block::default()
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
-                    .title(App::panel_tab_bar_line(app.panel_tab))
-                    .title_style(Style::default().fg(Color::White))
-                    .border_style(Style::default().fg(Color::Rgb(80, 200, 180)));
+                    .title(App::panel_tab_bar_line(app.panel_tab, app.active_theme))
+                    .title_style(Style::default().fg(active_theme.text_normal))
+                    .style(Style::default().bg(active_theme.bg_panel).fg(active_theme.text_normal))
+                    .border_style(Style::default().fg(active_theme.divider));
                 let popup_inner = popup_block.inner(popup_area);
                 f.render_widget(popup_block, popup_area);
                 f.render_widget(
                     Paragraph::new(Span::styled(
                         "x",
-                        Style::default().fg(Color::Rgb(170, 170, 170)),
+                        Style::default().fg(active_theme.text_normal),
                     )),
                     App::tabbed_overlay_close_area(popup_area),
                 );
@@ -1599,6 +1619,7 @@ pub(crate) fn run_tui_body(
                             app.show_icons,
                             app.nerd_font_active,
                             is_symlink,
+                            app.active_theme,
                         );
                         let icon_span = if app.show_icons && !icon_glyph.is_empty() {
                             let adjusted_icon_style = if is_selected {
@@ -1742,7 +1763,7 @@ pub(crate) fn run_tui_body(
                         ("Ctrl+T", "toggle scope"),
                         ("Regex", "re:pattern or /pattern/i"),
                         ("Tab", "switch tabs"),
-                    ])),
+                    ], app.active_theme)),
                     footer_area,
                 );
 
@@ -1864,6 +1885,7 @@ pub(crate) fn run_tui_body(
                     f,
                     tab_overlay_anchor,
                     app.panel_tab,
+                    app.active_theme,
                     app.help_scroll_offset,
                 );
                 app.help_max_offset = max_off;
@@ -1931,6 +1953,7 @@ pub(crate) fn run_tui_body(
                         app.show_icons,
                         app.nerd_font_active,
                         false,
+                        app.active_theme,
                     );
                     let mut spans = Vec::new();
                     if app.show_icons && !icon_glyph.is_empty() {
@@ -1965,6 +1988,7 @@ pub(crate) fn run_tui_body(
                     app.show_icons,
                     app.nerd_font_active,
                     false,
+                    app.active_theme,
                 );
                 let icon_prefix_width = if app.show_icons && !active_icon_glyph.is_empty() {
                     UnicodeWidthStr::width(format!("{} ", active_icon_glyph).as_str()) as u16
@@ -2018,6 +2042,7 @@ pub(crate) fn run_tui_body(
                     app.show_icons,
                     app.nerd_font_active,
                     selected_is_symlink,
+                    app.active_theme,
                 );
                 let icon_prefix = if app.show_icons && !icon_glyph.is_empty() {
                     format!("{} ", icon_glyph)
@@ -2113,6 +2138,7 @@ pub(crate) fn run_tui_body(
                     f,
                     tab_overlay_anchor,
                     app.panel_tab,
+                    app.active_theme,
                     &bookmarks,
                     app.bookmark_selected,
                 );
@@ -2129,8 +2155,17 @@ pub(crate) fn run_tui_body(
                     area,
                     tab_overlay_anchor,
                     app.panel_tab,
+                    app.active_theme,
                     &app.integration_rows_cache,
                     app.integration_selected,
+                );
+            } else if app.mode == AppMode::Themes {
+                ui::panels::render_themes_overlay(
+                    f,
+                    tab_overlay_anchor,
+                    app.panel_tab,
+                    app.active_theme,
+                    app.theme_selected,
                 );
             } else if app.mode == AppMode::SortMenu {
                 let options = App::sort_mode_options();
@@ -2138,6 +2173,7 @@ pub(crate) fn run_tui_body(
                     f,
                     tab_overlay_anchor,
                     app.panel_tab,
+                    app.active_theme,
                     &options,
                     app.sort_menu_selected,
                     app.sort_mode,
@@ -2241,15 +2277,16 @@ pub(crate) fn run_tui_body(
                 let ssh_block = Block::default()
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
-                    .title(App::panel_tab_bar_line(app.panel_tab))
-                    .title_style(Style::default().fg(Color::White))
-                    .border_style(Style::default().fg(Color::Rgb(80, 200, 180)));
+                    .title(App::panel_tab_bar_line(app.panel_tab, app.active_theme))
+                    .title_style(Style::default().fg(active_theme.text_normal))
+                    .style(Style::default().bg(active_theme.bg_panel).fg(active_theme.text_normal))
+                    .border_style(Style::default().fg(active_theme.divider));
                 let ssh_inner = ssh_block.inner(ssh_area);
                 f.render_widget(ssh_block, ssh_area);
                 f.render_widget(
                     Paragraph::new(Span::styled(
                         "x",
-                        Style::default().fg(Color::Rgb(170, 170, 170)),
+                        Style::default().fg(active_theme.text_normal),
                     )),
                     App::tabbed_overlay_close_area(ssh_area),
                 );
@@ -2266,7 +2303,7 @@ pub(crate) fn run_tui_body(
                         ("u/Delete", "unmount"),
                         ("Tab", "switch tabs"),
                         ("Esc", "close"),
-                    ])),
+                    ], app.active_theme)),
                     ssh_chunks[1],
                 );
             } else if app.mode == AppMode::ConfirmExtract {
@@ -2353,7 +2390,7 @@ pub(crate) fn run_tui_body(
                     app.confirm_delete_button_focus == 0,
                     app.show_icons,
                     |path, path_is_symlink| {
-                        App::icon_for_path(path, app.show_icons, app.nerd_font_active, path_is_symlink)
+                        App::icon_for_path(path, app.show_icons, app.nerd_font_active, path_is_symlink, app.active_theme)
                     },
                 );
                 app.confirm_delete_max_offset = delete_state.max_offset;

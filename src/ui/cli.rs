@@ -9,6 +9,7 @@ use std::{
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::app_render_cache::{EntryRenderCache, EntryRenderConfig};
+use crate::ui::theme::ThemeId;
 use crate::ui::list_render;
 use crate::ui::list_temperature;
 use crate::util::config::AppConfig;
@@ -128,7 +129,7 @@ pub fn list_current_directory(
         direct_entries.iter().collect::<Vec<_>>()
     };
 
-    let config = EntryRenderConfig { nerd_font_active, show_icons };
+    let config = EntryRenderConfig { nerd_font_active, show_icons, theme_id: ThemeId::Original };
     let uid_cache = App::build_uid_cache_refs(&entries);
     let gid_cache = App::build_gid_cache_refs(&entries);
 

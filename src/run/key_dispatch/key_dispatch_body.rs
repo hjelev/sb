@@ -1,4 +1,5 @@
 use super::*;
+use crate::ui::theme;
 
 pub(crate) fn handle_app_key_event_body(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
@@ -291,6 +292,14 @@ pub(crate) fn handle_app_key_event_body(
                 app.refresh_integration_rows_cache();
                 app.panel_tab = 5;
                 app.mode = AppMode::Integrations;
+            }
+            KeyCode::Char('T') => {
+                app.panel_tab = 6;
+                app.theme_selected = theme::THEMES
+                    .iter()
+                    .position(|theme| theme.id == app.active_theme)
+                    .unwrap_or(0);
+                app.mode = AppMode::Themes;
             }
             KeyCode::Char('S') => {
                 let has_sshfs = app.integration_active("sshfs");
@@ -1313,10 +1322,12 @@ pub(crate) fn handle_app_key_event_body(
                 app.mode = AppMode::Browsing;
             }
             KeyCode::BackTab => {
-                app.panel_tab = 5;
-                app.integration_selected = 0;
-                app.refresh_integration_rows_cache();
-                app.mode = AppMode::Integrations;
+                app.panel_tab = 6;
+                app.theme_selected = theme::THEMES
+                    .iter()
+                    .position(|theme| theme.id == app.active_theme)
+                    .unwrap_or(0);
+                app.mode = AppMode::Themes;
             }
             KeyCode::Up => {
                 app.help_scroll_offset = app.help_scroll_offset.saturating_sub(1);
@@ -1381,9 +1392,43 @@ pub(crate) fn handle_app_key_event_body(
                     app.begin_integration_install_prompt_for_selected();
                 }
                 KeyCode::Tab => {
+                    app.panel_tab = 6;
+                    app.theme_selected = theme::THEMES
+                        .iter()
+                        .position(|theme| theme.id == app.active_theme)
+                        .unwrap_or(0);
+                    app.mode = AppMode::Themes;
+                }
+                _ => {}
+            }
+        }
+        AppMode::Themes => {
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('q') => {
+                    app.mode = AppMode::Browsing;
+                }
+                KeyCode::BackTab => {
+                    app.panel_tab = 5;
+                    app.integration_selected = 0;
+                    app.refresh_integration_rows_cache();
+                    app.mode = AppMode::Integrations;
+                }
+                KeyCode::Tab => {
                     app.panel_tab = 0;
                     app.help_scroll_offset = 0;
                     app.mode = AppMode::Help;
+                }
+                KeyCode::Up => {
+                    app.theme_selected = app.theme_selected.saturating_sub(1);
+                    app.apply_selected_theme();
+                }
+                KeyCode::Down => {
+                    let max_idx = theme::THEMES.len().saturating_sub(1);
+                    app.theme_selected = (app.theme_selected + 1).min(max_idx);
+                    app.apply_selected_theme();
+                }
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    app.apply_selected_theme();
                 }
                 _ => {}
             }

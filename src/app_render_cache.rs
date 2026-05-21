@@ -2,6 +2,7 @@ use std::{collections::HashMap, fs, path::Path, str::FromStr, time::UNIX_EPOCH};
 
 use crate::util::format::format_mtime;
 use crate::ui::palette::Palette;
+use crate::ui::theme::{theme_spec, ThemeId};
 use devicons::{icon_for_file, File as DevFile, Theme};
 use ratatui::prelude::*;
 use crate::ui::icons::named_file_icon;
@@ -26,10 +27,39 @@ pub(crate) struct EntryRenderCache {
 pub(crate) struct EntryRenderConfig {
     pub(crate) nerd_font_active: bool,
     pub(crate) show_icons: bool,
+    pub(crate) theme_id: ThemeId,
 }
 
 impl App {
-    pub(crate) fn icon_for_name(name: &str, is_dir: bool, show_icons: bool, nerd_font_active: bool, is_symlink: bool) -> (String, Style) {
+    fn terminal_background_is_light() -> bool {
+        std::env::var("COLORFGBG")
+            .ok()
+            .and_then(|value| {
+                value
+                    .split(';')
+                    .filter_map(|part| part.trim().parse::<u8>().ok())
+                    .next_back()
+            })
+            .map(|bg| bg >= 8)
+            .unwrap_or(false)
+    }
+
+    fn icon_theme_for(theme_id: ThemeId) -> Theme {
+        match theme_id {
+            ThemeId::Solarized => Theme::Light,
+            ThemeId::Original => {
+                if Self::terminal_background_is_light() {
+                    Theme::Light
+                } else {
+                    Theme::Dark
+                }
+            }
+            _ => Theme::Dark,
+        }
+    }
+
+    pub(crate) fn icon_for_name(name: &str, is_dir: bool, show_icons: bool, nerd_font_active: bool, is_symlink: bool, theme_id: ThemeId) -> (String, Style) {
+        let theme = theme_spec(theme_id);
         if !show_icons {
             return (String::new(), Style::default());
         }
@@ -41,7 +71,7 @@ impl App {
         if nerd_font_active {
             if is_dir {
                 let dir_style = Style::default()
-                    .fg(Palette::ACCENT_PRIMARY)
+                    .fg(theme.icon_default_dir)
                     .add_modifier(Modifier::BOLD);
                 if let Some((glyph, _)) = ui::icons::named_dir_icon(name) {
                     (glyph.to_string(), dir_style)
@@ -65,28 +95,29 @@ impl App {
                 .unwrap_or(false)
             {
                 ("\u{f023}".to_string(), Style::default().fg(Palette::WARNING_ALT))
-            } else if let Some((custom_icon, (r, g, b))) = named_file_icon(name) {
-                (custom_icon.to_string(), Style::default().fg(Color::Rgb(r, g, b))) // custom per-file icon
+            } else if let Some((custom_icon, _)) = named_file_icon(name) {
+                (custom_icon.to_string(), Style::default().fg(theme.icon_default_file))
             } else {
-                let data = icon_for_file(&DevFile::new(Path::new(name)), Some(Theme::Dark));
-                let color = Color::from_str(data.color).unwrap_or(Color::White);
+                let icon_theme = Self::icon_theme_for(theme_id);
+                let data = icon_for_file(&DevFile::new(Path::new(name)), Some(icon_theme));
+                let color = Color::from_str(data.color).unwrap_or(theme.icon_default_file);
                 (data.icon.to_string(), Style::default().fg(color))
             }
         } else if is_dir {
             (
                 "📁".to_string(),
                 Style::default()
-                    .fg(Palette::ACCENT_PRIMARY)
+                    .fg(theme.icon_default_dir)
                     .add_modifier(Modifier::BOLD),
             )
         } else {
-            ("📄".to_string(), Style::default().fg(Color::White))
+            ("📄".to_string(), Style::default().fg(theme.icon_default_file))
         }
     }
 
-    pub(crate) fn icon_for_path(path: &Path, show_icons: bool, nerd_font_active: bool, is_symlink: bool) -> (String, Style) {
+    pub(crate) fn icon_for_path(path: &Path, show_icons: bool, nerd_font_active: bool, is_symlink: bool, theme_id: ThemeId) -> (String, Style) {
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        Self::icon_for_name(name, path.is_dir(), show_icons, nerd_font_active, is_symlink)
+        Self::icon_for_name(name, path.is_dir(), show_icons, nerd_font_active, is_symlink, theme_id)
     }
 
     pub(crate) fn build_entry_render_cache(
@@ -102,12 +133,21 @@ impl App {
         let is_dir = meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
         // icon_data is still needed for name_style color on regular nerd-font files.
         let icon_data = if config.nerd_font_active && !is_symlink && !is_dir {
-            Some(icon_for_file(&DevFile::new(&path), Some(Theme::Dark)))
+            Some(icon_for_file(
+                &DevFile::new(&path),
+                Some(Self::icon_theme_for(config.theme_id)),
+            ))
         } else {
             None
         };
 
-        let (icon_glyph, icon_style) = Self::icon_for_path(&path, config.show_icons, config.nerd_font_active, is_symlink);
+        let (icon_glyph, icon_style) = Self::icon_for_path(
+            &path,
+            config.show_icons,
+            config.nerd_font_active,
+            is_symlink,
+            config.theme_id,
+        );
 
         let mut name_style = if is_dir {
             Style::default()

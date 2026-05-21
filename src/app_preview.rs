@@ -109,6 +109,7 @@ impl App {
         let config = EntryRenderConfig {
             nerd_font_active: self.nerd_font_active,
             show_icons: self.show_icons,
+            theme_id: self.active_theme,
         };
         let uid_cache = App::build_uid_cache(&entries);
         let gid_cache = App::build_gid_cache(&entries);
@@ -216,6 +217,7 @@ impl App {
         let use_resvg = self.integration_active("resvg");
         let show_icons = self.show_icons;
         let nerd_font_active = self.nerd_font_active;
+        let theme_id = self.active_theme;
         let (tx, rx) = std::sync::mpsc::channel();
         self.preview_rx = Some(rx);
         std::thread::spawn(move || {
@@ -227,6 +229,7 @@ impl App {
                 use_resvg,
                 show_icons,
                 nerd_font_active,
+                theme_id,
             );
             let _ = tx.send(msg);
         });

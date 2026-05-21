@@ -117,6 +117,8 @@ fn persist_config_path() -> std::path::PathBuf {
 pub struct SbPersistConfig {
     /// The view mode to restore on next launch: `"Normal"`, `"Preview"`, or `"DualPanel"`.
     pub view_mode: String,
+    /// The active UI theme to restore on next launch.
+    pub current_theme: String,
     /// Unknown settings (future-proofing: preserve any unrecognized key-value pairs).
     unknown: std::collections::HashMap<String, String>,
 }
@@ -125,6 +127,7 @@ impl Default for SbPersistConfig {
     fn default() -> Self {
         Self {
             view_mode: "Normal".to_string(),
+            current_theme: "original".to_string(),
             unknown: std::collections::HashMap::new(),
         }
     }
@@ -150,6 +153,7 @@ impl SbPersistConfig {
                 let val = val.trim();
                 match key {
                     "view_mode" => cfg.view_mode = val.to_string(),
+                    "current_theme" => cfg.current_theme = val.to_string(),
                     _ => {
                         cfg.unknown.insert(key.to_string(), val.to_string());
                     }
@@ -168,6 +172,7 @@ impl SbPersistConfig {
         }
         let mut lines = vec!["# sb config".to_string()];
         lines.push(format!("view_mode = {}", self.view_mode));
+        lines.push(format!("current_theme = {}", self.current_theme));
         for (key, val) in &self.unknown {
             lines.push(format!("{} = {}", key, val));
         }

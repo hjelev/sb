@@ -166,6 +166,7 @@ pub(crate) enum AppMode {
     ConfirmDelete,
     Bookmarks,
     Integrations,
+    Themes,
     SortMenu,
     SshPicker,
 }
