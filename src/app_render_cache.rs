@@ -149,9 +149,10 @@ impl App {
             config.theme_id,
         );
 
+        let theme = theme_spec(config.theme_id);
         let mut name_style = if is_dir {
             Style::default()
-                .fg(Palette::ACCENT_PRIMARY)
+                .fg(theme.icon_default_dir)
                 .add_modifier(Modifier::BOLD)
         } else if Self::is_age_protected_file(&path) {
             Style::default().fg(Palette::WARNING_ALT)
