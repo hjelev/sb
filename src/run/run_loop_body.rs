@@ -674,7 +674,7 @@ pub(crate) fn run_tui_body(
             } else {
                 HashMap::new()
             };
-            let use_main_pill = !app.is_preview_mode() && !app.is_dual_panel_mode();
+            let use_main_pill = true;
 
             let rows: Vec<Row> = app.entry_render_cache.iter().enumerate().map(|(idx, entry_cache)| {
                 let is_marked = app.marked_indices.contains(&idx);
@@ -872,12 +872,8 @@ pub(crate) fn run_tui_body(
                 date_width,
             );
             let table = Table::new(rows, col_constraints)
-                .highlight_style(if app.is_preview_mode() || app.is_dual_panel_mode() {
-                    selection_style
-                } else {
-                    Style::default()
-                })
-                .highlight_symbol(""); 
+                .highlight_style(Style::default())
+                .highlight_symbol("");
 
             let table_area = if app.is_preview_mode() || app.is_dual_panel_mode() {
                 Rect::new(
@@ -960,7 +956,7 @@ pub(crate) fn run_tui_body(
                                 };
 
                                 f.render_widget(Clear, row_area);
-                                let pill_selected = !app.is_preview_mode() && !app.is_dual_panel_mode();
+                                let pill_selected = use_main_pill;
                                 f.render_widget(
                                     Block::default().style(selection_style),
                                     row_area,
@@ -1380,12 +1376,27 @@ pub(crate) fn run_tui_body(
                         right_date_width,
                     );
 
+                    let right_pill_edge_width = 2usize;
+                    let right_effective_name_width = right_name_width.saturating_sub(right_pill_edge_width).max(1);
+                    let right_table_render_area = Rect::new(
+                        right_body_area.x,
+                        right_body_area.y,
+                        right_body_area.width.saturating_sub(1),
+                        right_body_area.height,
+                    );
+                    let right_pill_color = if app.active_panel == crate::DualPanelSide::Right {
+                        active_theme.bg_selected
+                    } else {
+                        Color::Rgb(38, 38, 45)
+                    };
+
                     let right_rows: Vec<Row> = app
                         .right_entry_render_cache
                         .iter()
                         .enumerate()
                         .map(|(idx, entry_cache)| {
                             let right_is_marked = app.right_marked_indices.contains(&idx);
+                            let right_is_selected = idx == app.right_selected_index;
                             let tree_prefix = app
                                 .right_tree_row_prefixes
                                 .get(idx)
@@ -1397,18 +1408,57 @@ pub(crate) fn run_tui_body(
                                 0usize
                             };
                             let prefix_width = tree_prefix.chars().count();
-                            let available_name_width = right_name_width
+                            let available_name_width = right_effective_name_width
                                 .saturating_sub(prefix_width + icon_prefix_width)
                                 .max(1);
                             let name = truncate_with_ellipsis(&entry_cache.raw_name, available_name_width);
+                            let right_row_fill = Style::default().bg(right_pill_color);
                             let mut spans = Vec::new();
+                            if right_is_selected {
+                                spans.push(Span::styled(
+                                    "",
+                                    Style::default().fg(right_pill_color).bg(active_theme.bg_panel),
+                                ));
+                            } else {
+                                spans.push(Span::raw(" "));
+                            }
                             if !tree_prefix.is_empty() {
-                                spans.push(Span::styled(tree_prefix.to_string(), tree_style));
+                                let style = if right_is_selected { tree_style.patch(right_row_fill) } else { tree_style };
+                                spans.push(Span::styled(tree_prefix.to_string(), style));
                             }
                             if app.show_icons && !entry_cache.icon_glyph.is_empty() {
-                                spans.push(Span::styled(format!("{} ", entry_cache.icon_glyph), entry_cache.icon_style));
+                                let style = if right_is_selected {
+                                    entry_cache.icon_style.patch(right_row_fill)
+                                } else {
+                                    entry_cache.icon_style
+                                };
+                                spans.push(Span::styled(format!("{} ", entry_cache.icon_glyph), style));
                             }
-                            spans.push(Span::styled(name, entry_cache.name_style));
+                            let name_style = if right_is_selected {
+                                entry_cache.name_style.patch(right_row_fill)
+                            } else {
+                                entry_cache.name_style
+                            };
+                            spans.push(Span::styled(name, name_style));
+                            let used_inner: usize = spans
+                                .iter()
+                                .skip(1)
+                                .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
+                                .sum();
+                            if right_effective_name_width > used_inner {
+                                spans.push(Span::styled(
+                                    " ".repeat(right_effective_name_width - used_inner),
+                                    if right_is_selected { right_row_fill } else { Style::default() },
+                                ));
+                            }
+                            if right_is_selected {
+                                spans.push(Span::styled(
+                                    "",
+                                    Style::default().fg(right_pill_color).bg(active_theme.bg_panel),
+                                ));
+                            } else {
+                                spans.push(Span::raw(" "));
+                            }
                             let name_cell = Cell::from(Line::from(spans));
                             let mut cells = vec![name_cell];
                             let right_size_style = Style::default().fg(ui::list_temperature::size_color_for(
@@ -1431,7 +1481,7 @@ pub(crate) fn run_tui_body(
                                 right_show_date,
                                 right_date_style,
                             );
-                            Row::new(cells).style(if idx == app.right_selected_index {
+                            Row::new(cells).style(if right_is_selected {
                                 right_selection_style
                             } else if right_is_marked {
                                 Style::default().bg(Color::Rgb(0, 100, 150))
@@ -1452,10 +1502,34 @@ pub(crate) fn run_tui_body(
                         right_date_width,
                     );
                     let right_table = Table::new(right_rows, right_constraints)
-                        .highlight_style(right_selection_style)
+                        .highlight_style(Style::default())
                         .highlight_symbol("");
                     app.right_table_state.select(Some(app.right_selected_index));
-                    f.render_stateful_widget(right_table, right_body_area, &mut app.right_table_state);
+                    f.render_stateful_widget(right_table, right_table_render_area, &mut app.right_table_state);
+
+                    if let Some(sel) = app.right_table_state.selected() {
+                        let offset = app.right_table_state.offset();
+                        if sel >= offset {
+                            let row_in_view = sel - offset;
+                            if row_in_view < right_table_render_area.height as usize {
+                                let cap_area = Rect::new(
+                                    right_table_render_area.x + right_table_render_area.width,
+                                    right_table_render_area.y + row_in_view as u16,
+                                    1,
+                                    1,
+                                );
+                                f.render_widget(
+                                    Paragraph::new(Span::styled(
+                                        "",
+                                        Style::default()
+                                            .fg(right_pill_color)
+                                            .bg(active_theme.bg_panel),
+                                    )),
+                                    cap_area,
+                                );
+                            }
+                        }
+                    }
 
                     // Render right panel scrollbar
                     let right_needs_scroll = app.right_entries.len() > right_body_area.height as usize;
