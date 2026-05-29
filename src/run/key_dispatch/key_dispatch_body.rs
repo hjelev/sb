@@ -506,6 +506,16 @@ pub(crate) fn handle_app_key_event_body(
                 }
             }
             KeyCode::Enter | KeyCode::Right => {
+                // Right in the right panel only navigates into directories; Enter opens everything.
+                if key.code == KeyCode::Right && app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
+                    if let Some(selected_path) = app.right_entries.get(app.right_selected_index).map(|e| e.path()) {
+                        if selected_path.is_dir() {
+                            app.try_enter_dir_on_active_panel(selected_path);
+                        }
+                    }
+                    return Ok(KeyDispatchOutcome::ContinueLoop);
+                }
+
                 let selected_path = if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
                     app.right_entries.get(app.right_selected_index).map(|e| e.path())
                 } else {
