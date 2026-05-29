@@ -3082,7 +3082,12 @@ IFS= read -rsn1 _
     }
 
     fn open_selected_with_default_app(&mut self) -> io::Result<()> {
-        let Some(entry) = self.entries.get(self.selected_index) else {
+        let entry = if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
+            self.right_entries.get(self.right_selected_index)
+        } else {
+            self.entries.get(self.selected_index)
+        };
+        let Some(entry) = entry else {
             self.set_status("no selected item");
             return Ok(());
         };
