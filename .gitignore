@@ -2,3 +2,6 @@
 **/*.rs.bk
 Cargo.lock
 CLAUDE.md
+.github/copilot-instructions.md
+.github/skills/tui-widget
+.github/prompts
