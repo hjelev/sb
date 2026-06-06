@@ -133,15 +133,23 @@ Notes:
 <details>
 <summary><strong>Installation</strong></summary>
 
+### From crates.io
+
+```bash
+cargo install shell-buddy
+```
+
 ### From Source
 
 ```bash
+git clone https://github.com/hjelev/sb.git
+cd sb
 cargo install --path .
 ```
 
 ### From Releases
 
-Prebuilt binaries and the auto-installer script are available in GitHub Releases.
+Prebuilt binaries and the auto-installer script are available in [GitHub Releases](https://github.com/hjelev/sb/releases).
 Use the installer there if you want the fastest setup without building from source.
 
 </details>
