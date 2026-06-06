@@ -1,4 +1,6 @@
-# Shell Buddy (sb)
+<p align="center">
+  <img src="images/logo.png" alt="shell buddy - terminal file manager" width="491">
+</p>
 
 <p align="center">
   <a href="https://crates.io/crates/sb"><img src="https://img.shields.io/crates/v/sb.svg?style=flat-square&color=orange" alt="Crates.io Version" /></a>
