@@ -181,7 +181,13 @@ pub(crate) fn run_tui_body(
             } else {
                 app.current_dir_display_path_with_filter()
             };
-            let header_sep = if app.nerd_font_active { "\u{f0256} " } else { " » " };
+            let normal_view = !app.is_preview_mode() && !app.is_dual_panel_mode();
+            // In normal mode, nudge the folder icon one character to the right.
+            let header_sep = if app.nerd_font_active {
+                if normal_view { " \u{f0256} " } else { "\u{f0256} " }
+            } else {
+                " » "
+            };
             let os_icon_glyph: Option<&'static str> = if app.nerd_font_active {
                 // Use the remote OS icon if we're inside an SSH/rclone mount
                 app.ssh_mounts.iter()
@@ -270,6 +276,7 @@ pub(crate) fn run_tui_body(
                     left_spans.push(Span::styled(")", branch_style));
                 }
             }
+            let mut header_right_is_clock = false;
             let header_right = if let Some(total_suffix) = app.current_dir_total_size_header_suffix() {
                 let icon_style = Style::default().fg(Color::Rgb(100, 160, 240));
                 let text_style = Style::default().fg(Color::White);
@@ -291,6 +298,7 @@ pub(crate) fn run_tui_body(
                 }
                 Some(Line::from(spans))
             } else if !app.folder_size_enabled {
+                header_right_is_clock = true;
                 Some(Line::from(vec![
                     Span::styled(app.header_clock_text.clone(), Style::default().fg(Color::White)),
                 ]))
@@ -421,7 +429,11 @@ pub(crate) fn run_tui_body(
             }
             if show_right {
                 if let Some(header_right_line) = header_right {
-                    let scrollbar_offset = if scrollbar_visible_in_main { 1 } else { 0 };
+                    let mut scrollbar_offset = if scrollbar_visible_in_main { 1 } else { 0 };
+                    // In normal mode, nudge the clock one character to the left.
+                    if normal_view && header_right_is_clock {
+                        scrollbar_offset += 1;
+                    }
                     let right_rect = Rect::new(
                         chunks[0].x + total_width.saturating_sub(right_width).saturating_sub(scrollbar_offset),
                         chunks[0].y,
