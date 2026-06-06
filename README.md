@@ -20,36 +20,16 @@ A terminal file manager (TUI) written in Rust using `ratatui` + `crossterm`.
 
 `sb` (Shell Buddy) is a keyboard-driven explorer focused on fast local navigation with optional integrations for previews, archive handling, searching, remote mounts, and lightweight Git workflows.
 
-## Highlights
+## What sets sb apart
 
-- Single-binary terminal UI
-- Directory navigation with marked multi-select
-- Copy/paste with progress and status feedback
-- Rename (single and bulk with `vidir`)
-- Delete with confirmation dialog
-- Archive create/extract workflows (`zip`, `tar`, `7z`, `rar` toolchain)
-- Optional archive-as-folder mount for zip-based files (`fuse-zip`)
-- Rich previews via optional tools (`bat`, `glow`, `mmdflux`, `jnv`, `csvlens`, `chafa`, `viu`, `sox`, `pdftotext`, `asciinema`)
-- Side-by-side file compare with `delta`
-- Git commit flow with diff preview, status review, commit/push, and optional tag create+push
-- SSH/rclone/local-media mount picker
-- Age file protection/decryption (`.age`) with `p`
-- Clipboard full-path copy via `Ctrl+c` (`wl-copy`/`xclip`/`xsel`/`pbcopy`)
-- Clipboard edit via `Ctrl+e`
-- Inline path editing with optional live filters (`^prefix`, `suffix$`, `~contains`)
-- Split-shell tmux workflows for preview (`i`) and editor (`E`)
-- Quick open for `~/.todo` with `t`
-- Integration manager (`I`) to enable/disable optional integrations
-- Install-missing flow in Integrations (`Enter` on missing item -> confirm -> Homebrew install on macOS/Linux)
-- Tabbed Help/Search/Bookmarks/Remote Mounts/Sorting/Integrations overlays (`Tab` / `Shift+Tab`)
-- Built-in async Search overlay with filename/content scope, regex support, and highlighted matches
-- In-app command runner (`;`) with "press any key to return" pause
-- CLI list mode: `-l`, `-a`/`-la`, and optional `--total-size` recursive size/% columns
-- CLI tree mode: `-t` (full tree) and `-lN` / `-l N` (tree depth)
-- Direct file mode: `sb <file>` opens immediately with best available viewer (no pager)
-- Pager file mode: `sb -l <file>` opens immediate viewer output in pager mode
-- Edit file mode: `sb -e <file>` opens the file in `$EDITOR` (fallback: `nano`)
-- Writes last directory to `/tmp/sb_path` on exit for shell integration
+- **In-TUI Git workflow** — diff preview → status review → commit → push → optional tag, all without leaving the file manager (`G`)
+- **Inline path filters** — type `^prefix`, `suffix$`, or `~contains` directly in the path bar to live-filter the listing (`Tab`)
+- **Integration manager with one-key install** — see which optional tools are missing and install them via Homebrew without leaving the TUI (`I`)
+- **Age encryption** — protect or decrypt `.age` files in-place with a single keypress (`p`)
+- **Per-file notes** — attach SQLite-backed notes to any file, retrieved instantly (`Ctrl+n`)
+- **tmux-aware splits** — `i` opens a shell + preview pane; `E` opens a shell + editor pane
+- **Clipboard edit** — `Ctrl+e` opens the current clipboard contents in `$EDITOR` for quick manipulation
+- **CLI list/tree modes** — `sb -l`, `sb -t`, `sb -l2` produce TUI-consistent column output; `sb <file>` skips the TUI and opens with the best available viewer
 
 ---
 
