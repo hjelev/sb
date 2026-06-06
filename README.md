@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://crates.io/crates/shell-buddy"><img src="https://img.shields.io/crates/v/shell-buddy.svg?style=flat-square&color=orange" alt="Crates.io Version" /></a>
   <a href="https://crates.io/crates/shell-buddy"><img src="https://img.shields.io/crates/d/shell-buddy.svg?style=flat-square&color=blue&label=crates%20downloads" alt="Crates.io Downloads" /></a>
-  <a href="https://github.com/hjelev/sb/releases"><img src="https://img.shields.io/github/downloads/hjelev/sb/total.svg?style=flat-square&color=brightgreen&label=github%20downloads" alt="GitHub Downloads" /></a>
+  <a href="https://github.com/hjelev/sb/releases"><img src="https://img.shields.io/github/downloads/hjelev/sb/total.svg?style=flat-square&color=brightgreen&label=github%20downloads&kill_cache=1" alt="GitHub Downloads" /></a>
   <a href="https://github.com/hjelev/sb/actions/workflows/release.yml"><img src="https://github.com/hjelev/sb/actions/workflows/release.yml/badge.svg?branch=master&style=flat-square" alt="Build Status" /></a>
   <a href="https://github.com/hjelev/sb/blob/master/LICENSE"><img src="https://img.shields.io/github/license/hjelev/sb.svg?style=flat-square&color=purple" alt="License" /></a>
   <a href="https://github.com/hjelev/sb/stargazers"><img src="https://img.shields.io/github/stars/hjelev/sb.svg?style=flat-square&color=gold" alt="GitHub Stars" /></a>
