@@ -430,9 +430,15 @@ pub(crate) fn run_tui_body(
             if show_right {
                 if let Some(header_right_line) = header_right {
                     let mut scrollbar_offset = if scrollbar_visible_in_main { 1 } else { 0 };
-                    // In normal mode, nudge the clock one character to the left.
-                    if normal_view && header_right_is_clock {
-                        scrollbar_offset += 1;
+                    // Nudge the clock left by a per-view amount.
+                    if header_right_is_clock {
+                        if normal_view {
+                            scrollbar_offset += 1;
+                        } else if app.is_dual_panel_mode() {
+                            scrollbar_offset += 2;
+                        } else if app.is_preview_mode() {
+                            scrollbar_offset += 1;
+                        }
                     }
                     let right_rect = Rect::new(
                         chunks[0].x + total_width.saturating_sub(right_width).saturating_sub(scrollbar_offset),
