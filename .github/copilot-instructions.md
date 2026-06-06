@@ -1,4 +1,4 @@
-# sbrs (Shell Buddy / sb) — Copilot Instructions
+# sb (Shell Buddy / sb) — Copilot Instructions
 
 A terminal-based file manager TUI written in Rust.
 

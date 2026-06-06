@@ -1,8 +1,8 @@
-# Shell Buddy (sbrs)
+# Shell Buddy (sb)
 
 A terminal file manager (TUI) written in Rust using `ratatui` + `crossterm`.
 
-`sbrs` (Shell Buddy, or `sb` for short) is a keyboard-driven explorer focused on fast local navigation with optional integrations for previews, archive handling, searching, remote mounts, and lightweight Git workflows.
+`sb` (Shell Buddy, or `sb` for short) is a keyboard-driven explorer focused on fast local navigation with optional integrations for previews, archive handling, searching, remote mounts, and lightweight Git workflows.
 
 ## Screenshot
 
@@ -34,9 +34,9 @@ A terminal file manager (TUI) written in Rust using `ratatui` + `crossterm`.
 - In-app command runner (`;`) with "press any key to return" pause
 - CLI list mode: `-l`, `-a`/`-la`, and optional `--total-size` recursive size/% columns
 - CLI tree mode: `-t` (full tree) and `-lN` / `-l N` (tree depth)
-- Direct file mode: `sbrs <file>` opens immediately with best available viewer (no pager)
-- Pager file mode: `sbrs -l <file>` opens immediate viewer output in pager mode
-- Edit file mode: `sbrs -e <file>` opens the file in `$EDITOR` (fallback: `nano`)
+- Direct file mode: `sb <file>` opens immediately with best available viewer (no pager)
+- Pager file mode: `sb -l <file>` opens immediate viewer output in pager mode
+- Edit file mode: `sb -e <file>` opens the file in `$EDITOR` (fallback: `nano`)
 - Writes last directory to `/tmp/sb_path` on exit for shell integration
 
 ## Build and Run
@@ -55,42 +55,42 @@ cargo build --release
 Release binary path:
 
 ```text
-target/release/sbrs
+target/release/sb
 ```
 
 List mode examples:
 
 ```bash
 # Current directory
-sbrs -l
+sb -l
 
 # Include hidden entries
-sbrs -a
-sbrs -la
+sb -a
+sb -la
 
 # Recursive display size + percent share columns
-sbrs -l --total-size
+sb -l --total-size
 
 # Full tree output
-sbrs -t
+sb -t
 
 # Tree output limited to depth 2
-sbrs -l2
-sbrs -l 2
+sb -l2
+sb -l 2
 
 # Path can appear before or after --total-size
-sbrs -la /var/log --total-size
-sbrs --total-size -l /var/log
+sb -la /var/log --total-size
+sb --total-size -l /var/log
 
 # Open a file directly with the best available previewer/viewer
-sbrs README.md
-sbrs diagram.mmd
+sb README.md
+sb diagram.mmd
 
 # Open a file with pager mode enabled
-sbrs -l README.md
+sb -l README.md
 
 # Open a file in $EDITOR (fallback: nano)
-sbrs -e README.md
+sb -e README.md
 ```
 
 ## CLI List Mode
@@ -107,8 +107,8 @@ Notes:
 
 - `PATH` is optional and can be placed after `-l`/`-a`/`-la` or after `--total-size`.
 - The list output reuses the file manager's auto-calculated owner/group column widths for consistent alignment.
-- When invoked as `sbrs <FILE>`, the app skips the TUI and opens the file directly with best-available viewer output (no pager).
-- When invoked as `sbrs -l <FILE>`, direct file mode uses pager-enabled output.
+- When invoked as `sb <FILE>`, the app skips the TUI and opens the file directly with best-available viewer output (no pager).
+- When invoked as `sb -l <FILE>`, direct file mode uses pager-enabled output.
 
 ## Installation
 
@@ -267,7 +267,7 @@ To enable automatic directory change on exit, add the following function to your
 
 ```bash
 sb() {
-    "$HOME/.cargo/bin/sbrs" "$@"
+    "$HOME/.cargo/bin/sb" "$@"
     if [ -f /tmp/sb_path ]
     then
         cd "$(cat /tmp/sb_path)"

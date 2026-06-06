@@ -1,10 +1,10 @@
 ---
-description: "Scaffold a new keyboard shortcut in sbrs (Shell Buddy / sb). Provide the key and what it should do."
+description: "Scaffold a new keyboard shortcut in sb (Shell Buddy / sb). Provide the key and what it should do."
 argument-hint: "key=<key> action=<description of what it does>"
 agent: agent
 ---
 
-Add a new keybinding to `src/main.rs` in sbrs (Shell Buddy / sb).
+Add a new keybinding to `src/main.rs` in sb (Shell Buddy / sb).
 
 ## Inputs
 The user has specified:

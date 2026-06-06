@@ -1,10 +1,10 @@
 ---
 name: tui-widget
-description: "Add or modify ratatui TUI widgets and layouts in sbrs (Shell Buddy / sb). Use when adding new UI panels, dialogs, popup overlays, table columns, or status bar sections. Covers ratatui 0.26 patterns, crossterm event handling, Color::Rgb usage, and rendering conventions specific to this codebase."
+description: "Add or modify ratatui TUI widgets and layouts in sb (Shell Buddy / sb). Use when adding new UI panels, dialogs, popup overlays, table columns, or status bar sections. Covers ratatui 0.26 patterns, crossterm event handling, Color::Rgb usage, and rendering conventions specific to this codebase."
 argument-hint: "Describe the widget or UI element to add or change"
 ---
 
-# TUI Widget Patterns for sbrs
+# TUI Widget Patterns for sb
 
 ## When to Use
 - Adding a new panel, dialog, popup, or overlay
