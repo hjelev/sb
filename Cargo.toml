@@ -1,8 +1,8 @@
 [package]
-name = "sb"
+name = "shell-buddy"
 version = "0.6.14"
 edition = "2024"
-description = "Shell Buddy (sb)"
+description = "Shell Buddy (sbrs)"
 repository = "https://github.com/hjelev/sb"
 keywords = ["terminal", "file-manager", "tui", "preview", "images"]
 categories = ["command-line-utilities", "filesystem"]
@@ -35,3 +35,7 @@ strip = true        # Automatically removes debug symbols (the biggest saver!)
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+[[bin]]
+name = "sb"
+path = "src/main.rs"
