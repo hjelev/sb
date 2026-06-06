@@ -2339,20 +2339,25 @@ pub(crate) fn run_tui_body(
                 } else {
                     String::new()
                 };
+                app.clamp_input_cursor();
+                let icon_w = UnicodeWidthStr::width(icon_prefix.as_str()) as usize;
+                let avail_w = (input_area.width as usize).saturating_sub(icon_w);
+                let cursor = app.input_cursor;
+                let scroll = if avail_w > 0 && cursor >= avail_w { cursor + 1 - avail_w } else { 0 };
+                let visible_text: String = app.input_buffer.chars().skip(scroll).collect();
                 let mut spans = Vec::new();
                 if !icon_prefix.is_empty() {
                     spans.push(Span::styled(icon_prefix.clone(), icon_style));
                 }
                 spans.push(Span::styled(
-                    app.input_buffer.as_str(),
+                    visible_text,
                     Style::default().fg(Color::Rgb(230, 230, 230)),
                 ));
                 f.render_widget(Paragraph::new(Line::from(spans)), input_area);
 
-                app.clamp_input_cursor();
                 let cursor_x = input_area.x
                     + UnicodeWidthStr::width(icon_prefix.as_str()) as u16
-                    + app.input_cursor as u16;
+                    + (cursor - scroll) as u16;
                 let cursor_y = input_area.y;
                 f.set_cursor(cursor_x.min(input_area.x + input_area.width.saturating_sub(1)), cursor_y);
             } else if matches!(app.mode, AppMode::DownloadInput | AppMode::DownloadNaming | AppMode::PasteRenaming | AppMode::ArchiveCreate | AppMode::NoteEditing | AppMode::CommandInput | AppMode::GitCommitMessage | AppMode::GitTagInput) {
@@ -2372,10 +2377,13 @@ pub(crate) fn run_tui_body(
                     AppMode::GitTagInput => " Tag (Enter=Create+Push Tag, Esc=Cancel) ",
                     _ => " New Name ",
                 };
-                let prompt_value = app.input_buffer.clone();
-                f.render_widget(Paragraph::new(prompt_value).block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title).title_style(Style::default().fg(Color::White))), rename_area);
                 app.clamp_input_cursor();
-                let cursor_x = rename_area.x + 1 + app.input_cursor as u16;
+                let avail_w = (rename_area.width as usize).saturating_sub(2);
+                let cursor = app.input_cursor;
+                let scroll = if avail_w > 0 && cursor >= avail_w { cursor + 1 - avail_w } else { 0 };
+                let visible_text: String = app.input_buffer.chars().skip(scroll).collect();
+                f.render_widget(Paragraph::new(visible_text).block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title).title_style(Style::default().fg(Color::White))), rename_area);
+                let cursor_x = rename_area.x + 1 + (cursor - scroll) as u16;
                 let cursor_y = rename_area.y + 1;
                 f.set_cursor(cursor_x.min(rename_area.x + rename_area.width.saturating_sub(1)), cursor_y);
             } else if app.mode == AppMode::ConfirmDownloadOverwrite {
