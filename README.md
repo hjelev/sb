@@ -39,7 +39,10 @@ A terminal file manager (TUI) written in Rust using `ratatui` + `crossterm`.
 - Edit file mode: `sb -e <file>` opens the file in `$EDITOR` (fallback: `nano`)
 - Writes last directory to `/tmp/sb_path` on exit for shell integration
 
-## Build and Run
+---
+
+<details>
+<summary><strong>Build and Run</strong></summary>
 
 ```bash
 cargo build
@@ -93,7 +96,10 @@ sb -l README.md
 sb -e README.md
 ```
 
-## CLI List Mode
+</details>
+
+<details>
+<summary><strong>CLI List Mode</strong></summary>
 
 - `-l [PATH]`: list directory entries and exit.
 - `-a [PATH]`: same as `-l`, but includes hidden files.
@@ -110,7 +116,10 @@ Notes:
 - When invoked as `sb <FILE>`, the app skips the TUI and opens the file directly with best-available viewer output (no pager).
 - When invoked as `sb -l <FILE>`, direct file mode uses pager-enabled output.
 
-## Installation
+</details>
+
+<details>
+<summary><strong>Installation</strong></summary>
 
 ### From Source
 
@@ -123,7 +132,10 @@ cargo install --path .
 Prebuilt binaries and the auto-installer script are available in GitHub Releases.
 Use the installer there if you want the fastest setup without building from source.
 
-## Core Controls
+</details>
+
+<details>
+<summary><strong>Core Controls</strong></summary>
 
 - `q` / `Esc`: quit
 - `\``: toggle preview pane
@@ -174,7 +186,10 @@ Use the installer there if you want the fastest setup without building from sour
 - `~`: jump to home
 - `h`: help overlay
 
-## Search Overlay Functions
+</details>
+
+<details>
+<summary><strong>Search Overlay Functions</strong></summary>
 
 When Search is open (`f` or fallback from `g`):
 
@@ -195,7 +210,10 @@ Content limits editor (content scope):
 - `r`: reset limits from environment/default values
 - `Enter` / `Esc`: close limits editor
 
-## Path Editing And Filters
+</details>
+
+<details>
+<summary><strong>Path Editing and Filters</strong></summary>
 
 Press `Tab` while browsing to edit the current path in place.
 
@@ -208,7 +226,10 @@ Press `Tab` while browsing to edit the current path in place.
 
 The active filter remains visible in the header until you change directories.
 
-## Git Workflow
+</details>
+
+<details>
+<summary><strong>Git Workflow</strong></summary>
 
 Press `G` in a Git working tree to:
 
@@ -221,7 +242,10 @@ Press `G` in a Git working tree to:
 
 When tagging, the tag input box is prefilled from the latest reachable Git tag when one exists.
 
-## Integrations
+</details>
+
+<details>
+<summary><strong>Integrations</strong></summary>
 
 Required behavior:
 
@@ -250,7 +274,10 @@ Remote picker (`S`) also lists existing local mounted folders discovered under:
 
 If an optional tool is not available, the feature is skipped or falls back gracefully.
 
-## Environment Notes
+</details>
+
+<details>
+<summary><strong>Environment Notes</strong></summary>
 
 - `NERD_FONT_ACTIVE=1`: enable Nerd Font icons
 - `NO_COLOR=1`: disable file name colors (modifiers like bold/dim still apply)
@@ -261,7 +288,10 @@ If an optional tool is not available, the feature is skipped or falls back grace
 - `SB_SEARCH_CONTENT_MAX_HITS`: built-in Search content-mode max matches returned (default: `2000`)
 - `SB_SEARCH_CONTENT_MAX_FILE_BYTES`: built-in Search content-mode per-file byte cap (default: `2097152` / 2 MiB)
 
-## Shell Integration
+</details>
+
+<details>
+<summary><strong>Shell Integration</strong></summary>
 
 To enable automatic directory change on exit, add the following function to your shell configuration file (e.g., `~/.bashrc`, `~/.zshrc`):
 
@@ -282,7 +312,10 @@ After adding the function, reload your shell configuration:
 source ~/.bashrc  # or source ~/.zshrc
 ```
 
-## Project Structure
+</details>
+
+<details>
+<summary><strong>Project Structure</strong></summary>
 
 Current code layout is modular:
 
@@ -300,7 +333,10 @@ Current code layout is modular:
 - `src/util/`: shared formatting helpers
 - `Cargo.toml`: dependencies and release profile settings
 
-## Dependencies
+</details>
+
+<details>
+<summary><strong>Dependencies</strong></summary>
 
 From `Cargo.toml`:
 
@@ -314,3 +350,5 @@ From `Cargo.toml`:
 - `regex` (search regex mode)
 - `rayon` (parallel entry render-cache build)
 - `unicode-width` (display-width-aware list-mode alignment)
+
+</details>
