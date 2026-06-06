@@ -26,7 +26,7 @@ A terminal file manager (TUI) written in Rust using `ratatui` + `crossterm`.
 - **Inline path filters** — type `^prefix`, `suffix$`, or `~contains` directly in the path bar to live-filter the listing (`Tab`)
 - **Integration manager with one-key install** — see which optional tools are missing and install them via Homebrew without leaving the TUI (`I`)
 - **Age encryption** — protect or decrypt `.age` files in-place with a single keypress (`p`)
-- **Per-file notes** — attach SQLite-backed notes to any file, retrieved instantly (`Ctrl+n`)
+- **Per-file notes** — attach notes to any file, stored in a hidden `.sb` file per directory (`Ctrl+n`)
 - **tmux-aware splits** — `i` opens a shell + preview pane; `E` opens a shell + editor pane
 - **Clipboard edit** — `Ctrl+e` opens the current clipboard contents in `$EDITOR` for quick manipulation
 - **CLI list/tree modes** — `sb -l`, `sb -t`, `sb -l2` produce TUI-consistent column output; `sb <file>` skips the TUI and opens with the best available viewer
