@@ -4,6 +4,7 @@ version = "0.6.15"
 edition = "2024"
 description = "Shell Buddy (sbrs)"
 repository = "https://github.com/hjelev/sb"
+homepage = "https://github.com/hjelev/sb"
 keywords = ["terminal", "file-manager", "tui", "preview", "images"]
 categories = ["command-line-utilities", "filesystem"]
 license = "MIT"
@@ -38,3 +39,10 @@ lto = "thin"
 [[bin]]
 name = "sb"
 path = "src/main.rs"
+
+[package.metadata.dist]
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu"]
+installers = ["homebrew"] 
+tap = "hjelev/homebrew-tap"
+
+publish-jobs = ["homebrew"]
