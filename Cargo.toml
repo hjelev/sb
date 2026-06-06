@@ -1,6 +1,6 @@
 [package]
 name = "shell-buddy"
-version = "0.6.14"
+version = "0.6.15"
 edition = "2024"
 description = "Shell Buddy (sbrs)"
 repository = "https://github.com/hjelev/sb"
@@ -22,7 +22,6 @@ unicode-width = "0.2"
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["gif", "ico", "jpeg", "png", "webp"] }
 icy_sixel = "0.5"
-
 
 [profile.release]
 opt-level = 3       # Optimize for speed — see https://doc.rust-lang.org/cargo/reference/profiles.html#opt-level
