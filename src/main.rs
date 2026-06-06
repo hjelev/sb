@@ -725,9 +725,13 @@ impl App {
             lines.push("[preview truncated: file larger than 10MB]".to_string());
         }
 
+        // Number of leading header lines (e.g. truncation notice) that should
+        // not receive a line-number gutter.
+        let header_len = lines.len();
+
         if use_bat {
             if let Ok(out) = Command::new("bat")
-                .args(["--paging=never", "--style=plain", "--color=always", "--line-range", "1:220"])
+                .args(["--paging=never", "--style=numbers", "--color=always", "--line-range", "1:220"])
                 .arg(&path)
                 .output()
             {
@@ -738,13 +742,20 @@ impl App {
             }
         }
 
-        if lines.is_empty() {
+        // Fall back to reading the file directly when bat is unavailable or
+        // produced no content, prepending our own line-number gutter.
+        if lines.len() == header_len {
             let mut bytes = Vec::new();
             if let Ok(mut file) = fs::File::open(&path) {
                 let _ = file.read_to_end(&mut bytes);
             }
             let text = String::from_utf8_lossy(&bytes).into_owned();
-            lines.extend(text.lines().take(220).map(|s| s.to_string()));
+            lines.extend(
+                text.lines()
+                    .take(220)
+                    .enumerate()
+                    .map(|(idx, line)| format!("\x1b[38;5;240m{:>4} │\x1b[0m {}", idx + 1, line)),
+            );
         }
 
         if lines.is_empty() {
