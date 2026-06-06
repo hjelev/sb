@@ -1,12 +1,21 @@
 # Shell Buddy (sb)
 
-A terminal file manager (TUI) written in Rust using `ratatui` + `crossterm`.
+<p align="center">
+  <a href="https://crates.io/crates/sb"><img src="https://img.shields.io/crates/v/sb.svg?style=flat-square&color=orange" alt="Crates.io Version" /></a>
+  <a href="https://crates.io/crates/sb"><img src="https://img.shields.io/crates/d/sb.svg?style=flat-square&color=blue" alt="Crates.io Downloads" /></a>
+  <a href="https://github.com/hjelev/sb/actions"><img src="https://img.shields.io/github/actions/workflow/status/hjelev/sb/release.yml?branch=main&style=flat-square" alt="Build Status" /></a>
+  <a href="https://github.com/hjelev/sb/blob/main/LICENSE"><img src="https://img.shields.io/github/license/hjelev/sb.svg?style=flat-square&color=purple" alt="License" /></a>
+  <a href="https://github.com/hjelev/sb/stargazers"><img src="https://img.shields.io/github/stars/hjelev/sb.svg?style=flat-square&color=gold" alt="GitHub Stars" /></a>
+</p>
 
-`sb` (Shell Buddy) is a keyboard-driven explorer focused on fast local navigation with optional integrations for previews, archive handling, searching, remote mounts, and lightweight Git workflows.
 
 ## Screenshot
 
 ![Shell Buddy screenshot](images/screenshot.png)
+
+A terminal file manager (TUI) written in Rust using `ratatui` + `crossterm`.
+
+`sb` (Shell Buddy) is a keyboard-driven explorer focused on fast local navigation with optional integrations for previews, archive handling, searching, remote mounts, and lightweight Git workflows.
 
 ## Highlights
 
