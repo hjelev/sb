@@ -4,6 +4,48 @@ use ratatui::{
 };
 use std::path::{Path, PathBuf};
 
+/// Build the spans for a single dialog button.
+///
+/// When a Nerd Font is active the button is drawn as a rounded "pill" using
+/// Powerline half-circle caps (``/``); otherwise it falls back to the plain
+/// space-padded label. Both variants occupy the same number of cells
+/// (`label_len + 4`) so the button hit-test layout is identical either way.
+fn dialog_button_spans(
+    label: &str,
+    focused: bool,
+    focus_bg: Color,
+    unfocused_fg: Color,
+    nerd_font: bool,
+) -> Vec<Span<'static>> {
+    if nerd_font {
+        let (text_fg, bg) = if focused {
+            (Color::Rgb(20, 20, 30), focus_bg)
+        } else {
+            (unfocused_fg, Color::Rgb(55, 58, 70))
+        };
+        let mut body = Style::default().fg(text_fg).bg(bg);
+        if focused {
+            body = body.add_modifier(Modifier::BOLD);
+        }
+        let cap = Style::default().fg(bg);
+        vec![
+            Span::styled("\u{e0b6}", cap),
+            Span::styled(format!(" {} ", label), body),
+            Span::styled("\u{e0b4}", cap),
+        ]
+    } else {
+        let style = if focused {
+            Style::default()
+                .fg(Color::Rgb(20, 20, 30))
+                .bg(focus_bg)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(unfocused_fg)
+        };
+        vec![Span::styled(format!("  {}  ", label), style)]
+    }
+}
+
 pub fn confirm_integration_install_msg_lines(
     key: &str,
     package: &str,
@@ -145,29 +187,24 @@ pub fn render_confirm_integration_install_dialog(
     if let Some((button_area, _, _, _, _)) = confirm_ok_cancel_button_layout(confirm_area) {
         let ok_focused = button_focus == 0;
         let cancel_focused = !ok_focused;
-        let ok_style = if ok_focused {
-            Style::default()
-                .fg(Color::Rgb(20, 20, 30))
-                .bg(Color::Rgb(120, 220, 140))
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Rgb(200, 220, 200))
-        };
-        let cancel_style = if cancel_focused {
-            Style::default()
-                .fg(Color::Rgb(20, 20, 30))
-                .bg(Color::Rgb(200, 200, 220))
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Rgb(220, 200, 200))
-        };
 
-        let button_line = Line::from(vec![
-            Span::styled("  ", Style::default()),
-            Span::styled("  OK  ", ok_style),
-            Span::styled("    ", Style::default()),
-            Span::styled("  Cancel  ", cancel_style),
-        ]);
+        let mut button_spans: Vec<Span> = vec![Span::styled("  ", Style::default())];
+        button_spans.extend(dialog_button_spans(
+            "OK",
+            ok_focused,
+            Color::Rgb(120, 220, 140),
+            Color::Rgb(200, 220, 200),
+            nerd_font_active,
+        ));
+        button_spans.push(Span::styled("    ", Style::default()));
+        button_spans.extend(dialog_button_spans(
+            "Cancel",
+            cancel_focused,
+            Color::Rgb(200, 200, 220),
+            Color::Rgb(220, 200, 200),
+            nerd_font_active,
+        ));
+        let button_line = Line::from(button_spans);
 
         f.render_widget(
             Paragraph::new(button_line).alignment(Alignment::Center),
@@ -256,33 +293,32 @@ pub fn confirm_delete_button_layout(area: Rect) -> Option<(Rect, u16, u16, u16, 
     Some((button_area, confirm_start, confirm_w, cancel_start, cancel_w))
 }
 
-pub fn render_confirm_delete_buttons(f: &mut Frame, button_area: Rect, confirm_focused: bool) {
+pub fn render_confirm_delete_buttons(
+    f: &mut Frame,
+    button_area: Rect,
+    confirm_focused: bool,
+    nerd_font_active: bool,
+) {
     let cancel_focused = !confirm_focused;
-    let confirm_style = if confirm_focused {
-        Style::default()
-            .fg(Color::Rgb(20, 20, 30))
-            .bg(Color::Rgb(255, 130, 130))
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::Rgb(220, 200, 200))
-    };
-    let cancel_style = if cancel_focused {
-        Style::default()
-            .fg(Color::Rgb(20, 20, 30))
-            .bg(Color::Rgb(200, 200, 220))
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::Rgb(220, 200, 200))
-    };
 
-    let button_line = Line::from(vec![
-        Span::styled("  ", Style::default()),
-        Span::styled("  Confirm  ", confirm_style),
-        Span::styled("    ", Style::default()),
-        Span::styled("  Cancel  ", cancel_style),
-    ]);
+    let mut button_spans: Vec<Span> = vec![Span::styled("  ", Style::default())];
+    button_spans.extend(dialog_button_spans(
+        "Confirm",
+        confirm_focused,
+        Color::Rgb(255, 130, 130),
+        Color::Rgb(220, 200, 200),
+        nerd_font_active,
+    ));
+    button_spans.push(Span::styled("    ", Style::default()));
+    button_spans.extend(dialog_button_spans(
+        "Cancel",
+        cancel_focused,
+        Color::Rgb(200, 200, 220),
+        Color::Rgb(220, 200, 200),
+        nerd_font_active,
+    ));
     f.render_widget(
-        Paragraph::new(button_line).alignment(Alignment::Center),
+        Paragraph::new(Line::from(button_spans)).alignment(Alignment::Center),
         button_area,
     );
 }
@@ -300,6 +336,7 @@ pub fn render_confirm_delete_dialog<F>(
     scroll_offset: u16,
     confirm_focused: bool,
     show_icons: bool,
+    nerd_font_active: bool,
     mut icon_for_path: F,
 ) -> ConfirmDeleteRenderState
 where
@@ -423,7 +460,7 @@ where
         }
     }
 
-    render_confirm_delete_buttons(f, sections[1], confirm_focused);
+    render_confirm_delete_buttons(f, sections[1], confirm_focused, nerd_font_active);
 
     ConfirmDeleteRenderState {
         max_offset: max_scroll as u16,

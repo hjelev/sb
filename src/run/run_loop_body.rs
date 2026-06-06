@@ -675,6 +675,11 @@ pub(crate) fn run_tui_body(
                 HashMap::new()
             };
             let use_main_pill = true;
+            let left_pill_color = if app.is_dual_panel_mode() && app.active_panel == crate::DualPanelSide::Right {
+                Color::Rgb(38, 38, 45)
+            } else {
+                active_theme.bg_selected
+            };
 
             let rows: Vec<Row> = app.entry_render_cache.iter().enumerate().map(|(idx, entry_cache)| {
                 let is_marked = app.marked_indices.contains(&idx);
@@ -737,13 +742,13 @@ pub(crate) fn run_tui_body(
 
                 let mut cells = vec![Cell::from(Line::from({
                     let mut spans = vec![];
-                    let row_fill = Style::default().bg(active_theme.bg_selected);
+                    let row_fill = Style::default().bg(left_pill_color);
                     if pill_mode {
                         if pill_selected {
                             spans.push(Span::styled(
                                 "",
                                 Style::default()
-                                    .fg(active_theme.bg_selected)
+                                    .fg(left_pill_color)
                                     .bg(active_theme.bg_panel),
                             ));
                         } else {
@@ -804,7 +809,7 @@ pub(crate) fn run_tui_body(
                             spans.push(Span::styled(
                                 "",
                                 Style::default()
-                                    .fg(active_theme.bg_selected)
+                                    .fg(left_pill_color)
                                     .bg(active_theme.bg_panel),
                             ));
                         } else {
@@ -848,7 +853,7 @@ pub(crate) fn run_tui_body(
                     date_style,
                 );
                 Row::new(cells).style(if is_selected {
-                    Style::default().bg(active_theme.bg_selected)
+                    Style::default().bg(left_pill_color)
                 } else if is_marked {
                     Style::default().bg(Color::Rgb(0, 100, 150))
                 } else {
@@ -968,7 +973,7 @@ pub(crate) fn run_tui_body(
                                             spans.push(Span::styled(
                                                 "",
                                                 Style::default()
-                                                    .fg(active_theme.bg_selected)
+                                                    .fg(left_pill_color)
                                                     .bg(active_theme.bg_panel),
                                             ));
                                         }
@@ -976,7 +981,7 @@ pub(crate) fn run_tui_body(
                                             if pill_selected {
                                                 spans.push(Span::styled(
                                                     marker,
-                                                    Style::default().bg(active_theme.bg_selected),
+                                                    Style::default().bg(left_pill_color),
                                                 ));
                                             } else {
                                                 spans.push(Span::raw(marker));
@@ -984,7 +989,7 @@ pub(crate) fn run_tui_body(
                                         }
                                         if !tree_prefix.is_empty() {
                                             let style = if pill_selected {
-                                                tree_style.bg(active_theme.bg_selected)
+                                                tree_style.bg(left_pill_color)
                                             } else {
                                                 tree_style
                                             };
@@ -993,21 +998,21 @@ pub(crate) fn run_tui_body(
                                         if app.show_icons {
                                             let icon_text = format!("{} ", entry_cache.icon_glyph);
                                             let style = if pill_selected {
-                                                icon_style.bg(active_theme.bg_selected)
+                                                icon_style.bg(left_pill_color)
                                             } else {
                                                 icon_style
                                             };
                                             spans.push(Span::styled(icon_text, style));
                                         }
                                         let style = if pill_selected {
-                                            name_style.bg(active_theme.bg_selected)
+                                            name_style.bg(left_pill_color)
                                         } else {
                                             name_style
                                         };
                                         spans.push(Span::styled(full_name.to_string(), style));
                                         if !note_suffix.is_empty() {
                                             let style = if pill_selected {
-                                                note_style.bg(active_theme.bg_selected)
+                                                note_style.bg(left_pill_color)
                                             } else {
                                                 note_style
                                             };
@@ -1023,13 +1028,13 @@ pub(crate) fn run_tui_body(
                                             if effective_name_width > used_inner {
                                                 spans.push(Span::styled(
                                                     " ".repeat(effective_name_width - used_inner),
-                                                    Style::default().bg(active_theme.bg_selected),
+                                                    Style::default().bg(left_pill_color),
                                                 ));
                                             }
                                             spans.push(Span::styled(
                                                 "",
                                                 Style::default()
-                                                    .fg(active_theme.bg_selected)
+                                                    .fg(left_pill_color)
                                                     .bg(active_theme.bg_panel),
                                             ));
                                         }
@@ -1059,7 +1064,7 @@ pub(crate) fn run_tui_body(
                                 Paragraph::new(Span::styled(
                                     "",
                                     Style::default()
-                                        .fg(active_theme.bg_selected)
+                                        .fg(left_pill_color)
                                         .bg(active_theme.bg_panel),
                                 )),
                                 cap_area,
@@ -2029,7 +2034,7 @@ pub(crate) fn run_tui_body(
                         ("Ctrl+T", "toggle scope"),
                         ("Regex", "re:pattern or /pattern/i"),
                         ("Tab", "switch tabs"),
-                    ], app.active_theme)),
+                    ], app.active_theme, app.nerd_font_active)),
                     footer_area,
                 );
 
@@ -2153,6 +2158,7 @@ pub(crate) fn run_tui_body(
                     app.panel_tab,
                     app.active_theme,
                     app.help_scroll_offset,
+                    app.nerd_font_active,
                 );
                 app.help_max_offset = max_off;
                 app.help_scroll_offset = clamped_off;
@@ -2407,6 +2413,7 @@ pub(crate) fn run_tui_body(
                     app.active_theme,
                     &bookmarks,
                     app.bookmark_selected,
+                    app.nerd_font_active,
                 );
             } else if app.mode == AppMode::Integrations {
                 let area = f.size();
@@ -2424,6 +2431,7 @@ pub(crate) fn run_tui_body(
                     app.active_theme,
                     &app.integration_rows_cache,
                     app.integration_selected,
+                    app.nerd_font_active,
                 );
             } else if app.mode == AppMode::Themes {
                 ui::panels::render_themes_overlay(
@@ -2432,6 +2440,7 @@ pub(crate) fn run_tui_body(
                     app.panel_tab,
                     app.active_theme,
                     app.theme_selected,
+                    app.nerd_font_active,
                 );
             } else if app.mode == AppMode::SortMenu {
                 let options = App::sort_mode_options();
@@ -2598,7 +2607,7 @@ pub(crate) fn run_tui_body(
                         ("u/Delete", "unmount"),
                         ("Tab", "switch tabs"),
                         ("Esc", "close"),
-                    ], app.active_theme)),
+                    ], app.active_theme, app.nerd_font_active)),
                     ssh_chunks[1],
                 );
             } else if app.mode == AppMode::ConfirmExtract {
@@ -2684,6 +2693,7 @@ pub(crate) fn run_tui_body(
                     app.confirm_delete_scroll_offset,
                     app.confirm_delete_button_focus == 0,
                     app.show_icons,
+                    app.nerd_font_active,
                     |path, path_is_symlink| {
                         App::icon_for_path(path, app.show_icons, app.nerd_font_active, path_is_symlink, app.active_theme)
                     },
@@ -2718,33 +2728,8 @@ pub(crate) fn run_tui_body(
                 }
                 left_status_parts.join(" │ ")
             };
-            let right_status = "c:Copy v:paste m:Move r:Rename w:Web d:Del e:Edit s:Size o:Open-GUI f:Find `:preview h:Help q:Quit";
             let width = chunks[1].width as usize;
             let left_len = left_status.chars().count();
-            let right_len = right_status.chars().count();
-
-            let (gap, right_display) = if left_len + right_len <= width {
-                (
-                    " ".repeat(width.saturating_sub(left_len + right_len)),
-                    right_status.to_string(),
-                )
-            } else {
-                let available = width.saturating_sub(left_len + 1);
-                let right_trimmed = if available == 0 {
-                    String::new()
-                } else {
-                    let tail: String = right_status
-                        .chars()
-                        .rev()
-                        .take(available)
-                        .collect::<Vec<_>>()
-                        .into_iter()
-                        .rev()
-                        .collect();
-                    format!("{:>width$}", tail, width = available)
-                };
-                (" ".to_string(), right_trimmed)
-            };
 
             let left_spans: Vec<Span> = if app.is_dual_panel_mode() && app.active_panel == crate::DualPanelSide::Right {
                 let total_entries = app.right_entries.len();
@@ -2786,46 +2771,52 @@ pub(crate) fn run_tui_body(
                 spans
             };
 
+            // Footer shortcuts: pill-styled keys (nerd font) or plain keys,
+            // each followed by its description. No `:` separator.
+            const FOOTER_SHORTCUTS: &[(&str, &str)] = &[
+                ("c", "Copy"),
+                ("v", "paste"),
+                ("m", "Move"),
+                ("r", "Rename"),
+                ("w", "Web"),
+                ("d", "Del"),
+                ("e", "Edit"),
+                ("s", "Size"),
+                ("o", "Open-GUI"),
+                ("f", "Find"),
+                ("`", "preview"),
+                ("h", "Help"),
+                ("q", "Quit"),
+            ];
+            let spec = ui::theme::theme_spec(app.active_theme);
+            let nf = app.nerd_font_active;
+            let sep_w = 1usize; // single space between shortcuts
+            let avail_right = width.saturating_sub(left_len + 1);
+
+            // Prefer the tail (rightmost) shortcuts when space is tight.
+            let mut start = FOOTER_SHORTCUTS.len();
+            let mut right_len = 0usize;
+            for i in (0..FOOTER_SHORTCUTS.len()).rev() {
+                let (k, d) = FOOTER_SHORTCUTS[i];
+                let w = ui::panels::shortcut_width(k, d, nf)
+                    + if start == FOOTER_SHORTCUTS.len() { 0 } else { sep_w };
+                if right_len + w <= avail_right {
+                    right_len += w;
+                    start = i;
+                } else {
+                    break;
+                }
+            }
+
             let mut right_spans: Vec<Span> = Vec::new();
-            let mut segment = String::new();
-            let mut in_ws = true;
-            for ch in right_display.chars() {
-                let is_ws = ch.is_whitespace();
-                if segment.is_empty() {
-                    in_ws = is_ws;
+            for (idx, (k, d)) in FOOTER_SHORTCUTS[start..].iter().enumerate() {
+                if idx > 0 {
+                    right_spans.push(Span::raw(" "));
                 }
-                if is_ws == in_ws {
-                    segment.push(ch);
-                } else {
-                    if in_ws {
-                        right_spans.push(Span::styled(segment.clone(), Style::default().fg(Color::DarkGray)));
-                    } else if let Some(colon_idx) = segment.find(':') {
-                        let (key, rest) = segment.split_at(colon_idx);
-                        if !key.is_empty() {
-                            right_spans.push(Span::styled(key.to_string(), Style::default().fg(Color::White)));
-                        }
-                        right_spans.push(Span::styled(rest.to_string(), Style::default().fg(Color::DarkGray)));
-                    } else {
-                        right_spans.push(Span::styled(segment.clone(), Style::default().fg(Color::DarkGray)));
-                    }
-                    segment.clear();
-                    segment.push(ch);
-                    in_ws = is_ws;
-                }
+                right_spans.extend(ui::panels::shortcut_spans(k, d, nf, spec));
             }
-            if !segment.is_empty() {
-                if in_ws {
-                    right_spans.push(Span::styled(segment, Style::default().fg(Color::DarkGray)));
-                } else if let Some(colon_idx) = segment.find(':') {
-                    let (key, rest) = segment.split_at(colon_idx);
-                    if !key.is_empty() {
-                        right_spans.push(Span::styled(key.to_string(), Style::default().fg(Color::White)));
-                    }
-                    right_spans.push(Span::styled(rest.to_string(), Style::default().fg(Color::DarkGray)));
-                } else {
-                    right_spans.push(Span::styled(segment, Style::default().fg(Color::DarkGray)));
-                }
-            }
+
+            let gap = " ".repeat(width.saturating_sub(left_len + right_len));
 
             let mut status_spans: Vec<Span> = left_spans;
             status_spans.push(Span::raw(gap));

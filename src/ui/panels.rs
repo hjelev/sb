@@ -59,13 +59,56 @@ pub fn panel_tab_hit_test(relative_x: u16) -> Option<u8> {
     None
 }
 
+/// Powerline rounded caps used to render shortcut keys as pills.
+const PILL_LEFT_CAP: &str = "\u{e0b6}";
+const PILL_RIGHT_CAP: &str = "\u{e0b4}";
+
+/// Spans for a single footer shortcut: the key (a rounded pill when nerd fonts
+/// are active) followed by a space and its description. No `:` separator.
+pub fn shortcut_spans(
+    key: &str,
+    description: &str,
+    nerd_font: bool,
+    spec: &crate::ui::theme::ThemeSpec,
+) -> Vec<Span<'static>> {
+    let desc_style = Style::default().fg(Color::DarkGray);
+    let mut spans: Vec<Span<'static>> = Vec::new();
+
+    if nerd_font {
+        let pill_bg = spec.bg_selected;
+        let cap_style = Style::default().fg(pill_bg);
+        let key_style = Style::default()
+            .fg(spec.text_normal)
+            .bg(pill_bg)
+            .add_modifier(Modifier::BOLD);
+        spans.push(Span::styled(PILL_LEFT_CAP, cap_style));
+        spans.push(Span::styled(key.to_string(), key_style));
+        spans.push(Span::styled(PILL_RIGHT_CAP, cap_style));
+    } else {
+        let key_style = Style::default().fg(spec.text_normal).add_modifier(Modifier::BOLD);
+        spans.push(Span::styled(key.to_string(), key_style));
+    }
+    spans.push(Span::raw(" "));
+    spans.push(Span::styled(description.to_string(), desc_style));
+    spans
+}
+
+/// Rendered display width of a shortcut produced by [`shortcut_spans`].
+pub fn shortcut_width(key: &str, description: &str, nerd_font: bool) -> usize {
+    let base = key.width() + 1 + description.width();
+    if nerd_font {
+        base + 2
+    } else {
+        base
+    }
+}
+
 pub fn shortcut_footer_line(
     entries: &[(&'static str, &'static str)],
     theme_id: ThemeId,
+    nerd_font: bool,
 ) -> Line<'static> {
     let spec = theme_spec(theme_id);
-    let shortcut_style = Style::default().fg(spec.text_normal);
-    let desc_style = Style::default().fg(Color::DarkGray);
     let sep_style = Style::default().fg(spec.divider);
     let mut spans: Vec<Span<'static>> = vec![Span::raw(" ")];
 
@@ -73,9 +116,7 @@ pub fn shortcut_footer_line(
         if idx > 0 {
             spans.push(Span::styled("  ", sep_style));
         }
-        spans.push(Span::styled(*shortcut, shortcut_style));
-        spans.push(Span::styled(":", shortcut_style));
-        spans.push(Span::styled(*description, desc_style));
+        spans.extend(shortcut_spans(shortcut, description, nerd_font, spec));
     }
 
     Line::from(spans)
@@ -84,8 +125,9 @@ pub fn shortcut_footer_line(
 pub fn shortcut_footer_lines(
     entries: &[(&'static str, &'static str)],
     theme_id: ThemeId,
+    nerd_font: bool,
 ) -> Vec<Line<'static>> {
-    vec![Line::from(""), shortcut_footer_line(entries, theme_id)]
+    vec![Line::from(""), shortcut_footer_line(entries, theme_id, nerd_font)]
 }
 
 fn selector_edge_spans(is_selected: bool, spec: &crate::ui::theme::ThemeSpec) -> (Span<'static>, Span<'static>) {
@@ -116,6 +158,7 @@ pub fn render_integrations_overlay(
     theme_id: ThemeId,
     integrations: &[IntegrationRow],
     integration_selected: usize,
+    nerd_font: bool,
 ) {
     let spec = theme_spec(theme_id);
     let int_w = (area.width * 5 / 6).max(70).min(tab_overlay_anchor.width);
@@ -288,7 +331,7 @@ pub fn render_integrations_overlay(
             ("Enter", "install missing"),
             ("Tab", "switch tabs"),
             ("Esc", "close"),
-        ], theme_id)),
+        ], theme_id, nerd_font)),
         int_chunks[1],
     );
 }
@@ -299,6 +342,7 @@ pub fn render_help_overlay(
     panel_tab: u8,
     theme_id: ThemeId,
     help_scroll_offset: u16,
+    nerd_font: bool,
 ) -> (u16, u16) {
     let spec = theme_spec(theme_id);
     let help_w = tab_overlay_anchor.width;
@@ -514,7 +558,7 @@ pub fn render_help_overlay(
             ("↑↓", "navigate"),
             ("Tab", "switch tabs"),
             ("Esc", "close"),
-        ], theme_id)),
+        ], theme_id, nerd_font)),
         help_footer_area,
     );
 
@@ -528,6 +572,7 @@ pub fn render_bookmarks_overlay(
     theme_id: ThemeId,
     bookmarks: &[(usize, Option<PathBuf>)],
     bookmark_selected: usize,
+    nerd_font: bool,
 ) {
     let spec = theme_spec(theme_id);
     let mut lines: Vec<Line> = vec![Line::from("")];
@@ -614,7 +659,7 @@ pub fn render_bookmarks_overlay(
             ("Enter/0-9", "jump"),
             ("Tab", "switch tabs"),
             ("Esc", "close"),
-        ], theme_id)),
+        ], theme_id, nerd_font)),
         bm_chunks[1],
     );
 }
@@ -717,7 +762,7 @@ pub fn render_sort_overlay(
             ("Enter", "apply"),
             ("Tab", "switch tabs"),
             ("Esc", "close"),
-        ], theme_id)),
+        ], theme_id, nerd_font_active)),
         sort_chunks[1],
     );
 }
@@ -728,6 +773,7 @@ pub fn render_themes_overlay(
     panel_tab: u8,
     theme_id: ThemeId,
     selected: usize,
+    nerd_font: bool,
 ) {
     let current = theme_spec(theme_id);
     let theme_w = tab_overlay_anchor.width;
@@ -816,7 +862,7 @@ pub fn render_themes_overlay(
             ("Enter/Space", "apply"),
             ("T", "open themes"),
             ("Esc", "close"),
-        ], theme_id)),
+        ], theme_id, nerd_font)),
         theme_chunks[1],
     );
 }
