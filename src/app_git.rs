@@ -4,6 +4,7 @@ use std::{
     process::{Command, Stdio},
     sync::mpsc,
     thread,
+    time::{Duration, Instant},
 };
 use crossterm::{
     cursor::MoveTo,
@@ -44,20 +45,30 @@ impl App {
         if self.git_info_rx.is_some() {
             return;
         }
-        if self
+        let cache_is_current = self
             .git_info_cache
             .as_ref()
             .map(|cache| cache.path == self.current_dir)
-            .unwrap_or(false)
-        {
+            .unwrap_or(false);
+
+        let is_fresh = self
+            .git_last_check_at
+            .map(|t| t.elapsed() < Duration::from_secs(8))
+            .unwrap_or(false);
+
+        if cache_is_current && is_fresh {
             return;
         }
 
-        // Clear stale data from a previously visited path until the new result arrives.
-        self.git_info_cache = None;
+        if !cache_is_current {
+            // Clear stale data from a previously visited path until the new result arrives.
+            self.git_info_cache = None;
+        }
+
         let path = self.current_dir.clone();
         let (tx, rx) = mpsc::channel();
         self.git_info_rx = Some(rx);
+        self.git_last_check_at = Some(Instant::now());
         thread::spawn(move || {
             let info = App::get_git_info(&path);
             let _ = tx.send((path, info));
@@ -103,11 +114,18 @@ impl App {
         let dirty_status = CommandBuilder::git_command(path, &["diff-index", "--quiet", "HEAD", "--"])
             .ok()?;
 
-        let is_dirty = match dirty_status.status.code() {
+        let tracked_dirty = match dirty_status.status.code() {
             Some(0) => false,
             Some(1) => true,
             _ => return None,
         };
+
+        let has_untracked = CommandBuilder::git_command(path, &["ls-files", "--others", "--exclude-standard"])
+            .ok()
+            .map(|out| !out.stdout.is_empty())
+            .unwrap_or(false);
+
+        let is_dirty = tracked_dirty || has_untracked;
 
         let latest_tag = CommandBuilder::git_command(
             path,

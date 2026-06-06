@@ -118,6 +118,7 @@ pub(crate) fn run_tui_body(
         app.pump_current_dir_total_size_progress();
         app.pump_selected_total_size_progress();
         app.pump_git_info();
+        app.request_git_info_for_current_dir_once();
         app.pump_notes_progress();
         app.pump_internal_search_candidates_progress();
         app.pump_internal_search_content_progress();
