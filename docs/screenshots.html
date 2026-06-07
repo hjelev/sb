@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Screenshots — Shell Buddy</title>
+  <meta name="description" content="Screenshots of Shell Buddy (sb): dual panels, rich previews, fuzzy search, remote mounts, themes, and the CLI list mode." />
+  <meta property="og:title" content="Shell Buddy — Screenshots" />
+  <meta property="og:description" content="See Shell Buddy in action: previews, search, remote mounts, themes, and CLI list mode." />
+  <meta property="og:image" content="images/screenshot-2.png" />
+  <meta property="og:type" content="website" />
+  <link rel="icon" type="image/png" href="images/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- NAV -->
+  <header class="nav">
+    <a class="nav__brand" href="index.html">
+      <img src="images/logo.png" alt="Shell Buddy" />
+    </a>
+    <nav class="nav__links">
+      <a href="index.html">Home</a>
+      <a href="screenshots.html" class="active" aria-current="page">Screenshots</a>
+      <a href="install.html">Install</a>
+      <a href="controls.html">Controls</a>
+      <a class="nav__gh" href="https://github.com/hjelev/sb" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        <span>GitHub</span>
+      </a>
+    </nav>
+    <button class="nav__toggle" aria-label="Menu" aria-expanded="false" aria-controls="mobileNav">
+      <span></span><span></span><span></span>
+    </button>
+  </header>
+  <div class="nav__backdrop" id="navBackdrop" hidden></div>
+  <nav class="nav__drawer" id="mobileNav" aria-hidden="true">
+    <a href="index.html">Home</a>
+    <a href="screenshots.html" class="active" aria-current="page">Screenshots</a>
+    <a href="install.html">Install</a>
+    <a href="controls.html">Controls</a>
+    <a href="https://github.com/hjelev/sb" target="_blank" rel="noopener">GitHub ↗</a>
+  </nav>
+
+  <!-- GALLERY -->
+  <section class="section" id="gallery">
+    <div class="section__head">
+      <span class="eyebrow">Screenshots</span>
+      <h2>See it in action</h2>
+      <p>Dual panels, rich previews, fuzzy search, remote mounts, themes — and more.</p>
+    </div>
+
+    <div class="gallery">
+      <figure class="shot">
+        <img src="images/screenshot-1.png" alt="Shell Buddy terminal file manager listing" loading="lazy" />
+        <figcaption>Fast, color-coded directory listing with rich metadata</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="images/screenshot-2.png" alt="Dual-panel preview with syntax highlighting" loading="lazy" />
+        <figcaption>Syntax-highlighted file preview alongside the listing</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="images/screenshot-5.png" alt="Dual-panel browsing" loading="lazy" />
+        <figcaption>Dual-panel browsing across two directory trees</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="images/screenshot-4.png" alt="Inline image preview" loading="lazy" />
+        <figcaption>Inline image previews rendered with sixel</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="images/screenshot-6.png" alt="Search overlay" loading="lazy" />
+        <figcaption>Fast indexed search — filename &amp; content scopes</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="images/screenshot-8.png" alt="Remote mounts panel" loading="lazy" />
+        <figcaption>SSH / rclone remote picker with live mount status</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="images/screenshot-9.png" alt="Integrations panel" loading="lazy" />
+        <figcaption>Integration manager — toggle and install optional tools</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="images/screenshot-7.png" alt="Bookmarks panel" loading="lazy" />
+        <figcaption>Numbered bookmarks for instant directory jumps</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="images/screenshot-10.png" alt="Themes panel" loading="lazy" />
+        <figcaption>Built-in themes: Original, Nord, Solarized, Gruvbox</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- CLI MODES -->
+  <section class="section section--alt" id="cli">
+    <div class="section__head">
+      <span class="eyebrow">CLI list mode</span>
+      <h2>Great outside the TUI, too</h2>
+      <p>Drop the TUI entirely and pipe clean, aligned output.</p>
+    </div>
+    <div class="cli-wrap">
+      <div class="code-block code-block--wide">
+        <pre><code><span class="comment"># Current directory listing</span>
+<span class="prompt">$</span> sb -l
+
+<span class="comment"># Include hidden entries</span>
+<span class="prompt">$</span> sb -la
+
+<span class="comment"># Recursive size + percent-share columns</span>
+<span class="prompt">$</span> sb -l --total-size
+
+<span class="comment"># Full tree, or tree limited to depth 2</span>
+<span class="prompt">$</span> sb -t
+<span class="prompt">$</span> sb -l2
+
+<span class="comment"># Open a file with the best available viewer</span>
+<span class="prompt">$</span> sb README.md</code></pre>
+      </div>
+      <figure class="shot shot--bare">
+        <img src="images/screenshot-11.png" alt="Shell Buddy CLI list mode" loading="lazy" />
+        <figcaption>Aligned, TUI-consistent column output</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <img src="images/logo.png" alt="Shell Buddy" />
+    <p>Shell Buddy (<code>sb</code>) — a terminal file manager written in Rust with <code>ratatui</code> + <code>crossterm</code>.</p>
+    <p class="footer__links">
+      <a href="https://github.com/hjelev/sb" target="_blank" rel="noopener">GitHub</a> ·
+      <a href="https://crates.io/crates/shell-buddy" target="_blank" rel="noopener">crates.io</a> ·
+      <a href="https://github.com/hjelev/sb/releases" target="_blank" rel="noopener">Releases</a> ·
+      <a href="https://github.com/hjelev/sb/blob/master/LICENSE" target="_blank" rel="noopener">License</a>
+    </p>
+  </footer>
+
+  <!-- LIGHTBOX -->
+  <div class="lightbox" id="lightbox" aria-hidden="true">
+    <button class="lightbox__close" aria-label="Close">&times;</button>
+    <img src="" alt="" />
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

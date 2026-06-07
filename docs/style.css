@@ -59,8 +59,53 @@ h3 { margin: 0 0 .5rem; font-size: 1.15rem; }
   color: var(--text) !important;
 }
 .nav__gh:hover { border-color: var(--green); }
-@media (max-width: 620px) {
-  .nav__links a:not(.nav__gh) { display: none; }
+.nav__links a.active { color: var(--green); }
+
+/* hamburger button — hidden on desktop */
+.nav__toggle {
+  display: none;
+  flex-direction: column; justify-content: center; gap: 5px;
+  width: 42px; height: 38px; padding: 0 9px;
+  background: none; border: 1px solid var(--border); border-radius: 8px;
+  cursor: pointer; z-index: 60;
+}
+.nav__toggle span {
+  display: block; height: 2px; width: 100%; border-radius: 2px;
+  background: var(--text); transition: transform .25s ease, opacity .2s ease;
+}
+body.nav-open .nav__toggle span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+body.nav-open .nav__toggle span:nth-child(2) { opacity: 0; }
+body.nav-open .nav__toggle span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+/* slide-in drawer + backdrop */
+.nav__drawer {
+  position: fixed; top: 0; right: 0; z-index: 90;
+  display: flex; flex-direction: column; gap: .3rem;
+  width: min(260px, 78vw); height: 100%;
+  padding: 5rem 1.2rem 1.2rem;
+  background: var(--panel); border-left: 1px solid var(--border);
+  box-shadow: -20px 0 60px -30px rgba(0,0,0,.9);
+  transform: translateX(100%); transition: transform .28s ease;
+}
+body.nav-open .nav__drawer { transform: translateX(0); }
+.nav__drawer a {
+  color: var(--text); font-weight: 500; font-size: 1.05rem;
+  padding: .7rem .6rem; border-radius: 8px;
+}
+.nav__drawer a:hover { background: var(--panel-2); color: var(--green); }
+.nav__drawer a.active { color: var(--green); background: rgba(61,214,140,.08); }
+
+.nav__backdrop {
+  position: fixed; inset: 0; z-index: 80;
+  background: rgba(5,7,10,.6);
+  opacity: 0; pointer-events: none; transition: opacity .28s ease;
+}
+body.nav-open .nav__backdrop { opacity: 1; pointer-events: auto; }
+body.nav-open { overflow: hidden; }
+
+@media (max-width: 760px) {
+  .nav__links { display: none; }
+  .nav__toggle { display: flex; }
 }
 
 /* ---------- HERO ---------- */
@@ -307,4 +352,5 @@ kbd {
 @media (prefers-reduced-motion: reduce) {
   .reveal { opacity: 1; transform: none; transition: none; }
   html { scroll-behavior: auto; }
+  .nav__drawer, .nav__backdrop, .nav__toggle span { transition: none; }
 }
