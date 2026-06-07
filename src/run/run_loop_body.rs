@@ -227,7 +227,7 @@ pub(crate) fn run_tui_body(
                 }
                 if let Some((left_identity, right_identity)) = header_identity.split_once('@') {
                     middle_spans.push(Span::raw(left_identity.to_string()));
-                    middle_spans.push(Span::styled("@", Style::default().fg(Color::Rgb(120, 120, 120))));
+                    middle_spans.push(Span::styled("@", Style::default().fg(active_theme.text_dim)));
                     middle_spans.push(Span::raw(right_identity.to_string()));
                 } else {
                     middle_spans.push(Span::raw(header_identity.as_str()));
@@ -262,10 +262,10 @@ pub(crate) fn run_tui_body(
                     left_spans.push(Span::styled(" (", branch_style));
                     left_spans.push(Span::styled(branch, branch_style));
                     if is_dirty {
-                        left_spans.push(Span::styled("*", Style::default().fg(Color::White)));
+                        left_spans.push(Span::styled("*", Style::default().fg(active_theme.text_normal)));
                     }
                     if let Some((tag_name, ahead)) = tag_info {
-                        let at_style = Style::default().fg(Color::Rgb(120, 120, 120));
+                        let at_style = Style::default().fg(active_theme.text_dim);
                         let tag_style = Style::default().fg(Color::Rgb(80, 255, 120));
                         let tag_text = if ahead > 0 {
                             format!("{}+{}", tag_name, ahead)
@@ -281,7 +281,7 @@ pub(crate) fn run_tui_body(
             let mut header_right_is_clock = false;
             let header_right = if let Some(total_suffix) = app.current_dir_total_size_header_suffix() {
                 let icon_style = Style::default().fg(Color::Rgb(100, 160, 240));
-                let text_style = Style::default().fg(Color::White);
+                let text_style = Style::default().fg(active_theme.text_normal);
                 let mut spans: Vec<Span> = Vec::new();
                 let mut text_buf = String::new();
                 for ch in total_suffix.chars() {
@@ -302,7 +302,7 @@ pub(crate) fn run_tui_body(
             } else if !app.folder_size_enabled {
                 header_right_is_clock = true;
                 Some(Line::from(vec![
-                    Span::styled(app.header_clock_text.clone(), Style::default().fg(Color::White)),
+                    Span::styled(app.header_clock_text.clone(), Style::default().fg(active_theme.text_normal)),
                 ]))
             } else {
                 None
@@ -472,7 +472,7 @@ pub(crate) fn run_tui_body(
                 Block::default()
                     .borders(Borders::BOTTOM)
                     .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(Color::DarkGray)),
+                    .border_style(Style::default().fg(active_theme.border)),
                 Rect::new(chunks[0].x, chunks[0].y + 1, chunks[0].width, 1),
             );
 
@@ -560,7 +560,7 @@ pub(crate) fn run_tui_body(
                         Style::default().fg(Color::Rgb(255, 220, 120)),
                     ));
                 } else {
-                    title_spans.push(Span::styled(display_text.clone(), Style::default().fg(Color::White)));
+                    title_spans.push(Span::styled(display_text.clone(), Style::default().fg(active_theme.text_normal)));
                 }
 
                 let used_width = prefix_width + UnicodeWidthStr::width(display_text.as_str());
@@ -587,10 +587,10 @@ pub(crate) fn run_tui_body(
                     if app.active_panel == crate::DualPanelSide::Left {
                         active_theme.text_normal
                     } else {
-                        Color::Rgb(120, 120, 120)
+                        active_theme.border
                     }
                 } else if app.preview_focus_is_preview() {
-                    Color::DarkGray
+                    active_theme.border
                 } else {
                     active_theme.text_normal
                 };
@@ -645,7 +645,7 @@ pub(crate) fn run_tui_body(
                 out
             };
 
-            let note_style = Style::default().fg(Color::Rgb(150, 150, 150));
+            let note_style = Style::default().fg(active_theme.text_dim);
             let tree_style = Style::default().fg(Color::Rgb(140, 140, 140));
 
             // Keep selected-row background while preserving per-span foreground colors
@@ -960,8 +960,8 @@ pub(crate) fn run_tui_body(
                                     1,
                                 );
                                 let is_marked = app.marked_indices.contains(&selected_idx);
-                                let icon_style = entry_cache.icon_style.fg(Color::White);
-                                let name_style = entry_cache.name_style.fg(Color::White);
+                                let icon_style = entry_cache.icon_style.fg(active_theme.text_normal);
+                                let name_style = entry_cache.name_style.fg(active_theme.text_normal);
                                 let marker = if app.no_color {
                                     format!(">{} ", if is_marked { '*' } else { ' ' })
                                 } else {
@@ -1095,7 +1095,7 @@ pub(crate) fn run_tui_body(
             // --- Bottom divider border ---
             let bottom_border_y = table_area.y + table_area.height;
             if !app.is_preview_mode() && !app.is_dual_panel_mode() && app.mode_shows_main_scrollbar() && bottom_border_y < chunks[0].y + chunks[0].height {
-                f.render_widget(Block::default().borders(Borders::TOP).border_type(BorderType::Rounded).border_style(Style::default().fg(Color::DarkGray)), 
+                f.render_widget(Block::default().borders(Borders::TOP).border_type(BorderType::Rounded).border_style(Style::default().fg(active_theme.border)), 
                     Rect::new(chunks[0].x, bottom_border_y, chunks[0].width, 1));
             }
 
@@ -1132,7 +1132,7 @@ pub(crate) fn run_tui_body(
                         let (ch, color) = if in_thumb {
                             ("┃", active_theme.divider)
                         } else {
-                            ("│", Color::DarkGray)
+                            ("│", active_theme.border)
                         };
                         sb_lines.push(Line::from(Span::styled(ch, Style::default().fg(color))));
                     }
@@ -1199,7 +1199,7 @@ pub(crate) fn run_tui_body(
                     .border_style(Style::default().fg(if app.preview_focus_is_preview() {
                         active_theme.text_normal
                     } else {
-                        Color::DarkGray
+                        active_theme.border
                     }))
                     .style(Style::default().bg(active_theme.bg_panel).fg(active_theme.text_normal));
                 let preview_inner = preview_block.inner(preview_area);
@@ -1327,7 +1327,7 @@ pub(crate) fn run_tui_body(
                             let (ch, color) = if in_thumb {
                                 ("┃", active_theme.divider)
                             } else {
-                                ("│", Color::DarkGray)
+                                ("│", active_theme.border)
                             };
                             sb_lines.push(Line::from(Span::styled(ch, Style::default().fg(color))));
                         }
@@ -1354,7 +1354,7 @@ pub(crate) fn run_tui_body(
                         .border_style(Style::default().fg(if app.active_panel == crate::DualPanelSide::Right {
                             active_theme.text_normal
                         } else {
-                            Color::Rgb(120, 120, 120)
+                            active_theme.border
                         }))
                         .style(Style::default().bg(active_theme.bg_panel).fg(active_theme.text_normal));
                     f.render_widget(right_block, preview_area);
@@ -1610,7 +1610,7 @@ pub(crate) fn run_tui_body(
                                 let (ch, color) = if in_thumb {
                                     ("┃", active_theme.divider)
                                 } else {
-                                    ("│", Color::DarkGray)
+                                    ("│", active_theme.border)
                                 };
                                 right_sb_lines.push(Line::from(Span::styled(ch, Style::default().fg(color))));
                             }
@@ -1652,7 +1652,7 @@ pub(crate) fn run_tui_body(
                     } else if is_error {
                         Style::default().fg(Color::Rgb(255, 120, 120))
                     } else {
-                        Style::default().fg(Color::White)
+                        Style::default().fg(active_theme.text_normal)
                     };
                     let msg_area = Rect::new(
                         frame_area.x.saturating_add(1),
@@ -1805,12 +1805,12 @@ pub(crate) fn run_tui_body(
                         lines.push(item_line(2, "Max file size", App::format_size(limits.max_file_bytes as u64)));
                         lines.push(Line::from(Span::styled(
                             "Editor: Up/Down select  Left/Right or +/- adjust  Shift=10x  r reset  Ctrl+L close",
-                            Style::default().fg(Color::DarkGray),
+                            Style::default().fg(active_theme.text_dim),
                         )));
                     } else {
                         lines.push(Line::from(Span::styled(
                             " Ctrl+L open limits editor",
-                            Style::default().fg(Color::DarkGray),
+                            Style::default().fg(active_theme.text_dim),
                         )));
                     }
 
@@ -2100,7 +2100,7 @@ pub(crate) fn run_tui_body(
                 let mut lines: Vec<Line> = vec![
                     Line::from(Span::styled(
                         "←→:switch table  Home/End:jump  Esc:close",
-                        Style::default().fg(Color::DarkGray),
+                        Style::default().fg(active_theme.text_dim),
                     )),
                 ];
 
@@ -2116,7 +2116,7 @@ pub(crate) fn run_tui_body(
                 } else {
                     for (idx, table_name) in app.db_preview_tables.iter().enumerate() {
                         if idx > 0 {
-                            table_spans.push(Span::styled("  ", Style::default().fg(Color::DarkGray)));
+                            table_spans.push(Span::styled("  ", Style::default().fg(active_theme.text_dim)));
                         }
                         let display = if table_name.chars().count() > 20 {
                             let mut t = table_name.chars().take(19).collect::<String>();
@@ -2181,7 +2181,7 @@ pub(crate) fn run_tui_body(
                             Block::default()
                                 .borders(Borders::ALL)
                                 .title(format!(" SQLite: {} ", db_title))
-                                .title_style(Style::default().fg(Color::White))
+                                .title_style(Style::default().fg(active_theme.text_normal))
                                 .border_style(Style::default().fg(Color::Rgb(120, 200, 150))),
                         )
                         .wrap(Wrap { trim: true }),
@@ -2228,8 +2228,8 @@ pub(crate) fn run_tui_body(
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
                     .title(title)
-                    .title_style(Style::default().fg(Color::White))
-                    .border_style(Style::default().fg(Color::Rgb(120, 120, 120)));
+                    .title_style(Style::default().fg(active_theme.text_normal))
+                    .border_style(Style::default().fg(active_theme.border));
                 let input_area = block.inner(create_area);
                 f.render_widget(block, create_area);
 
@@ -2274,7 +2274,7 @@ pub(crate) fn run_tui_body(
                 f.render_widget(
                     Paragraph::new(Line::from(Span::styled(
                         "(/name = folder, name = file)  Alt+Enter: new line",
-                        Style::default().fg(Color::DarkGray),
+                        Style::default().fg(active_theme.text_dim),
                     ))),
                     help_area,
                 );
@@ -2338,8 +2338,8 @@ pub(crate) fn run_tui_body(
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
                     .title(title)
-                    .title_style(Style::default().fg(Color::White))
-                    .border_style(Style::default().fg(Color::Rgb(120, 120, 120)));
+                    .title_style(Style::default().fg(active_theme.text_normal))
+                    .border_style(Style::default().fg(active_theme.border));
                 let input_area = block.inner(rename_area);
                 f.render_widget(block, rename_area);
 
@@ -2399,7 +2399,7 @@ pub(crate) fn run_tui_body(
                 let cursor = app.input_cursor;
                 let scroll = if avail_w > 0 && cursor >= avail_w { cursor + 1 - avail_w } else { 0 };
                 let visible_text: String = app.input_buffer.chars().skip(scroll).collect();
-                f.render_widget(Paragraph::new(visible_text).block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title).title_style(Style::default().fg(Color::White))), rename_area);
+                f.render_widget(Paragraph::new(visible_text).block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title).title_style(Style::default().fg(active_theme.text_normal))), rename_area);
                 let cursor_x = rename_area.x + 1 + (cursor - scroll) as u16;
                 let cursor_y = rename_area.y + 1;
                 f.set_cursor(cursor_x.min(rename_area.x + rename_area.width.saturating_sub(1)), cursor_y);
@@ -2440,7 +2440,7 @@ pub(crate) fn run_tui_body(
                                 .borders(Borders::ALL)
                                 .border_type(BorderType::Rounded)
                                 .title(" Confirm Download Overwrite ")
-                                .title_style(Style::default().fg(Color::White)),
+                                .title_style(Style::default().fg(active_theme.text_normal)),
                         ),
                     confirm_area,
                 );
@@ -2702,7 +2702,7 @@ pub(crate) fn run_tui_body(
                     Paragraph::new(msg)
                         .wrap(Wrap { trim: true })
                         .style(Style::default().fg(Color::Rgb(140, 200, 255)))
-                        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(" Confirm Extract ").title_style(Style::default().fg(Color::White))),
+                        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(" Confirm Extract ").title_style(Style::default().fg(active_theme.text_normal))),
                     confirm_area,
                 );
             } else if app.mode == AppMode::ConfirmIntegrationInstall {
@@ -2715,6 +2715,7 @@ pub(crate) fn run_tui_body(
                     confirm_area,
                     app.confirm_integration_install_button_focus,
                     app.nerd_font_active,
+                    active_theme,
                 );
             } else if app.mode == AppMode::ConfirmDelete {
                 let area = f.size();
@@ -2737,6 +2738,7 @@ pub(crate) fn run_tui_body(
                     app.confirm_delete_button_focus == 0,
                     app.show_icons,
                     app.nerd_font_active,
+                    active_theme,
                     |path, path_is_symlink| {
                         App::icon_for_path(path, app.show_icons, app.nerd_font_active, path_is_symlink, app.active_theme)
                     },
@@ -2782,15 +2784,15 @@ pub(crate) fn run_tui_body(
                     app.right.selected_index.min(total_entries - 1) + 1
                 };
                 let mut spans = vec![
-                    Span::styled(selected_ordinal.to_string(), Style::default().fg(Color::White)),
-                    Span::styled("/", Style::default().fg(Color::DarkGray)),
-                    Span::styled(total_entries.to_string(), Style::default().fg(Color::White)),
+                    Span::styled(selected_ordinal.to_string(), Style::default().fg(active_theme.text_normal)),
+                    Span::styled("/", Style::default().fg(active_theme.text_dim)),
+                    Span::styled(total_entries.to_string(), Style::default().fg(active_theme.text_normal)),
                 ];
                 if !app.clipboard.is_empty() {
-                    spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
-                    spans.push(Span::styled("Clipboard", Style::default().fg(Color::DarkGray)));
-                    spans.push(Span::styled(":", Style::default().fg(Color::DarkGray)));
-                    spans.push(Span::styled(app.clipboard.len().to_string(), Style::default().fg(Color::White)));
+                    spans.push(Span::styled(" │ ", Style::default().fg(active_theme.text_dim)));
+                    spans.push(Span::styled("Clipboard", Style::default().fg(active_theme.text_dim)));
+                    spans.push(Span::styled(":", Style::default().fg(active_theme.text_dim)));
+                    spans.push(Span::styled(app.clipboard.len().to_string(), Style::default().fg(active_theme.text_normal)));
                 }
                 spans
             } else {
@@ -2801,15 +2803,15 @@ pub(crate) fn run_tui_body(
                     app.selected_index.min(total_entries - 1) + 1
                 };
                 let mut spans = vec![
-                    Span::styled(selected_ordinal.to_string(), Style::default().fg(Color::White)),
-                    Span::styled("/", Style::default().fg(Color::DarkGray)),
-                    Span::styled(total_entries.to_string(), Style::default().fg(Color::White)),
+                    Span::styled(selected_ordinal.to_string(), Style::default().fg(active_theme.text_normal)),
+                    Span::styled("/", Style::default().fg(active_theme.text_dim)),
+                    Span::styled(total_entries.to_string(), Style::default().fg(active_theme.text_normal)),
                 ];
                 if !app.clipboard.is_empty() {
-                    spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
-                    spans.push(Span::styled("Clipboard", Style::default().fg(Color::DarkGray)));
-                    spans.push(Span::styled(":", Style::default().fg(Color::DarkGray)));
-                    spans.push(Span::styled(app.clipboard.len().to_string(), Style::default().fg(Color::White)));
+                    spans.push(Span::styled(" │ ", Style::default().fg(active_theme.text_dim)));
+                    spans.push(Span::styled("Clipboard", Style::default().fg(active_theme.text_dim)));
+                    spans.push(Span::styled(":", Style::default().fg(active_theme.text_dim)));
+                    spans.push(Span::styled(app.clipboard.len().to_string(), Style::default().fg(active_theme.text_normal)));
                 }
                 spans
             };
@@ -2871,7 +2873,7 @@ pub(crate) fn run_tui_body(
                 Block::default()
                     .borders(Borders::TOP)
                     .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(Color::DarkGray))
+                    .border_style(Style::default().fg(active_theme.border))
             };
             f.render_widget(Paragraph::new(status).block(footer_block), chunks[1]);
             if !app.is_preview_mode() && !app.is_dual_panel_mode() {
@@ -2900,7 +2902,7 @@ pub(crate) fn run_tui_body(
                     } else if is_error {
                         Style::default().fg(Color::Rgb(255, 120, 120))
                     } else {
-                        Style::default().fg(Color::White)
+                        Style::default().fg(active_theme.text_normal)
                     };
                     let decorated = app.decorate_footer_message(&status_text);
                     let message = decorated.as_str();
@@ -2933,7 +2935,7 @@ pub(crate) fn run_tui_body(
                     // rounded pane border; skip the synthetic scrollbar corners.
                 } else {
                     let can_draw_scrollbar = table_area.width > 2 && app.entries.len() > table_area.height as usize;
-                    ui::scrollbar::render_scrollbar_corners(f, table_area, can_draw_scrollbar, Color::DarkGray);
+                    ui::scrollbar::render_scrollbar_corners(f, table_area, can_draw_scrollbar, active_theme.border);
                 }
             }
         })?;

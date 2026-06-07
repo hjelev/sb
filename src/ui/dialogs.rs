@@ -3,6 +3,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap},
 };
 use std::path::{Path, PathBuf};
+use crate::ui::theme::ThemeSpec;
 
 /// Build the spans for a single dialog button.
 ///
@@ -130,6 +131,7 @@ pub fn render_confirm_integration_install_dialog(
     confirm_area: Rect,
     button_focus: u8,
     nerd_font_active: bool,
+    theme: &ThemeSpec,
 ) {
     f.render_widget(Clear, confirm_area);
 
@@ -143,7 +145,7 @@ pub fn render_confirm_integration_install_dialog(
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .title(title)
-        .title_style(Style::default().fg(Color::White));
+        .title_style(Style::default().fg(theme.text_normal));
     let inner = block.inner(confirm_area);
     let content_area = Rect::new(
         inner.x,
@@ -168,7 +170,7 @@ pub fn render_confirm_integration_install_dialog(
                         format!("{}:", label),
                         Style::default().fg(Color::Rgb(140, 200, 255)),
                     ),
-                    Span::styled(value.to_string(), Style::default().fg(Color::White)),
+                    Span::styled(value.to_string(), Style::default().fg(theme.text_normal)),
                 ])
             } else {
                 Line::from(vec![
@@ -337,6 +339,7 @@ pub fn render_confirm_delete_dialog<F>(
     confirm_focused: bool,
     show_icons: bool,
     nerd_font_active: bool,
+    theme: &ThemeSpec,
     mut icon_for_path: F,
 ) -> ConfirmDeleteRenderState
 where
@@ -349,7 +352,7 @@ where
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .title(title)
-        .title_style(Style::default().fg(Color::White))
+        .title_style(Style::default().fg(theme.text_normal))
         .border_style(Style::default().fg(Color::Rgb(255, 100, 100)));
     let inner = block.inner(confirm_area);
     f.render_widget(block, confirm_area);
@@ -369,7 +372,7 @@ where
     let list_block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(Color::Rgb(90, 90, 90)));
+        .border_style(Style::default().fg(theme.border));
     let list_frame_area = sections[0];
     let list_inner = list_block.inner(list_frame_area);
     f.render_widget(list_block, list_frame_area);
@@ -450,9 +453,9 @@ where
             for row in 0..track_h {
                 let in_thumb = row >= thumb_y && row < thumb_y + thumb_h;
                 let (ch, color) = if in_thumb {
-                    ("┃", Color::Rgb(120, 120, 120))
+                    ("┃", theme.divider)
                 } else {
-                    ("│", Color::Rgb(90, 90, 90))
+                    ("│", theme.border)
                 };
                 sb_lines.push(Line::from(Span::styled(ch, Style::default().fg(color))));
             }

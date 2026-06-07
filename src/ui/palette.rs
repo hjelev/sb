@@ -94,7 +94,7 @@ impl Palette {
     pub const BG_PANEL: Color = Color::Rgb(60, 60, 60);
 
     /// Panel text on dark background
-    pub const TEXT_ON_PANEL: Color = Color::White;
+    pub const TEXT_ON_PANEL: Color = Color::Reset;
 
     /// Divider/separator
     pub const DIVIDER: Color = Color::Rgb(120, 200, 190);

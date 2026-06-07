@@ -92,9 +92,9 @@ fn env_flag_true(names: &[&str]) -> bool {
     false
 }
 
-/// Returns the path to the persistent config file: `$XDG_CONFIG_HOME/sb/config`
-/// or `~/.config/sb/config` if the env var is unset.
-fn persist_config_path() -> std::path::PathBuf {
+/// Returns the sb config directory: `$XDG_CONFIG_HOME/sb` or `~/.config/sb`
+/// if the env var is unset.
+pub fn config_dir() -> std::path::PathBuf {
     let base = env::var("XDG_CONFIG_HOME")
         .ok()
         .filter(|s| !s.is_empty())
@@ -105,7 +105,13 @@ fn persist_config_path() -> std::path::PathBuf {
                 .map(|h| std::path::PathBuf::from(h).join(".config"))
         })
         .unwrap_or_else(|| std::path::PathBuf::from(".config"));
-    base.join("sb").join("config")
+    base.join("sb")
+}
+
+/// Returns the path to the persistent config file: `$XDG_CONFIG_HOME/sb/config`
+/// or `~/.config/sb/config` if the env var is unset.
+fn persist_config_path() -> std::path::PathBuf {
+    config_dir().join("config")
 }
 
 /// Persistent (file-based) configuration stored in `~/.config/sb/config`.

@@ -349,7 +349,7 @@ impl App {
             archive_name: String::new(),
             nerd_font_active: env::var("NERD_FONT_ACTIVE").map(|v| v == "1").unwrap_or(false),
             os_icon: ui::icons::os_nerd_icon().map(|(g, _)| {
-                (g, ui::theme::theme_spec(ui::theme::ThemeId::Original).icon_os)
+                (g, ui::theme::theme_spec(ui::theme::ThemeId::original()).icon_os)
             }),
             no_color: env_flag_true(&["NO_COLOR"]),
             show_icons: env::var("TERMINAL_ICONS").map(|v| v != "0").unwrap_or(true),
@@ -395,7 +395,7 @@ impl App {
             sort_mode: SortMode::NameAsc,
             sort_menu_selected: 0,
             panel_tab: 0,
-            active_theme: ui::theme::ThemeId::Original,
+            active_theme: ui::theme::ThemeId::original(),
             theme_selected: 0,
             internal_search_candidates: Vec::new(),
             internal_search_results: Vec::new(),
@@ -629,17 +629,18 @@ impl App {
                 let suffix = if is_dir { "/" } else { "" };
                 entries.push(format!("{}{}{}", icon_prefix, file_name, suffix));
 
+                let spec = ui::theme::theme_spec(theme_id);
                 let mut style = if is_symlink {
-                    Style::default().fg(ui::palette::Palette::SYMLINK)
+                    Style::default().fg(spec.text_symlink)
                 } else if is_dir {
                     Style::default()
-                        .fg(ui::palette::Palette::ACCENT_PRIMARY)
+                        .fg(spec.icon_default_dir)
                         .add_modifier(Modifier::BOLD)
                 } else if is_executable {
-                    Style::default().fg(ui::palette::Palette::SUCCESS_ALT)
+                    Style::default().fg(spec.text_executable)
                 } else {
                     icon_style.fg.map_or_else(
-                        || Style::default().fg(ui::palette::Palette::TEXT_NORMAL),
+                        || Style::default().fg(spec.text_normal),
                         |fg| Style::default().fg(fg),
                     )
                 };
@@ -1047,7 +1048,7 @@ IFS= read -rsn1 _
 
     fn set_active_theme(&mut self, theme_id: ui::theme::ThemeId) {
         self.active_theme = theme_id;
-        self.theme_selected = ui::theme::THEMES
+        self.theme_selected = ui::theme::themes()
             .iter()
             .position(|theme| theme.id == theme_id)
             .unwrap_or(0);
@@ -1080,7 +1081,7 @@ IFS= read -rsn1 _
     }
 
     fn apply_selected_theme(&mut self) {
-        if let Some(theme) = ui::theme::THEMES.get(self.theme_selected) {
+        if let Some(theme) = ui::theme::themes().get(self.theme_selected) {
             self.set_active_theme(theme.id);
         }
     }
@@ -1966,7 +1967,13 @@ IFS= read -rsn1 _
             }
         }
         self.mode = AppMode::Browsing;
-        self.refresh_entries_or_status();
+        if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
+            if self.refresh_right_panel_entries().is_err() {
+                self.set_status("refresh failed");
+            }
+        } else {
+            self.refresh_entries_or_status();
+        }
         // Surface delete failures (e.g. permission denied) instead of silently
         // leaving the item in place; this status takes priority over refresh's.
         if let Some(err) = last_err {

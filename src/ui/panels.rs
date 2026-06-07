@@ -1,5 +1,5 @@
 use crate::integration::rows::IntegrationRow;
-use crate::ui::theme::{theme_spec, ThemeId, THEMES};
+use crate::ui::theme::{theme_spec, themes, ThemeId};
 use crate::SortMode;
 use ratatui::{
     prelude::*,
@@ -70,7 +70,7 @@ pub fn panel_tab_bar_line(
     avail_width: u16,
 ) -> Line<'static> {
     let spec = theme_spec(theme_id);
-    let inactive_style = Style::default().fg(Color::Rgb(120, 120, 120));
+    let inactive_style = Style::default().fg(spec.text_dim);
     let sep_style = Style::default().fg(spec.divider);
     let indicator_style = Style::default()
         .fg(spec.divider)
@@ -241,7 +241,7 @@ pub fn shortcut_spans(
     nerd_font: bool,
     spec: &crate::ui::theme::ThemeSpec,
 ) -> Vec<Span<'static>> {
-    let desc_style = Style::default().fg(Color::DarkGray);
+    let desc_style = Style::default().fg(spec.text_dim);
     let mut spans: Vec<Span<'static>> = Vec::new();
 
     if nerd_font {
@@ -378,7 +378,7 @@ pub fn render_integrations_overlay(
             } else if is_enabled {
                 base_style.fg(Color::Rgb(255, 220, 140))
             } else {
-                base_style.fg(Color::Rgb(150, 150, 150))
+                base_style.fg(spec.text_dim)
             },
         );
         let category_span = Span::styled(category_text.clone(), base_style);
@@ -483,7 +483,7 @@ pub fn render_help_overlay(
     };
 
     let title_style = Style::default().fg(Color::Rgb(255, 255, 255)).add_modifier(Modifier::BOLD);
-    let subtitle_style = Style::default().fg(Color::Rgb(150, 150, 150));
+    let subtitle_style = Style::default().fg(theme_spec(theme_id).text_dim);
 
     let mut lines: Vec<Line> = vec![
         Line::from(Span::styled(
@@ -707,8 +707,8 @@ pub fn render_bookmarks_overlay(
     }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(" Add to your shell config to set bookmarks:", Style::default().fg(Color::Rgb(200, 180, 80)))));
-    lines.push(Line::from(Span::styled("  export SB_BOOKMARK_1=\"$HOME/.config\"", Style::default().fg(Color::DarkGray))));
-    lines.push(Line::from(Span::styled("  export SB_BOOKMARK_2=\"/var/log\"", Style::default().fg(Color::DarkGray))));
+    lines.push(Line::from(Span::styled("  export SB_BOOKMARK_1=\"$HOME/.config\"", Style::default().fg(spec.text_dim))));
+    lines.push(Line::from(Span::styled("  export SB_BOOKMARK_2=\"/var/log\"", Style::default().fg(spec.text_dim))));
     let bm_h = (lines.len() as u16 + 4).max(17).min(tab_overlay_anchor.height);
     let bm_area = Rect::new(
         tab_overlay_anchor.x,
@@ -829,8 +829,16 @@ pub fn render_themes_overlay(
     let theme_w = tab_overlay_anchor.width;
     let theme_content_w = theme_w.saturating_sub(2) as usize;
     let theme_row_inner_w = theme_content_w.saturating_sub(2);
+    // Width of the name column = longest theme name (display width), so the
+    // checkboxes line up regardless of how long custom skin names are.
+    let name_col_w = themes()
+        .iter()
+        .map(|t| UnicodeWidthStr::width(t.name))
+        .max()
+        .unwrap_or(0)
+        .max(8);
     let mut lines: Vec<Line> = vec![Line::from("")];
-    for (idx, theme) in THEMES.iter().enumerate() {
+    for (idx, theme) in themes().iter().enumerate() {
         let is_selected = idx == selected;
         let is_applied = theme.id == theme_id;
         let spec = theme_spec(theme.id);
@@ -839,9 +847,11 @@ pub fn render_themes_overlay(
         } else {
             Style::default().fg(current.text_normal)
         };
+        let name_pad = name_col_w.saturating_sub(UnicodeWidthStr::width(theme.name));
         let row_text = format!(
-            " {:<12} {}",
+            " {}{} {}",
             theme.name,
+            " ".repeat(name_pad),
             if is_applied { "[x]" } else { "[ ]" }
         );
         let row_text_w = UnicodeWidthStr::width(row_text.as_str());

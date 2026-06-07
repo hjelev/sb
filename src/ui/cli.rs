@@ -128,7 +128,7 @@ pub fn list_current_directory(
         direct_entries.iter().collect::<Vec<_>>()
     };
 
-    let config = EntryRenderConfig { nerd_font_active, show_icons, theme_id: ThemeId::Original };
+    let config = EntryRenderConfig { nerd_font_active, show_icons, theme_id: ThemeId::original() };
     let uid_cache = App::build_uid_cache_refs(&entries);
     let gid_cache = App::build_gid_cache_refs(&entries);
 

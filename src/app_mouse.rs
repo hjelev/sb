@@ -82,7 +82,7 @@ impl App {
                 self.mode = AppMode::Integrations;
             }
             6 => {
-                self.theme_selected = ui::theme::THEMES
+                self.theme_selected = ui::theme::themes()
                     .iter()
                     .position(|theme| theme.id == self.active_theme)
                     .unwrap_or(0);

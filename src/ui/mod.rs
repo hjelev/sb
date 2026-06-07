@@ -10,6 +10,7 @@ pub mod panels;
 pub mod preview;
 pub mod search;
 pub mod scrollbar;
+pub mod skin;
 pub mod spans;
 pub mod status;
 pub mod theme;

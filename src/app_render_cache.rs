@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs, path::Path, str::FromStr, time::UNIX_EPOCH};
 
 use crate::util::format::format_mtime;
 use crate::ui::palette::Palette;
-use crate::ui::theme::{theme_spec, ThemeId};
+use crate::ui::theme::{theme_spec, IconThemeMode, ThemeId};
 use devicons::{icon_for_file, File as DevFile, Theme};
 use ratatui::prelude::*;
 use crate::ui::icons::named_file_icon;
@@ -45,16 +45,16 @@ impl App {
     }
 
     fn icon_theme_for(theme_id: ThemeId) -> Theme {
-        match theme_id {
-            ThemeId::Solarized => Theme::Light,
-            ThemeId::Original => {
+        match theme_spec(theme_id).icon_theme_mode {
+            IconThemeMode::Light => Theme::Light,
+            IconThemeMode::Dark => Theme::Dark,
+            IconThemeMode::Auto => {
                 if Self::terminal_background_is_light() {
                     Theme::Light
                 } else {
                     Theme::Dark
                 }
             }
-            _ => Theme::Dark,
         }
     }
 
@@ -65,7 +65,7 @@ impl App {
         }
 
         if is_symlink {
-            return ("\u{f1177}".to_string(), Style::default().fg(Palette::SYMLINK));
+            return ("\u{f1177}".to_string(), Style::default().fg(theme.text_symlink));
         }
 
         if nerd_font_active {
@@ -87,7 +87,7 @@ impl App {
             {
                 // Draft/partial names in interactive prompts (e.g. empty line, '/')
                 // can lack a valid filename component; avoid calling devicons in that case.
-                ("\u{f15b}".to_string(), Style::default().fg(Color::White))
+                ("\u{f15b}".to_string(), Style::default().fg(theme.text_normal))
             } else if Path::new(name)
                 .extension()
                 .and_then(|ext| ext.to_str())
@@ -120,6 +120,19 @@ impl App {
         Self::icon_for_name(name, path.is_dir(), show_icons, nerd_font_active, is_symlink, theme_id)
     }
 
+    /// Lightweight, extension-only archive check used for filename coloring.
+    /// (Avoids reading file signatures, unlike `archive_kind`.)
+    fn is_archive_name(path: &Path) -> bool {
+        const ARCHIVE_EXTENSIONS: &[&str] = &[
+            "zip", "tar", "gz", "tgz", "bz2", "tbz", "tbz2", "xz", "txz", "zst", "tzst", "7z",
+            "rar", "lz", "lzma", "lz4", "z", "cpio", "ar", "iso", "jar", "war", "deb", "rpm",
+        ];
+        path.extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ARCHIVE_EXTENSIONS.iter().any(|e| ext.eq_ignore_ascii_case(e)))
+            .unwrap_or(false)
+    }
+
     pub(crate) fn build_entry_render_cache(
         entry: &fs::DirEntry,
         config: EntryRenderConfig,
@@ -150,35 +163,44 @@ impl App {
         );
 
         let theme = theme_spec(config.theme_id);
+        let is_archive = !is_dir && !is_symlink && Self::is_archive_name(&path);
         let mut name_style = if is_dir {
             Style::default()
                 .fg(theme.icon_default_dir)
                 .add_modifier(Modifier::BOLD)
         } else if Self::is_age_protected_file(&path) {
             Style::default().fg(Palette::WARNING_ALT)
+        } else if is_archive {
+            Style::default().fg(theme.text_archive)
         } else {
             let file_color = icon_data
                 .as_ref()
                 .and_then(|i| Color::from_str(i.color).ok())
-                .unwrap_or(Color::White);
+                .unwrap_or(theme.text_normal);
             Style::default().fg(file_color)
         };
-
-        if is_symlink {
-            name_style = Style::default().fg(Palette::SYMLINK);
-        }
 
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             if !is_dir
+                && !is_symlink
                 && meta
                     .as_ref()
                     .map(|m| m.permissions().mode() & 0o111 != 0)
                     .unwrap_or(false)
             {
-                name_style = Style::default().fg(Palette::SUCCESS_ALT);
+                name_style = Style::default().fg(theme.text_executable);
             }
+        }
+
+        // Symlinks take their own color; broken (stale) links are flagged.
+        if is_symlink {
+            name_style = if path.exists() {
+                Style::default().fg(theme.text_symlink)
+            } else {
+                Style::default().fg(theme.text_stalelink)
+            };
         }
 
         if is_hidden {

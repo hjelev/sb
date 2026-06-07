@@ -298,7 +298,7 @@ pub(crate) fn handle_app_key_event_body(
             }
             KeyCode::Char('T') => {
                 app.panel_tab = 6;
-                app.theme_selected = theme::THEMES
+                app.theme_selected = theme::themes()
                     .iter()
                     .position(|theme| theme.id == app.active_theme)
                     .unwrap_or(0);
@@ -1338,7 +1338,7 @@ pub(crate) fn handle_app_key_event_body(
             }
             KeyCode::BackTab => {
                 app.panel_tab = 6;
-                app.theme_selected = theme::THEMES
+                app.theme_selected = theme::themes()
                     .iter()
                     .position(|theme| theme.id == app.active_theme)
                     .unwrap_or(0);
@@ -1408,7 +1408,7 @@ pub(crate) fn handle_app_key_event_body(
                 }
                 KeyCode::Tab => {
                     app.panel_tab = 6;
-                    app.theme_selected = theme::THEMES
+                    app.theme_selected = theme::themes()
                         .iter()
                         .position(|theme| theme.id == app.active_theme)
                         .unwrap_or(0);
@@ -1438,7 +1438,7 @@ pub(crate) fn handle_app_key_event_body(
                     app.apply_selected_theme();
                 }
                 KeyCode::Down => {
-                    let max_idx = theme::THEMES.len().saturating_sub(1);
+                    let max_idx = theme::themes().len().saturating_sub(1);
                     app.theme_selected = (app.theme_selected + 1).min(max_idx);
                     app.apply_selected_theme();
                 }
