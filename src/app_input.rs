@@ -9,7 +9,7 @@ const TREE_DOUBLE_TAP_WINDOW_MS: u64 = 320;
 impl App {
     fn active_panel_show_hidden(&self) -> bool {
         if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
-            self.right_show_hidden
+            self.right.show_hidden
         } else {
             self.show_hidden
         }
@@ -95,16 +95,16 @@ impl App {
         let is_right_panel = self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right;
 
         if is_right_panel {
-            if !self.right_marked_indices.is_empty() {
-                for idx in &self.right_marked_indices {
-                    if let Some(entry) = self.right_entries.get(*idx) {
+            if !self.right.marked_indices.is_empty() {
+                for idx in &self.right.marked_indices {
+                    if let Some(entry) = self.right.entries.get(*idx) {
                         let path = entry.path();
                         if path.is_dir() && self.dir_has_visible_children(&path) {
                             dirs.push(path);
                         }
                     }
                 }
-            } else if let Some(entry) = self.right_entries.get(self.right_selected_index) {
+            } else if let Some(entry) = self.right.entries.get(self.right.selected_index) {
                 let path = entry.path();
                 if path.is_dir() && self.dir_has_visible_children(&path) {
                     dirs.push(path);

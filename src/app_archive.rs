@@ -6,6 +6,7 @@ use std::{
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+use crate::util::background::drain_channel;
 
 use crossterm::{
     execute,
@@ -220,7 +221,22 @@ impl App {
     }
 
     pub(crate) fn archive_targets(&self) -> Vec<PathBuf> {
-        if !self.marked_indices.is_empty() {
+        if self.is_dual_panel_mode() && self.active_panel == crate::DualPanelSide::Right {
+            if !self.right.marked_indices.is_empty() {
+                self.right.entries
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| self.right.marked_indices.contains(i))
+                    .map(|(_, e)| e.path())
+                    .collect()
+            } else {
+                self.right.entries
+                    .get(self.right.selected_index)
+                    .map(|e| e.path())
+                    .into_iter()
+                    .collect()
+            }
+        } else if !self.marked_indices.is_empty() {
             self.entries
                 .iter()
                 .enumerate()
@@ -569,27 +585,14 @@ impl App {
     }
 
     pub(crate) fn pump_archive_progress(&mut self) {
-        let Some(rx) = self.archive_rx.take() else {
-            return;
-        };
-
         let mut finished: Option<Result<String, String>> = None;
-        loop {
-            match rx.try_recv() {
-                Ok(ArchiveProgressMsg::TotalBytes(total)) => {
-                    self.archive_total_bytes = total;
-                }
-                Ok(ArchiveProgressMsg::Progress(done)) => {
-                    self.archive_done_bytes = done;
-                }
-                Ok(ArchiveProgressMsg::Finished(result)) => {
+        for msg in drain_channel(&mut self.archive_rx) {
+            match msg {
+                ArchiveProgressMsg::TotalBytes(total) => self.archive_total_bytes = total,
+                ArchiveProgressMsg::Progress(done) => self.archive_done_bytes = done,
+                ArchiveProgressMsg::Finished(result) => {
                     finished = Some(result);
-                    break;
-                }
-                Err(mpsc::TryRecvError::Empty) => break,
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    finished = Some(Err("archive worker disconnected".to_string()));
-                    break;
+                    self.archive_rx = None;
                 }
             }
         }
@@ -609,8 +612,7 @@ impl App {
                     self.set_status(format!("archive create failed: {}", e));
                 }
             }
-        } else {
-            self.archive_rx = Some(rx);
+        } else if self.archive_rx.is_some() {
             self.update_archive_status();
         }
     }

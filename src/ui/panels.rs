@@ -38,6 +38,80 @@ pub fn panel_tab_bar_line(active: u8, theme_id: ThemeId) -> Line<'static> {
     Line::from(spans)
 }
 
+/// Render a rounded overlay block with title and a close `x` button.
+/// Returns the inner `Rect` for content placement.
+fn render_overlay_block(
+    f: &mut Frame,
+    area: Rect,
+    panel_tab: u8,
+    theme_id: ThemeId,
+) -> Rect {
+    use crate::ui::theme::theme_spec;
+    let spec = theme_spec(theme_id);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title(panel_tab_bar_line(panel_tab, theme_id))
+        .title_style(Style::default().fg(spec.text_normal))
+        .style(Style::default().bg(spec.bg_panel).fg(spec.text_normal))
+        .border_style(Style::default().fg(spec.divider));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    f.render_widget(
+        Paragraph::new(Span::styled("x", Style::default().fg(spec.text_normal))),
+        Rect::new(area.x + area.width.saturating_sub(2), area.y, 1, 1),
+    );
+    inner
+}
+
+/// Render a vertical scrollbar track into `sb_area`.
+fn render_scrollbar_track(
+    f: &mut Frame,
+    sb_area: Rect,
+    total_rows: usize,
+    visible_rows: usize,
+    scroll_offset: usize,
+    max_scroll: usize,
+) {
+    let track_h = sb_area.height as usize;
+    if track_h == 0 || total_rows == 0 {
+        return;
+    }
+    let thumb_h = ((visible_rows * track_h + total_rows.saturating_sub(1)) / total_rows)
+        .max(1)
+        .min(track_h);
+    let scroll_space = track_h.saturating_sub(thumb_h);
+    let thumb_y = if max_scroll == 0 {
+        0
+    } else {
+        (scroll_offset * scroll_space + (max_scroll / 2)) / max_scroll
+    };
+    let mut sb_lines: Vec<Line> = Vec::with_capacity(track_h);
+    for row in 0..track_h {
+        let in_thumb = row >= thumb_y && row < thumb_y + thumb_h;
+        let (ch, color) = if in_thumb {
+            ("┃", Color::Rgb(120, 240, 220))
+        } else {
+            ("│", Color::Rgb(80, 200, 180))
+        };
+        sb_lines.push(Line::from(Span::styled(ch, Style::default().fg(color))));
+    }
+    f.render_widget(Paragraph::new(sb_lines), sb_area);
+}
+
+/// Prepend a single space to each line (for left-padding inside overlay panels).
+fn indent_lines<'a>(lines: &[Line<'a>]) -> Vec<Line<'a>> {
+    lines
+        .iter()
+        .map(|line| {
+            let mut spans: Vec<Span> = Vec::with_capacity(line.spans.len() + 1);
+            spans.push(Span::raw(" "));
+            spans.extend(line.spans.iter().cloned());
+            Line::from(spans)
+        })
+        .collect()
+}
+
 pub fn panel_tab_hit_test(relative_x: u16) -> Option<u8> {
     let mut cursor = 0u16;
 
@@ -241,27 +315,7 @@ pub fn render_integrations_overlay(
     let int_h = (lines.len() as u16 + 4).min(tab_overlay_anchor.height);
     let int_area = Rect::new(tab_overlay_anchor.x, tab_overlay_anchor.y, int_w, int_h);
     f.render_widget(Clear, int_area);
-    let int_block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .title(panel_tab_bar_line(panel_tab, theme_id))
-        .title_style(Style::default().fg(spec.text_normal))
-        .style(Style::default().bg(spec.bg_panel).fg(spec.text_normal))
-        .border_style(Style::default().fg(spec.divider));
-    let int_inner = int_block.inner(int_area);
-    f.render_widget(int_block, int_area);
-    f.render_widget(
-        Paragraph::new(Span::styled(
-            "x",
-            Style::default().fg(spec.text_normal),
-        )),
-        Rect::new(
-            int_area.x + int_area.width.saturating_sub(2),
-            int_area.y,
-            1,
-            1,
-        ),
-    );
+    let int_inner = render_overlay_block(f, int_area, panel_tab, theme_id);
     let int_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(2)])
@@ -278,18 +332,8 @@ pub fn render_integrations_overlay(
     .min(max_scroll);
     let can_draw_scrollbar = int_chunks[0].width > 2 && total_rows > visible_rows;
 
-    let indented_lines: Vec<Line> = lines
-        .iter()
-        .map(|line| {
-            let mut spans: Vec<Span> = Vec::with_capacity(line.spans.len() + 1);
-            spans.push(Span::raw(" "));
-            spans.extend(line.spans.iter().cloned());
-            Line::from(spans)
-        })
-        .collect();
-
     f.render_widget(
-        Paragraph::new(indented_lines).scroll((int_scroll as u16, 0)),
+        Paragraph::new(indent_lines(&lines)).scroll((int_scroll as u16, 0)),
         int_chunks[0],
     );
     if can_draw_scrollbar {
@@ -299,30 +343,7 @@ pub fn render_integrations_overlay(
             1,
             int_chunks[0].height,
         );
-        let track_h = sb_area.height as usize;
-        if track_h > 0 {
-            let thumb_h = ((visible_rows * track_h + total_rows.saturating_sub(1)) / total_rows)
-                .max(1)
-                .min(track_h);
-            let scroll_space = track_h.saturating_sub(thumb_h);
-            let thumb_y = if max_scroll == 0 {
-                0
-            } else {
-                (int_scroll * scroll_space + (max_scroll / 2)) / max_scroll
-            };
-
-            let mut sb_lines: Vec<Line> = Vec::with_capacity(track_h);
-            for row in 0..track_h {
-                let in_thumb = row >= thumb_y && row < thumb_y + thumb_h;
-                let (ch, color) = if in_thumb {
-                    ("┃", Color::Rgb(120, 240, 220))
-                } else {
-                    ("│", Color::Rgb(80, 200, 180))
-                };
-                sb_lines.push(Line::from(Span::styled(ch, Style::default().fg(color))));
-            }
-            f.render_widget(Paragraph::new(sb_lines), sb_area);
-        }
+        render_scrollbar_track(f, sb_area, total_rows, visible_rows, int_scroll, max_scroll);
     }
     f.render_widget(
         Paragraph::new(shortcut_footer_lines(&[
@@ -344,7 +365,6 @@ pub fn render_help_overlay(
     help_scroll_offset: u16,
     nerd_font: bool,
 ) -> (u16, u16) {
-    let spec = theme_spec(theme_id);
     let help_w = tab_overlay_anchor.width;
     let inner_w = help_w.saturating_sub(4) as usize;
     let shortcut_w = inner_w.clamp(10, 18);
@@ -467,27 +487,7 @@ pub fn render_help_overlay(
     );
     f.render_widget(Clear, help_area);
 
-    let help_block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .title(panel_tab_bar_line(panel_tab, theme_id))
-        .title_style(Style::default().fg(spec.text_normal))
-        .style(Style::default().bg(spec.bg_panel).fg(spec.text_normal))
-        .border_style(Style::default().fg(spec.divider));
-    let help_inner = help_block.inner(help_area);
-    f.render_widget(help_block, help_area);
-    f.render_widget(
-        Paragraph::new(Span::styled(
-            "x",
-            Style::default().fg(spec.text_normal),
-        )),
-        Rect::new(
-            help_area.x + help_area.width.saturating_sub(2),
-            help_area.y,
-            1,
-            1,
-        ),
-    );
+    let help_inner = render_overlay_block(f, help_area, panel_tab, theme_id);
     let help_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(2)])
@@ -504,18 +504,8 @@ pub fn render_help_overlay(
     let max_scroll = total_lines.saturating_sub(visible_lines);
     let max_offset = max_scroll as u16;
     let clamped_offset = (help_scroll_offset as usize).min(max_scroll) as u16;
-    let indented_lines: Vec<Line> = lines
-        .iter()
-        .map(|line| {
-            let mut spans: Vec<Span> = Vec::with_capacity(line.spans.len() + 1);
-            spans.push(Span::raw(" "));
-            spans.extend(line.spans.iter().cloned());
-            Line::from(spans)
-        })
-        .collect();
-
     f.render_widget(
-        Paragraph::new(indented_lines)
+        Paragraph::new(indent_lines(&lines))
             .wrap(Wrap { trim: false })
             .scroll((clamped_offset, 0)),
         help_text_area,
@@ -527,31 +517,10 @@ pub fn render_help_overlay(
             1,
             help_content_area.height,
         );
-        let track_h = sb_area.height as usize;
-        if track_h > 0 {
-            let offset = clamped_offset as usize;
-            let thumb_h = ((visible_lines * track_h + total_lines.saturating_sub(1)) / total_lines)
-                .max(1)
-                .min(track_h);
-            let scroll_space = track_h.saturating_sub(thumb_h);
-            let thumb_y = if max_scroll == 0 {
-                0
-            } else {
-                (offset * scroll_space + (max_scroll / 2)) / max_scroll
-            };
-
-            let mut sb_lines: Vec<Line> = Vec::with_capacity(track_h);
-            for row in 0..track_h {
-                let in_thumb = row >= thumb_y && row < thumb_y + thumb_h;
-                let (ch, color) = if in_thumb {
-                    ("┃", Color::Rgb(120, 240, 220))
-                } else {
-                    ("│", Color::Rgb(80, 200, 180))
-                };
-                sb_lines.push(Line::from(Span::styled(ch, Style::default().fg(color))));
-            }
-            f.render_widget(Paragraph::new(sb_lines), sb_area);
-        }
+        render_scrollbar_track(
+            f, sb_area, total_lines, visible_lines,
+            clamped_offset as usize, max_scroll,
+        );
     }
     f.render_widget(
         Paragraph::new(shortcut_footer_lines(&[
@@ -627,27 +596,7 @@ pub fn render_bookmarks_overlay(
         bm_h,
     );
     f.render_widget(Clear, bm_area);
-    let bm_block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .title(panel_tab_bar_line(panel_tab, theme_id))
-        .title_style(Style::default().fg(spec.text_normal))
-        .style(Style::default().bg(spec.bg_panel).fg(spec.text_normal))
-        .border_style(Style::default().fg(spec.divider));
-    let bm_inner = bm_block.inner(bm_area);
-    f.render_widget(bm_block, bm_area);
-    f.render_widget(
-        Paragraph::new(Span::styled(
-            "x",
-            Style::default().fg(spec.text_normal),
-        )),
-        Rect::new(
-            bm_area.x + bm_area.width.saturating_sub(2),
-            bm_area.y,
-            1,
-            1,
-        ),
-    );
+    let bm_inner = render_overlay_block(f, bm_area, panel_tab, theme_id);
     let bm_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(2)])
@@ -730,27 +679,7 @@ pub fn render_sort_overlay(
         sort_h,
     );
     f.render_widget(Clear, sort_area);
-    let sort_block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .title(panel_tab_bar_line(panel_tab, theme_id))
-        .title_style(Style::default().fg(spec.text_normal))
-        .style(Style::default().bg(spec.bg_panel).fg(spec.text_normal))
-        .border_style(Style::default().fg(spec.divider));
-    let sort_inner = sort_block.inner(sort_area);
-    f.render_widget(sort_block, sort_area);
-    f.render_widget(
-        Paragraph::new(Span::styled(
-            "x",
-            Style::default().fg(spec.text_normal),
-        )),
-        Rect::new(
-            sort_area.x + sort_area.width.saturating_sub(2),
-            sort_area.y,
-            1,
-            1,
-        ),
-    );
+    let sort_inner = render_overlay_block(f, sort_area, panel_tab, theme_id);
     let sort_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(2)])
@@ -830,27 +759,7 @@ pub fn render_themes_overlay(
     let theme_h = (lines.len() as u16 + 7).max(12).min(tab_overlay_anchor.height);
     let theme_area = Rect::new(tab_overlay_anchor.x, tab_overlay_anchor.y, theme_w, theme_h);
     f.render_widget(Clear, theme_area);
-    let theme_block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .title(panel_tab_bar_line(panel_tab, theme_id))
-        .title_style(Style::default().fg(current.text_normal))
-        .style(Style::default().bg(current.bg_panel).fg(current.text_normal))
-        .border_style(Style::default().fg(current.divider));
-    let theme_inner = theme_block.inner(theme_area);
-    f.render_widget(theme_block, theme_area);
-    f.render_widget(
-        Paragraph::new(Span::styled(
-            "x",
-            Style::default().fg(current.text_normal),
-        )),
-        Rect::new(
-            theme_area.x + theme_area.width.saturating_sub(2),
-            theme_area.y,
-            1,
-            1,
-        ),
-    );
+    let theme_inner = render_overlay_block(f, theme_area, panel_tab, theme_id);
     let theme_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(2)])

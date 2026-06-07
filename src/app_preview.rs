@@ -17,11 +17,11 @@ impl App {
             ViewMode::Preview => {
                 self.clear_preview_state();
                 self.view_mode = ViewMode::DualPanel;
-                self.right_dir = self.current_dir.clone();
-                self.right_selected_index = 0;
-                self.right_table_state = ratatui::widgets::TableState::default();
-                self.right_sort_mode = self.sort_mode;
-                self.right_show_hidden = self.show_hidden;
+                self.right.dir = self.current_dir.clone();
+                self.right.selected_index = 0;
+                self.right.table_state = ratatui::widgets::TableState::default();
+                self.right.sort_mode = self.sort_mode;
+                self.right.show_hidden = self.show_hidden;
                 self.active_panel = DualPanelSide::Left;
                 let _ = self.refresh_right_panel_entries();
             }
@@ -29,15 +29,15 @@ impl App {
                 // Preserve the active panel's directory when returning to normal mode
                 self.current_dir = self.active_panel_dir();
                 self.view_mode = ViewMode::Normal;
-                self.right_dir = std::path::PathBuf::new();
-                self.right_entries.clear();
-                self.right_tree_row_prefixes.clear();
-                self.right_entry_render_cache.clear();
-                self.right_selected_index = 0;
-                self.right_marked_indices.clear();
+                self.right.dir = std::path::PathBuf::new();
+                self.right.entries.clear();
+                self.right.tree_row_prefixes.clear();
+                self.right.entry_render_cache.clear();
+                self.right.selected_index = 0;
+                self.right.marked_indices.clear();
                 self.clear_selected_total_size_state_for(DualPanelSide::Right);
                 self.right_status_message.clear();
-                self.right_table_state = ratatui::widgets::TableState::default();
+                self.right.table_state = ratatui::widgets::TableState::default();
                 self.active_panel = DualPanelSide::Left;
                 // Refresh entries to match the new current_dir
                 let _ = self.refresh_entries();
@@ -87,23 +87,23 @@ impl App {
         };
         let entries: Vec<_> = if !self.tree_expansion_levels.is_empty() {
             let rows = crate::ui::tree::collect_tree_rows_with_expansions(
-                &self.right_dir,
-                self.right_show_hidden,
-                self.right_sort_mode,
+                &self.right.dir,
+                self.right.show_hidden,
+                self.right.sort_mode,
                 folder_size_cache,
                 &self.tree_expansion_levels,
             )?;
-            self.right_tree_row_prefixes = rows.iter().map(|row| row.prefix.clone()).collect();
+            self.right.tree_row_prefixes = rows.iter().map(|row| row.prefix.clone()).collect();
             rows.into_iter().map(|row| row.entry).collect()
         } else {
-            let mut direct_entries: Vec<_> = std::fs::read_dir(&self.right_dir)?
+            let mut direct_entries: Vec<_> = std::fs::read_dir(&self.right.dir)?
                 .filter_map(|res| res.ok())
                 .filter(|e| {
-                    self.right_show_hidden || !e.file_name().to_string_lossy().starts_with('.')
+                    self.right.show_hidden || !e.file_name().to_string_lossy().starts_with('.')
                 })
                 .collect();
-            Self::sort_entries_by_mode(&mut direct_entries, self.right_sort_mode, folder_size_cache);
-            self.right_tree_row_prefixes = vec![String::new(); direct_entries.len()];
+            Self::sort_entries_by_mode(&mut direct_entries, self.right.sort_mode, folder_size_cache);
+            self.right.tree_row_prefixes = vec![String::new(); direct_entries.len()];
             direct_entries
         };
         let config = EntryRenderConfig {
@@ -113,26 +113,27 @@ impl App {
         };
         let uid_cache = App::build_uid_cache(&entries);
         let gid_cache = App::build_gid_cache(&entries);
-        self.right_entry_render_cache = entries
+        self.right.entry_render_cache = entries
             .iter()
             .map(|entry| App::build_entry_render_cache(entry, config, &uid_cache, &gid_cache))
             .collect();
-        self.right_entries = entries;
+        self.right.entries = entries;
         if self.folder_size_enabled {
             self.apply_cached_folder_size_columns();
             self.start_folder_size_scan();
             self.refresh_current_dir_free_space();
             self.start_current_dir_total_size_scan();
         }
-        self.right_marked_indices.clear();
+        self.right.marked_indices.clear();
         self.clear_selected_total_size_state_for(DualPanelSide::Right);
-        if self.right_entries.is_empty() {
-            self.right_selected_index = 0;
-            self.right_table_state.select(None);
+        if self.right.entries.is_empty() {
+            self.right.selected_index = 0;
+            self.right.table_state.select(None);
         } else {
-            self.right_selected_index = self.right_selected_index.min(self.right_entries.len() - 1);
-            self.right_table_state.select(Some(self.right_selected_index));
+            self.right.selected_index = self.right.selected_index.min(self.right.entries.len() - 1);
+            self.right.table_state.select(Some(self.right.selected_index));
         }
+        self.request_notes_for_right_panel_once();
         Ok(())
     }
 

@@ -58,6 +58,26 @@ mod run;
 
 use integration::rows::IntegrationRow;
 
+struct PanelState {
+    dir: PathBuf,
+    entries: Vec<fs::DirEntry>,
+    entry_render_cache: Vec<EntryRenderCache>,
+    selected_index: usize,
+    marked_indices: HashSet<usize>,
+    table_state: TableState,
+    sort_mode: SortMode,
+    show_hidden: bool,
+    list_scroll_dragging: bool,
+    list_scroll_grab_offset: u16,
+    list_last_click: Option<(PathBuf, usize, Instant)>,
+    tree_row_prefixes: Vec<String>,
+    selected_total_size_rx: Option<Receiver<SelectedTotalSizeMsg>>,
+    selected_total_size_scan_id: u64,
+    selected_total_size_pending: bool,
+    selected_total_size_bytes: Option<u64>,
+    selected_total_size_items: usize,
+}
+
 struct App {
     current_dir: PathBuf,
     entries: Vec<fs::DirEntry>,
@@ -125,8 +145,6 @@ struct App {
     confirm_delete_max_offset: u16,
     file_list_scroll_dragging: bool,
     file_list_scroll_grab_offset: u16,
-    right_list_scroll_dragging: bool,
-    right_list_scroll_grab_offset: u16,
     confirm_delete_button_focus: u8,
     confirm_integration_install_button_focus: u8,
     git_info_cache: Option<GitInfoCache>,
@@ -139,9 +157,7 @@ struct App {
     tree_expansion_levels: HashMap<PathBuf, usize>,
     tree_last_tap: Option<(char, Instant)>,
     main_list_last_click: Option<(PathBuf, usize, Instant)>,
-    right_list_last_click: Option<(PathBuf, usize, Instant)>,
     tree_row_prefixes: Vec<String>,
-    right_tree_row_prefixes: Vec<String>,
     current_dir_total_size_rx: Option<Receiver<CurrentDirTotalSizeMsg>>,
     current_dir_total_size_scan_id: u64,
     current_dir_total_size_pending: bool,
@@ -155,11 +171,6 @@ struct App {
     selected_total_size_pending: bool,
     selected_total_size_bytes: Option<u64>,
     selected_total_size_items: usize,
-    right_selected_total_size_rx: Option<Receiver<SelectedTotalSizeMsg>>,
-    right_selected_total_size_scan_id: u64,
-    right_selected_total_size_pending: bool,
-    right_selected_total_size_bytes: Option<u64>,
-    right_selected_total_size_items: usize,
     sort_mode: SortMode,
     sort_menu_selected: usize,
     panel_tab: u8,
@@ -187,7 +198,11 @@ struct App {
     notes_rx: Option<Receiver<NotesLoadMsg>>,
     notes_scan_id: u64,
     notes_loaded_for: Option<PathBuf>,
+    right_notes_by_name: HashMap<String, String>,
+    right_notes_rx: Option<Receiver<NotesLoadMsg>>,
+    right_notes_loaded_for: Option<PathBuf>,
     note_edit_targets: Vec<String>,
+    note_edit_dir: PathBuf,
     meta_group_width: usize,
     meta_owner_width: usize,
     header_clock_minute_key: Option<i64>,
@@ -214,14 +229,7 @@ struct App {
     preview_image_png: Option<Vec<u8>>,
     preview_pane_focus: PreviewPaneFocus,
     active_panel: DualPanelSide,
-    right_dir: PathBuf,
-    right_entries: Vec<fs::DirEntry>,
-    right_entry_render_cache: Vec<EntryRenderCache>,
-    right_selected_index: usize,
-    right_marked_indices: HashSet<usize>,
-    right_table_state: TableState,
-    right_sort_mode: SortMode,
-    right_show_hidden: bool,
+    right: PanelState,
 }
 
 const ZIP_BASED_EXTENSIONS: &[&str] = &[
@@ -352,8 +360,6 @@ impl App {
             confirm_delete_max_offset: 0,
             file_list_scroll_dragging: false,
             file_list_scroll_grab_offset: 0,
-            right_list_scroll_dragging: false,
-            right_list_scroll_grab_offset: 0,
             confirm_delete_button_focus: 0,
             confirm_integration_install_button_focus: 0,
             git_info_cache: None,
@@ -366,9 +372,7 @@ impl App {
             tree_expansion_levels: HashMap::new(),
             tree_last_tap: None,
             main_list_last_click: None,
-            right_list_last_click: None,
             tree_row_prefixes: Vec::new(),
-            right_tree_row_prefixes: Vec::new(),
             current_dir_total_size_rx: None,
             current_dir_total_size_scan_id: 0,
             current_dir_total_size_pending: false,
@@ -382,11 +386,6 @@ impl App {
             selected_total_size_pending: false,
             selected_total_size_bytes: None,
             selected_total_size_items: 0,
-            right_selected_total_size_rx: None,
-            right_selected_total_size_scan_id: 0,
-            right_selected_total_size_pending: false,
-            right_selected_total_size_bytes: None,
-            right_selected_total_size_items: 0,
             sort_mode: SortMode::NameAsc,
             sort_menu_selected: 0,
             panel_tab: 0,
@@ -414,7 +413,11 @@ impl App {
             notes_rx: None,
             notes_scan_id: 0,
             notes_loaded_for: None,
+            right_notes_by_name: HashMap::new(),
+            right_notes_rx: None,
+            right_notes_loaded_for: None,
             note_edit_targets: Vec::new(),
+            note_edit_dir: PathBuf::new(),
             meta_group_width: 1,
             meta_owner_width: 1,
             header_clock_minute_key: None,
@@ -441,18 +444,30 @@ impl App {
             preview_image_png: None,
             preview_pane_focus: PreviewPaneFocus::Folder,
             active_panel: DualPanelSide::Left,
-            right_dir: PathBuf::new(),
-            right_entries: Vec::new(),
-            right_entry_render_cache: Vec::new(),
-            right_selected_index: 0,
-            right_marked_indices: HashSet::new(),
-            right_table_state: TableState::default(),
-            right_sort_mode: SortMode::NameAsc,
-            right_show_hidden: false,
+            right: PanelState {
+                dir: PathBuf::new(),
+                entries: Vec::new(),
+                entry_render_cache: Vec::new(),
+                selected_index: 0,
+                marked_indices: HashSet::new(),
+                table_state: TableState::default(),
+                sort_mode: SortMode::NameAsc,
+                show_hidden: false,
+                list_scroll_dragging: false,
+                list_scroll_grab_offset: 0,
+                list_last_click: None,
+                tree_row_prefixes: Vec::new(),
+                selected_total_size_rx: None,
+                selected_total_size_scan_id: 0,
+                selected_total_size_pending: false,
+                selected_total_size_bytes: None,
+                selected_total_size_items: 0,
+            },
         };
         app.refresh_header_clock_if_needed();
         app.refresh_entries()?;
         app.request_notes_for_current_dir_once();
+        app.request_notes_for_right_panel_once();
         app.request_git_info_for_current_dir_once();
         // Restore persisted view mode from ~/.config/sb/config
         let persist = util::config::SbPersistConfig::load();
@@ -1045,10 +1060,10 @@ IFS= read -rsn1 _
             .iter()
             .map(|entry| App::build_entry_render_cache(entry, config, &uid_cache, &gid_cache))
             .collect();
-        if !self.right_entries.is_empty() {
-            let uid_cache_r = App::build_uid_cache(&self.right_entries);
-            let gid_cache_r = App::build_gid_cache(&self.right_entries);
-            self.right_entry_render_cache = self.right_entries
+        if !self.right.entries.is_empty() {
+            let uid_cache_r = App::build_uid_cache(&self.right.entries);
+            let gid_cache_r = App::build_gid_cache(&self.right.entries);
+            self.right.entry_render_cache = self.right.entries
                 .iter()
                 .map(|entry| App::build_entry_render_cache(entry, config, &uid_cache_r, &gid_cache_r))
                 .collect();
@@ -1141,15 +1156,31 @@ IFS= read -rsn1 _
 
     fn active_panel_dir(&self) -> PathBuf {
         if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
-            self.right_dir.clone()
+            self.right.dir.clone()
         } else {
             self.current_dir.clone()
         }
     }
 
+    pub(crate) fn active_selected_entry_path(&self) -> Option<PathBuf> {
+        if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
+            self.right.entries.get(self.right.selected_index).map(|e| e.path())
+        } else {
+            self.entries.get(self.selected_index).map(|e| e.path())
+        }
+    }
+
+    pub(crate) fn active_entries_empty(&self) -> bool {
+        if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
+            self.right.entries.is_empty()
+        } else {
+            self.entries.is_empty()
+        }
+    }
+
     fn try_enter_dir_on_active_panel(&mut self, target: PathBuf) {
         if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
-            self.right_dir = target;
+            self.right.dir = target;
             if self.refresh_right_panel_entries().is_err() {
                 self.set_status("refresh failed");
             }
@@ -1410,7 +1441,7 @@ IFS= read -rsn1 _
     fn mount_rclone_remote(&mut self, name: &str, rtype: &str) -> io::Result<()> {
         let return_dir = self.active_panel_dir();
         // If already mounted, just navigate there
-        if let Some(existing) = self.ssh_mounts.iter_mut().find(|m| m._host_alias == name) {
+        if let Some(existing) = self.ssh_mounts.iter_mut().find(|m| m.host_alias == name) {
             existing.return_dir = return_dir.clone();
             let mount_path = existing.mount_path.clone();
             self.mode = AppMode::Browsing;
@@ -1433,7 +1464,7 @@ IFS= read -rsn1 _
             let remote_os_icon = ui::icons::remote_os_nerd_icon(&mount_dir)
                 .map(|(g, _)| (g, ui::theme::theme_spec(self.active_theme).icon_os));
             self.ssh_mounts.push(SshMount {
-                _host_alias: name.to_string(),
+                host_alias: name.to_string(),
                 mount_path: mount_dir.clone(),
                 return_dir,
                 remote_label: name.to_string(),
@@ -1474,7 +1505,7 @@ IFS= read -rsn1 _
     fn mount_ssh_host(&mut self, host: &SshHost) -> io::Result<()> {
         let return_dir = self.active_panel_dir();
         // If already mounted, just navigate there
-        if let Some(existing) = self.ssh_mounts.iter_mut().find(|m| m._host_alias == host.alias) {
+        if let Some(existing) = self.ssh_mounts.iter_mut().find(|m| m.host_alias == host.alias) {
             existing.return_dir = return_dir.clone();
             if existing.remote_os_icon.is_none() {
                 existing.remote_os_icon = Self::detect_ssh_remote_os_icon(host, self.active_theme);
@@ -1514,7 +1545,7 @@ IFS= read -rsn1 _
                 .map(|(g, _)| (g, ui::theme::theme_spec(self.active_theme).icon_os))
                 .or_else(|| Self::detect_ssh_remote_os_icon(host, self.active_theme));
             self.ssh_mounts.push(SshMount {
-                _host_alias: host.alias.clone(),
+                host_alias: host.alias.clone(),
                 mount_path: mount_dir.clone(),
                 return_dir,
                 remote_label,
@@ -1568,7 +1599,7 @@ IFS= read -rsn1 _
     }
 
     fn unmount_ssh_mount_by_alias(&mut self, alias: &str) -> bool {
-        let Some(idx) = self.ssh_mounts.iter().rposition(|m| m._host_alias == alias) else {
+        let Some(idx) = self.ssh_mounts.iter().rposition(|m| m.host_alias == alias) else {
             return false;
         };
 
@@ -1822,12 +1853,12 @@ IFS= read -rsn1 _
             }
             if let Some(name) = last_created {
                 if let Some(index) = self
-                    .right_entries
+                    .right.entries
                     .iter()
                     .position(|entry| entry.file_name().to_string_lossy() == name)
                 {
-                    self.right_selected_index = index;
-                    self.right_table_state.select(Some(index));
+                    self.right.selected_index = index;
+                    self.right.table_state.select(Some(index));
                 }
             }
         } else {
@@ -2235,6 +2266,7 @@ IFS= read -rsn1 _
         }
         self.start_recursive_mtime_scan();
         self.request_notes_for_current_dir_once();
+        self.request_notes_for_right_panel_once();
         Ok(())
     }
 
@@ -2363,16 +2395,70 @@ IFS= read -rsn1 _
         }
     }
 
+    fn request_notes_for_right_panel_once(&mut self) {
+        // No right-panel directory yet (e.g. before dual-panel mode is entered).
+        if self.right.dir.as_os_str().is_empty() {
+            return;
+        }
+        if self.right_notes_loaded_for.as_ref().map(|p| p == &self.right.dir).unwrap_or(false) {
+            return;
+        }
+        let dir = self.right.dir.clone();
+        self.right_notes_by_name.clear();
+        let (tx, rx) = mpsc::channel();
+        self.right_notes_rx = Some(rx);
+        thread::spawn(move || {
+            let notes = App::load_notes_map_for_dir(&dir);
+            let _ = tx.send(NotesLoadMsg::Finished(0, dir, notes));
+        });
+    }
+
+    fn pump_right_notes_progress(&mut self) {
+        let Some(rx) = self.right_notes_rx.take() else {
+            return;
+        };
+        let mut keep_rx = true;
+        loop {
+            match rx.try_recv() {
+                Ok(NotesLoadMsg::Finished(_, path, notes)) => {
+                    if path == self.right.dir {
+                        self.right_notes_by_name = notes;
+                        self.right_notes_loaded_for = Some(path);
+                        keep_rx = false;
+                    }
+                }
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => { keep_rx = false; break; }
+            }
+        }
+        if keep_rx {
+            self.right_notes_rx = Some(rx);
+        }
+    }
+
     fn selected_note_targets(&self) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
-        if !self.marked_indices.is_empty() {
-            for idx in &self.marked_indices {
-                if let Some(entry) = self.entries.get(*idx) {
-                    out.push(entry.file_name().to_string_lossy().into_owned());
+        let is_right = self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right;
+        if is_right {
+            if !self.right.marked_indices.is_empty() {
+                for idx in &self.right.marked_indices {
+                    if let Some(entry) = self.right.entries.get(*idx) {
+                        out.push(entry.file_name().to_string_lossy().into_owned());
+                    }
                 }
+            } else if let Some(entry) = self.right.entries.get(self.right.selected_index) {
+                out.push(entry.file_name().to_string_lossy().into_owned());
             }
-        } else if let Some(entry) = self.entries.get(self.selected_index) {
-            out.push(entry.file_name().to_string_lossy().into_owned());
+        } else {
+            if !self.marked_indices.is_empty() {
+                for idx in &self.marked_indices {
+                    if let Some(entry) = self.entries.get(*idx) {
+                        out.push(entry.file_name().to_string_lossy().into_owned());
+                    }
+                }
+            } else if let Some(entry) = self.entries.get(self.selected_index) {
+                out.push(entry.file_name().to_string_lossy().into_owned());
+            }
         }
         out.sort();
         out.dedup();
@@ -2386,22 +2472,27 @@ IFS= read -rsn1 _
             return;
         }
 
+        let active_dir = self.active_panel_dir();
+        let notes_map = if active_dir != self.current_dir {
+            Self::load_notes_map_for_dir(&active_dir)
+        } else {
+            self.notes_by_name.clone()
+        };
+
         let initial = if targets.len() == 1 {
-            self.notes_by_name
-                .get(&targets[0])
-                .cloned()
-                .unwrap_or_default()
+            notes_map.get(&targets[0]).cloned().unwrap_or_default()
         } else {
             String::new()
         };
 
+        self.note_edit_dir = active_dir;
         self.note_edit_targets = targets;
         self.begin_input_edit(AppMode::NoteEditing, initial);
     }
 
-    fn current_dir_entry_names_all(&self) -> HashSet<String> {
+    fn entry_names_in_dir(dir: &PathBuf) -> HashSet<String> {
         let mut names = HashSet::new();
-        let Ok(entries) = fs::read_dir(&self.current_dir) else {
+        let Ok(entries) = fs::read_dir(dir) else {
             return names;
         };
         for entry in entries.flatten() {
@@ -2414,43 +2505,39 @@ IFS= read -rsn1 _
         names
     }
 
-    fn save_notes_for_current_dir(&mut self) -> io::Result<()> {
-        let existing = self.current_dir_entry_names_all();
-        self.notes_by_name
-            .retain(|name, note| existing.contains(name) && !note.trim().is_empty());
-
-        let notes_path = Self::notes_file_path(&self.current_dir);
-        if self.notes_by_name.is_empty() {
-            match fs::remove_file(notes_path) {
-                Ok(()) => {}
-                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-                Err(e) => return Err(e),
+    fn write_notes_map(dir: &PathBuf, notes: &HashMap<String, String>, scan_id: u64) -> io::Result<()> {
+        let notes_path = Self::notes_file_path(dir);
+        if notes.is_empty() {
+            match fs::remove_file(&notes_path) {
+                Ok(()) | Err(_) => {}
             }
-            self.notes_loaded_for = Some(self.current_dir.clone());
             return Ok(());
         }
-
-        let mut keys: Vec<String> = self.notes_by_name.keys().cloned().collect();
+        let mut keys: Vec<&String> = notes.keys().collect();
         keys.sort();
         let mut lines: Vec<String> = Vec::with_capacity(keys.len());
         for key in keys {
-            if let Some(note) = self.notes_by_name.get(&key) {
+            if let Some(note) = notes.get(key) {
                 lines.push(format!(
                     "{}\t{}",
-                    Self::escape_note_field(&key),
+                    Self::escape_note_field(key),
                     Self::escape_note_field(note)
                 ));
             }
         }
-
         let mut payload = lines.join("\n");
         payload.push('\n');
-
-        let tmp_path = self
-            .current_dir
-            .join(format!(".sb.tmp.{}", self.notes_scan_id));
-        fs::write(&tmp_path, payload)?;
+        let tmp_path = dir.join(format!(".sb.tmp.{}", scan_id));
+        fs::write(&tmp_path, &payload)?;
         fs::rename(&tmp_path, &notes_path)?;
+        Ok(())
+    }
+
+    fn save_notes_for_current_dir(&mut self) -> io::Result<()> {
+        let existing = Self::entry_names_in_dir(&self.current_dir);
+        self.notes_by_name
+            .retain(|name, note| existing.contains(name) && !note.trim().is_empty());
+        Self::write_notes_map(&self.current_dir, &self.notes_by_name, self.notes_scan_id)?;
         self.notes_loaded_for = Some(self.current_dir.clone());
         Ok(())
     }
@@ -2464,16 +2551,33 @@ IFS= read -rsn1 _
 
         let note = self.input_buffer.clone();
         let is_empty = note.trim().is_empty();
-        for target in &self.note_edit_targets {
-            if is_empty {
-                self.notes_by_name.remove(target);
-            } else {
-                self.notes_by_name.insert(target.clone(), note.clone());
-            }
-        }
-
         let count = self.note_edit_targets.len();
-        match self.save_notes_for_current_dir() {
+        let edit_dir = self.note_edit_dir.clone();
+
+        let save_result = if edit_dir == self.current_dir || edit_dir == PathBuf::new() {
+            for target in &self.note_edit_targets {
+                if is_empty {
+                    self.notes_by_name.remove(target);
+                } else {
+                    self.notes_by_name.insert(target.clone(), note.clone());
+                }
+            }
+            self.save_notes_for_current_dir()
+        } else {
+            let mut notes = Self::load_notes_map_for_dir(&edit_dir);
+            let existing = Self::entry_names_in_dir(&edit_dir);
+            notes.retain(|name, n| existing.contains(name) && !n.trim().is_empty());
+            for target in &self.note_edit_targets {
+                if is_empty {
+                    notes.remove(target);
+                } else {
+                    notes.insert(target.clone(), note.clone());
+                }
+            }
+            Self::write_notes_map(&edit_dir, &notes, self.notes_scan_id)
+        };
+
+        match save_result {
             Ok(()) => {
                 if is_empty {
                     self.set_status(format!("cleared note for {} item(s)", count));
@@ -2492,7 +2596,22 @@ IFS= read -rsn1 _
     }
 
     fn delete_targets(&self) -> Vec<PathBuf> {
-        if !self.marked_indices.is_empty() {
+        if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
+            if !self.right.marked_indices.is_empty() {
+                self.right.entries
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| self.right.marked_indices.contains(i))
+                    .map(|(_, e)| e.path())
+                    .collect()
+            } else {
+                self.right.entries
+                    .get(self.right.selected_index)
+                    .map(|e| e.path())
+                    .into_iter()
+                    .collect()
+            }
+        } else if !self.marked_indices.is_empty() {
             self.entries
                 .iter()
                 .enumerate()
@@ -3096,7 +3215,7 @@ IFS= read -rsn1 _
 
     fn open_selected_with_default_app(&mut self) -> io::Result<()> {
         let entry = if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
-            self.right_entries.get(self.right_selected_index)
+            self.right.entries.get(self.right.selected_index)
         } else {
             self.entries.get(self.selected_index)
         };
@@ -3276,19 +3395,19 @@ IFS= read -rsn1 _
                         .map(|e| vec![e.path()])
                         .unwrap_or_default()
                 };
-                (sources, self.right_dir.clone())
+                (sources, self.right.dir.clone())
             }
             DualPanelSide::Right => {
-                let sources = if !self.right_marked_indices.is_empty() {
-                    self.right_entries
+                let sources = if !self.right.marked_indices.is_empty() {
+                    self.right.entries
                         .iter()
                         .enumerate()
-                        .filter(|(i, _)| self.right_marked_indices.contains(i))
+                        .filter(|(i, _)| self.right.marked_indices.contains(i))
                         .map(|(_, e)| e.path())
                         .collect()
                 } else {
-                    self.right_entries
-                        .get(self.right_selected_index)
+                    self.right.entries
+                        .get(self.right.selected_index)
                         .map(|e| vec![e.path()])
                         .unwrap_or_default()
                 };
@@ -4494,7 +4613,7 @@ IFS= read -rsn1 _
             return None;
         }
 
-        let needs_scroll = self.right_entries.len() > table_area.height as usize;
+        let needs_scroll = self.right.entries.len() > table_area.height as usize;
         let can_draw_scrollbar = table_area.width > 2 && needs_scroll;
         let list_area = if can_draw_scrollbar {
             Rect::new(
@@ -4699,18 +4818,18 @@ IFS= read -rsn1 _
         }
 
         let row_rel = row.saturating_sub(list_area.y) as usize;
-        let target_idx = self.right_table_state.offset().saturating_add(row_rel);
-        if target_idx >= self.right_entries.len() {
+        let target_idx = self.right.table_state.offset().saturating_add(row_rel);
+        if target_idx >= self.right.entries.len() {
             return None;
         }
 
-        self.right_selected_index = target_idx;
-        self.right_table_state.select(Some(target_idx));
+        self.right.selected_index = target_idx;
+        self.right.table_state.select(Some(target_idx));
         self.active_panel = DualPanelSide::Right;
 
         let is_double_click = Self::update_list_double_click_state(
-            &mut self.right_list_last_click,
-            &self.right_dir,
+            &mut self.right.list_last_click,
+            &self.right.dir,
             target_idx,
         );
 
@@ -4760,11 +4879,11 @@ IFS= read -rsn1 _
             return;
         };
         let track_h = sb_area.height as usize;
-        if track_h == 0 || self.right_entries.is_empty() {
+        if track_h == 0 || self.right.entries.is_empty() {
             return;
         }
         let visible_rows = sb_area.height.max(1) as usize;
-        let total_rows = self.right_entries.len();
+        let total_rows = self.right.entries.len();
         let max_scroll = total_rows.saturating_sub(visible_rows);
         if max_scroll == 0 {
             return;
@@ -4781,9 +4900,9 @@ IFS= read -rsn1 _
         let row_rel = row.saturating_sub(sb_area.y) as usize;
         let thumb_top = row_rel.saturating_sub(grab_offset as usize).min(scroll_space);
         let target_offset = (thumb_top * max_scroll + (scroll_space / 2)) / scroll_space;
-        let target_index = target_offset.min(self.right_entries.len().saturating_sub(1));
-        self.right_selected_index = target_index;
-        self.right_table_state.select(Some(target_index));
+        let target_index = target_offset.min(self.right.entries.len().saturating_sub(1));
+        self.right.selected_index = target_index;
+        self.right.table_state.select(Some(target_index));
         self.active_panel = DualPanelSide::Right;
     }
 
@@ -4828,19 +4947,19 @@ IFS= read -rsn1 _
                             && mouse.row >= sb_area.y
                             && mouse.row < sb_area.y + sb_area.height
                         {
-                            let total_rows = self.right_entries.len();
+                            let total_rows = self.right.entries.len();
                             if let Some(grab_offset) = Self::scrollbar_grab_offset_for_row(
                                 sb_area,
                                 total_rows,
-                                self.right_table_state.offset(),
+                                self.right.table_state.offset(),
                                 mouse.row,
                             ) {
-                                self.right_list_scroll_grab_offset = grab_offset;
-                                self.right_list_scroll_dragging = true;
+                                self.right.list_scroll_grab_offset = grab_offset;
+                                self.right.list_scroll_dragging = true;
                                 self.scroll_right_list_from_scrollbar_row(
                                     area,
                                     mouse.row,
-                                    self.right_list_scroll_grab_offset,
+                                    self.right.list_scroll_grab_offset,
                                 );
                                 return None;
                             }
@@ -4873,7 +4992,7 @@ IFS= read -rsn1 _
                     }
                 }
                 self.file_list_scroll_dragging = false;
-                self.right_list_scroll_dragging = false;
+                self.right.list_scroll_dragging = false;
                 if self.handle_preview_pane_tab_click(mouse.column, mouse.row, area) {
                     return None;
                 }
@@ -4906,18 +5025,18 @@ IFS= read -rsn1 _
                     );
                     return None;
                 }
-                if self.right_list_scroll_dragging {
+                if self.right.list_scroll_dragging {
                     self.scroll_right_list_from_scrollbar_row(
                         area,
                         mouse.row,
-                        self.right_list_scroll_grab_offset,
+                        self.right.list_scroll_grab_offset,
                     );
                     return None;
                 }
             }
             MouseEventKind::Up(MouseButton::Left) => {
                 self.file_list_scroll_dragging = false;
-                self.right_list_scroll_dragging = false;
+                self.right.list_scroll_dragging = false;
             }
             _ => {}
         }

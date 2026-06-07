@@ -8,13 +8,10 @@ use std::{
 
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
-    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
-    terminal::{
-        disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType, EnterAlternateScreen,
-        LeaveAlternateScreen,
-    },
+    terminal::{Clear as TermClear, ClearType},
 };
+use crate::util::tui::{suspend_tui, resume_tui};
 
 use crate::App;
 
@@ -29,19 +26,18 @@ impl App {
             return Ok(());
         }
 
-        let Some(entry) = self.entries.get(self.selected_index) else {
+        let Some(selected_path) = self.active_selected_entry_path() else {
             self.set_status("no selected item");
             return Ok(());
         };
 
-        let selected_path = entry.path();
         if selected_path.is_dir() {
             self.set_status("split shell preview works on files only");
             return Ok(());
         }
 
         let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-        let current_dir = self.current_dir.to_string_lossy().into_owned();
+        let current_dir = self.active_panel_dir().to_string_lossy().into_owned();
         let selected_file = selected_path.to_string_lossy().into_owned();
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -49,8 +45,7 @@ impl App {
             .unwrap_or(0);
         let session_name = format!("sbrs_i_{}_{}", std::process::id(), stamp % 1_000_000_000);
 
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
         execute!(io::stdout(), Show)?;
 
         let tmux_result = (|| -> io::Result<()> {
@@ -113,9 +108,8 @@ impl App {
             Ok(())
         })();
 
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+        resume_tui()?;
         execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
-        enable_raw_mode()?;
         execute!(io::stdout(), Hide)?;
 
         match tmux_result {
@@ -132,12 +126,11 @@ impl App {
             return Ok(());
         }
 
-        let Some(entry) = self.entries.get(self.selected_index) else {
+        let Some(selected_path) = self.active_selected_entry_path() else {
             self.set_status("no selected item");
             return Ok(());
         };
 
-        let selected_path = entry.path();
         if selected_path.is_dir() {
             self.set_status("split shell edit works on files only");
             return Ok(());
@@ -145,7 +138,7 @@ impl App {
 
         let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
         let editor = env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
-        let current_dir = self.current_dir.to_string_lossy().into_owned();
+        let current_dir = self.active_panel_dir().to_string_lossy().into_owned();
         let selected_file = selected_path.to_string_lossy().into_owned();
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -153,8 +146,7 @@ impl App {
             .unwrap_or(0);
         let session_name = format!("sbrs_E_{}_{}", std::process::id(), stamp % 1_000_000_000);
 
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
         execute!(io::stdout(), Show)?;
 
         let tmux_result = (|| -> io::Result<()> {
@@ -217,9 +209,8 @@ impl App {
             Ok(())
         })();
 
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+        resume_tui()?;
         execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
-        enable_raw_mode()?;
         execute!(io::stdout(), Hide)?;
 
         match tmux_result {
@@ -237,8 +228,7 @@ impl App {
             return Ok(());
         }
 
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
 
         println!("$ {}", trimmed);
         let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
@@ -265,9 +255,8 @@ impl App {
         let mut line = String::new();
         let _ = io::stdin().read_line(&mut line);
 
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+        resume_tui()?;
         execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
-        enable_raw_mode()?;
 
         self.set_status(format!("ran command: {}", trimmed));
         self.refresh_entries_or_status();
@@ -276,15 +265,13 @@ impl App {
 
     pub(crate) fn drop_to_shell(&mut self) -> io::Result<()> {
         let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
         execute!(io::stdout(), Show)?;
         let _ = Command::new(&shell)
             .current_dir(&self.current_dir)
             .status();
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+        resume_tui()?;
         execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
-        enable_raw_mode()?;
         execute!(io::stdout(), Hide)?;
         self.set_status("returned from shell");
         self.refresh_entries_or_status();
@@ -457,18 +444,22 @@ impl App {
             return Ok(());
         }
 
-        let marked_idx = *self.marked_indices.iter().next().unwrap_or(&self.selected_index);
-        let Some(marked_entry) = self.entries.get(marked_idx) else {
+        let (entries, marked_indices, selected_index) =
+            if self.is_dual_panel_mode() && self.active_panel == crate::DualPanelSide::Right {
+                (&self.right.entries, &self.right.marked_indices, self.right.selected_index)
+            } else {
+                (&self.entries, &self.marked_indices, self.selected_index)
+            };
+
+        let marked_idx = *marked_indices.iter().next().unwrap_or(&selected_index);
+        let Some(marked_path) = entries.get(marked_idx).map(|e| e.path()) else {
             self.set_status("marked file not found");
             return Ok(());
         };
-        let Some(cursor_entry) = self.entries.get(self.selected_index) else {
+        let Some(cursor_path) = entries.get(selected_index).map(|e| e.path()) else {
             self.set_status("cursor file not found");
             return Ok(());
         };
-
-        let marked_path = marked_entry.path();
-        let cursor_path = cursor_entry.path();
 
         if marked_path == cursor_path {
             self.set_status("choose a different cursor file to compare");
@@ -479,16 +470,14 @@ impl App {
             return Ok(());
         }
 
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
         let _ = Command::new("delta")
             .arg("--side-by-side")
             .arg("--paging=always")
             .arg(&marked_path)
             .arg(&cursor_path)
             .status();
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-        enable_raw_mode()?;
+        resume_tui()?;
 
         let left = marked_path
             .file_name()
@@ -503,12 +492,10 @@ impl App {
     }
 
     pub(crate) fn open_selected_with_default_app(&mut self) -> io::Result<()> {
-        let Some(entry) = self.entries.get(self.selected_index) else {
+        let Some(path) = self.active_selected_entry_path() else {
             self.set_status("no selected item");
             return Ok(());
         };
-
-        let path = entry.path();
         let display_name = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())

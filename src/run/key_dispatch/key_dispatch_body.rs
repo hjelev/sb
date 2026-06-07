@@ -88,16 +88,16 @@ pub(crate) fn handle_app_key_event_body(
             }
             KeyCode::Char(' ') | KeyCode::Insert => {
                 if app.is_dual_panel_mode() && app.active_panel == crate::DualPanelSide::Right {
-                    if !app.right_entries.is_empty() {
-                        if app.right_marked_indices.contains(&app.right_selected_index) {
-                            app.right_marked_indices.remove(&app.right_selected_index);
+                    if !app.right.entries.is_empty() {
+                        if app.right.marked_indices.contains(&app.right.selected_index) {
+                            app.right.marked_indices.remove(&app.right.selected_index);
                         } else {
-                            app.right_marked_indices.insert(app.right_selected_index);
+                            app.right.marked_indices.insert(app.right.selected_index);
                         }
                         app.start_selected_total_size_scan();
-                        if app.right_selected_index < app.right_entries.len() - 1 {
-                            app.right_selected_index += 1;
-                            app.right_table_state.select(Some(app.right_selected_index));
+                        if app.right.selected_index < app.right.entries.len() - 1 {
+                            app.right.selected_index += 1;
+                            app.right.table_state.select(Some(app.right.selected_index));
                         }
                     }
                 } else if !app.entries.is_empty() {
@@ -115,11 +115,11 @@ pub(crate) fn handle_app_key_event_body(
             }
             KeyCode::Char('*') => {
                 if app.is_dual_panel_mode() && app.active_panel == crate::DualPanelSide::Right {
-                    if !app.right_entries.is_empty() {
-                        if app.right_marked_indices.len() == app.right_entries.len() {
-                            app.right_marked_indices.clear();
+                    if !app.right.entries.is_empty() {
+                        if app.right.marked_indices.len() == app.right.entries.len() {
+                            app.right.marked_indices.clear();
                         } else {
-                            app.right_marked_indices = (0..app.right_entries.len()).collect();
+                            app.right.marked_indices = (0..app.right.entries.len()).collect();
                         }
                         app.start_selected_total_size_scan();
                     }
@@ -176,7 +176,7 @@ pub(crate) fn handle_app_key_event_body(
                 terminal.clear()?;
             }
             KeyCode::Char('d') | KeyCode::Delete => {
-                if !app.entries.is_empty() {
+                if !app.active_entries_empty() {
                     app.begin_confirm_delete();
                 }
             }
@@ -184,7 +184,7 @@ pub(crate) fn handle_app_key_event_body(
                 app.toggle_executable_permissions();
             }
             KeyCode::Char('p') => {
-                if let Some(selected_path) = app.entries.get(app.selected_index).map(|e| e.path()) {
+                if let Some(selected_path) = app.active_selected_entry_path() {
                     if selected_path.is_dir() {
                         app.set_status("age protection works on files only");
                     } else if !app.integration_active("age") {
@@ -240,8 +240,7 @@ pub(crate) fn handle_app_key_event_body(
                 terminal.clear()?;
             }
             KeyCode::Char('l') => {
-                if let Some(entry) = app.entries.get(app.selected_index) {
-                    let selected_path = entry.path();
+                if let Some(selected_path) = app.active_selected_entry_path() {
                     if !selected_path.is_dir() {
                         disable_raw_mode()?;
                         execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
@@ -387,7 +386,7 @@ pub(crate) fn handle_app_key_event_body(
                 }
 
                 if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
-                    if app.right_entries.is_empty() {
+                    if app.right.entries.is_empty() {
                         return Ok(KeyDispatchOutcome::ContinueLoop);
                     }
 
@@ -409,14 +408,14 @@ pub(crate) fn handle_app_key_event_body(
                         }
                     }
 
-                    let max_idx = app.right_entries.len().saturating_sub(1);
+                    let max_idx = app.right.entries.len().saturating_sub(1);
                     let next_idx = if key.code == KeyCode::Up {
-                        app.right_selected_index.saturating_sub(steps)
+                        app.right.selected_index.saturating_sub(steps)
                     } else {
-                        (app.right_selected_index + steps).min(max_idx)
+                        (app.right.selected_index + steps).min(max_idx)
                     };
-                    app.right_selected_index = next_idx;
-                    app.right_table_state.select(Some(next_idx));
+                    app.right.selected_index = next_idx;
+                    app.right.table_state.select(Some(next_idx));
                     return Ok(KeyDispatchOutcome::ContinueLoop);
                 }
 
@@ -449,8 +448,8 @@ pub(crate) fn handle_app_key_event_body(
                 if app.preview_focus_is_preview() {
                     app.preview_scroll_up(8);
                 } else if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
-                    app.right_selected_index = app.right_selected_index.saturating_sub(app.page_size);
-                    app.right_table_state.select(Some(app.right_selected_index));
+                    app.right.selected_index = app.right.selected_index.saturating_sub(app.page_size);
+                    app.right.table_state.select(Some(app.right.selected_index));
                 } else {
                     app.selected_index = app.selected_index.saturating_sub(app.page_size);
                     app.table_state.select(Some(app.selected_index));
@@ -460,9 +459,9 @@ pub(crate) fn handle_app_key_event_body(
                 if app.preview_focus_is_preview() {
                     app.preview_scroll_down(8);
                 } else if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
-                    if !app.right_entries.is_empty() {
-                        app.right_selected_index = (app.right_selected_index + app.page_size).min(app.right_entries.len() - 1);
-                        app.right_table_state.select(Some(app.right_selected_index));
+                    if !app.right.entries.is_empty() {
+                        app.right.selected_index = (app.right.selected_index + app.page_size).min(app.right.entries.len() - 1);
+                        app.right.table_state.select(Some(app.right.selected_index));
                     }
                 } else if !app.entries.is_empty() {
                     app.selected_index = (app.selected_index + app.page_size).min(app.entries.len() - 1);
@@ -473,8 +472,8 @@ pub(crate) fn handle_app_key_event_body(
                 if app.preview_focus_is_preview() {
                     app.preview_scroll_offset = 0;
                 } else if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
-                    app.right_selected_index = 0;
-                    app.right_table_state.select(Some(0));
+                    app.right.selected_index = 0;
+                    app.right.table_state.select(Some(0));
                 } else {
                     app.selected_index = 0;
                     app.table_state.select(Some(0));
@@ -484,9 +483,9 @@ pub(crate) fn handle_app_key_event_body(
                 if app.preview_focus_is_preview() {
                     app.preview_scroll_offset = app.preview_max_scroll();
                 } else if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
-                    if !app.right_entries.is_empty() {
-                        app.right_selected_index = app.right_entries.len() - 1;
-                        app.right_table_state.select(Some(app.right_selected_index));
+                    if !app.right.entries.is_empty() {
+                        app.right.selected_index = app.right.entries.len() - 1;
+                        app.right.table_state.select(Some(app.right.selected_index));
                     }
                 } else if !app.entries.is_empty() {
                     app.selected_index = app.entries.len() - 1;
@@ -495,8 +494,8 @@ pub(crate) fn handle_app_key_event_body(
             }
             KeyCode::Left | KeyCode::Backspace => {
                 if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
-                    if let Some(parent) = app.right_dir.parent() {
-                        app.right_dir = parent.to_path_buf();
+                    if let Some(parent) = app.right.dir.parent() {
+                        app.right.dir = parent.to_path_buf();
                         let _ = app.refresh_right_panel_entries();
                     }
                     return Ok(KeyDispatchOutcome::ContinueLoop);
@@ -508,7 +507,7 @@ pub(crate) fn handle_app_key_event_body(
             KeyCode::Enter | KeyCode::Right => {
                 // Right in the right panel only navigates into directories; Enter opens everything.
                 if key.code == KeyCode::Right && app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
-                    if let Some(selected_path) = app.right_entries.get(app.right_selected_index).map(|e| e.path()) {
+                    if let Some(selected_path) = app.right.entries.get(app.right.selected_index).map(|e| e.path()) {
                         if selected_path.is_dir() {
                             app.try_enter_dir_on_active_panel(selected_path);
                         }
@@ -517,7 +516,7 @@ pub(crate) fn handle_app_key_event_body(
                 }
 
                 let selected_path = if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
-                    app.right_entries.get(app.right_selected_index).map(|e| e.path())
+                    app.right.entries.get(app.right.selected_index).map(|e| e.path())
                 } else {
                     app.entries.get(app.selected_index).map(|e| e.path())
                 };
@@ -852,10 +851,9 @@ pub(crate) fn handle_app_key_event_body(
                 }
             }
             KeyCode::Char('e') | KeyCode::F(4) => {
-                if let Some(e) = app.entries.get(app.selected_index) {
-                    let path = e.path();
+                if let Some(path) = app.active_selected_entry_path() {
                     if path.is_dir() {
-                        let current_name = e.file_name().to_string_lossy().into_owned();
+                        let current_name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                         app.begin_input_edit(AppMode::Renaming, current_name);
                     } else if App::is_age_protected_file(&path) {
                         if !app.integration_active("age") {
@@ -1217,8 +1215,9 @@ pub(crate) fn handle_app_key_event_body(
         },
         AppMode::Renaming => match key.code {
             KeyCode::Enter => {
-                if let Some(e) = app.entries.get(app.selected_index) {
-                    let _ = fs::rename(e.path(), app.current_dir.join(&app.input_buffer));
+                if let Some(old_path) = app.active_selected_entry_path() {
+                    let new_path = app.active_panel_dir().join(&app.input_buffer);
+                    let _ = fs::rename(old_path, new_path);
                 }
                 app.clear_input_edit();
                 app.mode = AppMode::Browsing;
@@ -1496,7 +1495,7 @@ pub(crate) fn handle_app_key_event_body(
                     let alias = entry.alias().to_string();
                     match entry {
                         RemoteEntry::Ssh(host) => {
-                            let already_mounted = app.ssh_mounts.iter().any(|m| m._host_alias == alias);
+                            let already_mounted = app.ssh_mounts.iter().any(|m| m.host_alias == alias);
                             if already_mounted {
                                 app.mount_ssh_host(&host)?;
                             } else {
@@ -1513,7 +1512,7 @@ pub(crate) fn handle_app_key_event_body(
                             }
                         }
                         RemoteEntry::Rclone { name, rtype } => {
-                            let already_mounted = app.ssh_mounts.iter().any(|m| m._host_alias == alias);
+                            let already_mounted = app.ssh_mounts.iter().any(|m| m.host_alias == alias);
                             if already_mounted {
                                 app.mount_rclone_remote(&name, &rtype)?;
                             } else {

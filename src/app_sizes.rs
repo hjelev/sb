@@ -8,6 +8,7 @@ use std::{
     thread,
     time::UNIX_EPOCH,
 };
+use crate::util::background::drain_channel;
 
 use rayon::prelude::*;
 
@@ -19,9 +20,9 @@ impl App {
     fn active_size_context_dir(&self) -> PathBuf {
         if self.is_dual_panel_mode()
             && self.active_panel == crate::DualPanelSide::Right
-            && !self.right_dir.as_os_str().is_empty()
+            && !self.right.dir.as_os_str().is_empty()
         {
-            self.right_dir.clone()
+            self.right.dir.clone()
         } else {
             self.current_dir.clone()
         }
@@ -39,7 +40,7 @@ impl App {
             .collect();
         if self.is_dual_panel_mode() {
             for path in self
-                .right_entries
+                .right.entries
                 .iter()
                 .map(|e| e.path())
                 .filter(|p| p.is_dir())
@@ -70,14 +71,9 @@ impl App {
     }
 
     pub(crate) fn pump_recursive_mtime_progress(&mut self) {
-        let Some(rx) = self.recursive_mtime_rx.take() else {
-            return;
-        };
-
-        let mut keep_rx = true;
-        loop {
-            match rx.try_recv() {
-                Ok(RecursiveMtimeMsg::EntryMtime(scan_id, dir_path, unix_secs)) => {
+        for msg in drain_channel(&mut self.recursive_mtime_rx) {
+            match msg {
+                RecursiveMtimeMsg::EntryMtime(scan_id, dir_path, unix_secs) => {
                     if scan_id != self.recursive_mtime_scan_id {
                         continue;
                     }
@@ -92,21 +88,12 @@ impl App {
                         );
                     }
                 }
-                Ok(RecursiveMtimeMsg::Finished(scan_id)) => {
+                RecursiveMtimeMsg::Finished(scan_id) => {
                     if scan_id == self.recursive_mtime_scan_id {
-                        keep_rx = false;
+                        self.recursive_mtime_rx = None;
                     }
                 }
-                Err(mpsc::TryRecvError::Empty) => break,
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    keep_rx = false;
-                    break;
-                }
             }
-        }
-
-        if keep_rx {
-            self.recursive_mtime_rx = Some(rx);
         }
     }
 
@@ -151,11 +138,11 @@ impl App {
                 self.selected_total_size_items = 0;
             }
             crate::DualPanelSide::Right => {
-                self.right_selected_total_size_scan_id = self.right_selected_total_size_scan_id.wrapping_add(1);
-                self.right_selected_total_size_rx = None;
-                self.right_selected_total_size_pending = false;
-                self.right_selected_total_size_bytes = None;
-                self.right_selected_total_size_items = 0;
+                self.right.selected_total_size_scan_id = self.right.selected_total_size_scan_id.wrapping_add(1);
+                self.right.selected_total_size_rx = None;
+                self.right.selected_total_size_pending = false;
+                self.right.selected_total_size_bytes = None;
+                self.right.selected_total_size_items = 0;
             }
         }
     }
@@ -191,15 +178,15 @@ impl App {
                     .collect()
             }
             crate::DualPanelSide::Right => {
-                if !self.folder_size_enabled || self.right_marked_indices.len() < 2 {
+                if !self.folder_size_enabled || self.right.marked_indices.len() < 2 {
                     self.clear_selected_total_size_state_for(side);
                     return;
                 }
 
-                self.right_entries
+                self.right.entries
                     .iter()
                     .enumerate()
-                    .filter(|(i, _)| self.right_marked_indices.contains(i))
+                    .filter(|(i, _)| self.right.marked_indices.contains(i))
                     .map(|(_, e)| e.path())
                     .collect()
             }
@@ -221,12 +208,12 @@ impl App {
                 self.selected_total_size_scan_id
             }
             crate::DualPanelSide::Right => {
-                self.right_selected_total_size_scan_id = self.right_selected_total_size_scan_id.wrapping_add(1);
-                self.right_selected_total_size_items = targets.len();
-                self.right_selected_total_size_pending = true;
-                self.right_selected_total_size_bytes = None;
-                self.right_selected_total_size_rx = Some(rx);
-                self.right_selected_total_size_scan_id
+                self.right.selected_total_size_scan_id = self.right.selected_total_size_scan_id.wrapping_add(1);
+                self.right.selected_total_size_items = targets.len();
+                self.right.selected_total_size_pending = true;
+                self.right.selected_total_size_bytes = None;
+                self.right.selected_total_size_rx = Some(rx);
+                self.right.selected_total_size_scan_id
             }
         };
 
@@ -240,52 +227,28 @@ impl App {
     }
 
     pub(crate) fn pump_selected_total_size_progress(&mut self) {
-        if let Some(rx) = self.selected_total_size_rx.take() {
-            let mut keep_rx = true;
-            loop {
-                match rx.try_recv() {
-                    Ok(SelectedTotalSizeMsg::Finished(scan_id, bytes)) => {
-                        if scan_id == self.selected_total_size_scan_id {
-                            self.selected_total_size_bytes = Some(bytes);
-                            self.selected_total_size_pending = false;
-                            keep_rx = false;
-                        }
-                    }
-                    Err(mpsc::TryRecvError::Empty) => break,
-                    Err(mpsc::TryRecvError::Disconnected) => {
-                        keep_rx = false;
-                        break;
-                    }
-                }
-            }
-
-            if keep_rx && self.folder_size_enabled {
-                self.selected_total_size_rx = Some(rx);
+        for msg in drain_channel(&mut self.selected_total_size_rx) {
+            let SelectedTotalSizeMsg::Finished(scan_id, bytes) = msg;
+            if scan_id == self.selected_total_size_scan_id {
+                self.selected_total_size_bytes = Some(bytes);
+                self.selected_total_size_pending = false;
+                self.selected_total_size_rx = None;
             }
         }
+        if !self.folder_size_enabled {
+            self.selected_total_size_rx = None;
+        }
 
-        if let Some(rx) = self.right_selected_total_size_rx.take() {
-            let mut keep_rx = true;
-            loop {
-                match rx.try_recv() {
-                    Ok(SelectedTotalSizeMsg::Finished(scan_id, bytes)) => {
-                        if scan_id == self.right_selected_total_size_scan_id {
-                            self.right_selected_total_size_bytes = Some(bytes);
-                            self.right_selected_total_size_pending = false;
-                            keep_rx = false;
-                        }
-                    }
-                    Err(mpsc::TryRecvError::Empty) => break,
-                    Err(mpsc::TryRecvError::Disconnected) => {
-                        keep_rx = false;
-                        break;
-                    }
-                }
+        for msg in drain_channel(&mut self.right.selected_total_size_rx) {
+            let SelectedTotalSizeMsg::Finished(scan_id, bytes) = msg;
+            if scan_id == self.right.selected_total_size_scan_id {
+                self.right.selected_total_size_bytes = Some(bytes);
+                self.right.selected_total_size_pending = false;
+                self.right.selected_total_size_rx = None;
             }
-
-            if keep_rx && self.folder_size_enabled {
-                self.right_selected_total_size_rx = Some(rx);
-            }
+        }
+        if !self.folder_size_enabled {
+            self.right.selected_total_size_rx = None;
         }
     }
 
@@ -307,10 +270,10 @@ impl App {
                 self.selected_total_size_items,
             ),
             crate::DualPanelSide::Right => (
-                self.right_marked_indices.len(),
-                self.right_selected_total_size_pending,
-                self.right_selected_total_size_bytes,
-                self.right_selected_total_size_items,
+                self.right.marked_indices.len(),
+                self.right.selected_total_size_pending,
+                self.right.selected_total_size_bytes,
+                self.right.selected_total_size_items,
             ),
         };
 
@@ -358,7 +321,7 @@ impl App {
             .collect();
         if self.is_dual_panel_mode() {
             for path in self
-                .right_entries
+                .right.entries
                 .iter()
                 .map(|e| e.path())
                 .filter(|p| p.is_dir())
@@ -443,30 +406,16 @@ impl App {
     }
 
     pub(crate) fn pump_current_dir_total_size_progress(&mut self) {
-        let Some(rx) = self.current_dir_total_size_rx.take() else {
-            return;
-        };
-
-        let mut keep_rx = true;
-        loop {
-            match rx.try_recv() {
-                Ok(CurrentDirTotalSizeMsg::Finished(scan_id, bytes)) => {
-                    if scan_id == self.current_dir_total_size_scan_id {
-                        self.current_dir_total_size_bytes = Some(bytes);
-                        self.current_dir_total_size_pending = false;
-                        keep_rx = false;
-                    }
-                }
-                Err(mpsc::TryRecvError::Empty) => break,
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    keep_rx = false;
-                    break;
-                }
+        for msg in drain_channel(&mut self.current_dir_total_size_rx) {
+            let CurrentDirTotalSizeMsg::Finished(scan_id, bytes) = msg;
+            if scan_id == self.current_dir_total_size_scan_id {
+                self.current_dir_total_size_bytes = Some(bytes);
+                self.current_dir_total_size_pending = false;
+                self.current_dir_total_size_rx = None;
             }
         }
-
-        if keep_rx && self.folder_size_enabled {
-            self.current_dir_total_size_rx = Some(rx);
+        if !self.folder_size_enabled {
+            self.current_dir_total_size_rx = None;
         }
     }
 
@@ -519,10 +468,10 @@ impl App {
                 self.entry_render_cache[idx].size_bytes = None;
             }
         }
-        for (idx, entry) in self.right_entries.iter().enumerate() {
+        for (idx, entry) in self.right.entries.iter().enumerate() {
             if entry.path().is_dir() {
-                self.right_entry_render_cache[idx].size_col = format!("{:>width$}", "-", width = size_width);
-                self.right_entry_render_cache[idx].size_bytes = None;
+                self.right.entry_render_cache[idx].size_col = format!("{:>width$}", "-", width = size_width);
+                self.right.entry_render_cache[idx].size_bytes = None;
             }
         }
     }
@@ -540,16 +489,16 @@ impl App {
                 self.entry_render_cache[idx].size_bytes = Some(size);
             }
         }
-        for (idx, entry) in self.right_entries.iter().enumerate() {
+        for (idx, entry) in self.right.entries.iter().enumerate() {
             let path = entry.path();
             if !path.is_dir() {
                 continue;
             }
 
             if let Some(size) = self.folder_size_cache.get(&path).copied() {
-                self.right_entry_render_cache[idx].size_col =
+                self.right.entry_render_cache[idx].size_col =
                     format!("{:>width$}", Self::format_size(size), width = 6);
-                self.right_entry_render_cache[idx].size_bytes = Some(size);
+                self.right.entry_render_cache[idx].size_bytes = Some(size);
             }
         }
     }
@@ -578,15 +527,10 @@ impl App {
     }
 
     pub(crate) fn pump_folder_size_progress(&mut self) {
-        let Some(rx) = self.folder_size_rx.take() else {
-            return;
-        };
-
-        let mut keep_rx = true;
         let mut any_size_changed = false;
-        loop {
-            match rx.try_recv() {
-                Ok(FolderSizeMsg::EntrySize(scan_id, dir_path, size)) => {
+        for msg in drain_channel(&mut self.folder_size_rx) {
+            match msg {
+                FolderSizeMsg::EntrySize(scan_id, dir_path, size) => {
                     if !self.folder_size_enabled || scan_id != self.folder_size_scan_id {
                         continue;
                     }
@@ -599,31 +543,24 @@ impl App {
                             format!("{:>width$}", Self::format_size(size), width = 6);
                         self.entry_render_cache[idx].size_bytes = Some(size);
                     }
-                    if let Some(idx) = self.right_entries.iter().position(|e| e.path() == dir_path) {
-                        self.right_entry_render_cache[idx].size_col =
+                    if let Some(idx) = self.right.entries.iter().position(|e| e.path() == dir_path) {
+                        self.right.entry_render_cache[idx].size_col =
                             format!("{:>width$}", Self::format_size(size), width = 6);
-                        self.right_entry_render_cache[idx].size_bytes = Some(size);
+                        self.right.entry_render_cache[idx].size_bytes = Some(size);
                     }
                 }
-                Ok(FolderSizeMsg::Finished(scan_id)) => {
+                FolderSizeMsg::Finished(scan_id) => {
                     if scan_id == self.folder_size_scan_id {
-                        keep_rx = false;
+                        self.folder_size_rx = None;
                     }
-                }
-                Err(mpsc::TryRecvError::Empty) => break,
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    keep_rx = false;
-                    break;
                 }
             }
         }
-
         if any_size_changed && matches!(self.sort_mode, crate::SortMode::SizeAsc | crate::SortMode::SizeDesc) {
             self.apply_sort_to_current_entries();
         }
-
-        if keep_rx && self.folder_size_enabled {
-            self.folder_size_rx = Some(rx);
+        if !self.folder_size_enabled {
+            self.folder_size_rx = None;
         }
     }
 

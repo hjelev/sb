@@ -9,13 +9,10 @@ use std::{
 
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
-    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
-    terminal::{
-        disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType, EnterAlternateScreen,
-        LeaveAlternateScreen,
-    },
+    terminal::{Clear as TermClear, ClearType},
 };
+use crate::util::tui::{suspend_tui, resume_tui};
 use ratatui::style::Color;
 
 use crate::{App, AppMode, PathFilterMode, RemoteEntry, SshHost, SshMount};
@@ -272,7 +269,7 @@ impl App {
     }
 
     pub(crate) fn mount_rclone_remote(&mut self, name: &str, rtype: &str) -> io::Result<()> {
-        if let Some(existing) = self.ssh_mounts.iter_mut().find(|m| m._host_alias == name) {
+        if let Some(existing) = self.ssh_mounts.iter_mut().find(|m| m.host_alias == name) {
             existing.return_dir = self.current_dir.clone();
             let mount_path = existing.mount_path.clone();
             self.mode = AppMode::Browsing;
@@ -302,7 +299,7 @@ impl App {
             let remote_os_icon = ui::icons::remote_os_nerd_icon(&mount_dir)
                 .map(|(g, _)| (g, ui::theme::theme_spec(self.active_theme).icon_os));
             self.ssh_mounts.push(SshMount {
-                _host_alias: name.to_string(),
+                host_alias: name.to_string(),
                 mount_path: mount_dir.clone(),
                 return_dir,
                 remote_label: name.to_string(),
@@ -344,7 +341,7 @@ impl App {
         if let Some(existing) = self
             .ssh_mounts
             .iter_mut()
-            .find(|m| m._host_alias == host.alias)
+            .find(|m| m.host_alias == host.alias)
         {
             existing.return_dir = self.current_dir.clone();
             if existing.remote_os_icon.is_none() {
@@ -385,7 +382,7 @@ impl App {
                 .map(|(g, _)| (g, ui::theme::theme_spec(self.active_theme).icon_os))
                 .or_else(|| Self::detect_ssh_remote_os_icon(host, self.active_theme));
             self.ssh_mounts.push(SshMount {
-                _host_alias: host.alias.clone(),
+                host_alias: host.alias.clone(),
                 mount_path: mount_dir.clone(),
                 return_dir,
                 remote_label,
@@ -431,7 +428,7 @@ impl App {
     }
 
     pub(crate) fn unmount_ssh_mount_by_alias(&mut self, alias: &str) -> bool {
-        let Some(idx) = self.ssh_mounts.iter().rposition(|m| m._host_alias == alias) else {
+        let Some(idx) = self.ssh_mounts.iter().rposition(|m| m.host_alias == alias) else {
             return false;
         };
 
@@ -447,8 +444,7 @@ impl App {
     }
 
     pub(crate) fn open_ssh_shell_session(&mut self, host: &SshHost) -> io::Result<()> {
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
         execute!(io::stdout(), Show)?;
 
         let mut cmd = Command::new("ssh");
@@ -463,9 +459,8 @@ impl App {
 
         let status = cmd.status();
 
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+        resume_tui()?;
         execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
-        enable_raw_mode()?;
         execute!(io::stdout(), Hide)?;
 
         match status {

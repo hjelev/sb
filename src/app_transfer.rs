@@ -10,10 +10,9 @@ use std::{
 
 use crossterm::{
     cursor::{Hide, Show},
-    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use crate::util::tui::{suspend_tui, resume_tui};
 
 use crate::{App, AppMode, CopyProgressMsg, DualPanelSide};
 
@@ -96,12 +95,12 @@ impl App {
                         .map(|e| vec![e.path()])
                         .unwrap_or_default()
                 };
-                (sources, self.right_dir.clone())
+                (sources, self.right.dir.clone())
             }
             DualPanelSide::Right => {
                 let sources = self
-                    .right_entries
-                    .get(self.right_selected_index)
+                    .right.entries
+                    .get(self.right.selected_index)
                     .map(|e| vec![e.path()])
                     .unwrap_or_default();
                 (sources, self.current_dir.clone())
@@ -315,8 +314,7 @@ impl App {
             return Ok(());
         }
 
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
         execute!(io::stdout(), Show)?;
 
         let edit_result = (|| -> io::Result<String> {
@@ -324,8 +322,7 @@ impl App {
             fs::read_to_string(&tmp)
         })();
 
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-        enable_raw_mode()?;
+        resume_tui()?;
         execute!(io::stdout(), Hide)?;
 
         let _ = fs::remove_file(&tmp);

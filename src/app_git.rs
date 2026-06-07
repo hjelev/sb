@@ -18,6 +18,7 @@ use crossterm::{
 
 use crate::{App, AppMode, GitInfoCache};
 use crate::util::command::CommandBuilder;
+use crate::util::tui::{suspend_tui, resume_tui};
 
 impl App {
     pub(crate) fn pump_git_info(&mut self) {
@@ -197,8 +198,7 @@ impl App {
     }
 
     pub(crate) fn preview_git_diff_and_confirm_commit(&mut self) -> io::Result<bool> {
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
         execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
 
         let delta_available = self.integration_active("delta");
@@ -246,9 +246,8 @@ impl App {
         let _ = io::stdin().read_line(&mut answer);
         let confirmed = matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes");
 
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+        resume_tui()?;
         execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
-        enable_raw_mode()?;
 
         Ok(confirmed)
     }
@@ -351,8 +350,7 @@ impl App {
     }
 
     pub(crate) fn run_git_tag_and_push(&mut self, tag: &str) -> io::Result<()> {
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
 
         let run_step = |args: &[&str], dir: &PathBuf| -> io::Result<bool> {
             let out = CommandBuilder::git_command(dir, args)?;
@@ -378,9 +376,8 @@ impl App {
         let mut line = String::new();
         let _ = io::stdin().read_line(&mut line);
 
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+        resume_tui()?;
         execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
-        enable_raw_mode()?;
 
         if let Some(step) = failed_step {
             self.set_status(step);

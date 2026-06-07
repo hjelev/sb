@@ -1,3 +1,7 @@
+const ICON_DIM: (u8, u8, u8) = (120, 120, 120);
+const ICON_BLUE: (u8, u8, u8) = (100, 160, 240);
+const ICON_AMBER: (u8, u8, u8) = (255, 183, 77);
+
 /// Returns `(glyph, (r,g,b))` for the current OS/distro, or `None` if unrecognised.
 /// Detection order on Linux: `/etc/os-release` ID exact → ID_LIKE tokens → NAME/ID
 /// substring families → generic Tux. Non-Linux OSes are matched via `std::env::consts::OS`.
@@ -98,7 +102,7 @@ fn distro_icon_for_id(id: &str) -> Option<(&'static str, (u8, u8, u8))> {
         "raspbian" | "raspios"             => Some(("\u{f306}", (196, 0, 40))),
         "slackware"                         => Some(("\u{f30f}", (80, 80, 200))),
         "mageia"                            => Some(("\u{f310}", (40, 120, 220))),
-        "elementary" | "elementaryos"      => Some(("\u{f309}", (100, 160, 240))),
+        "elementary" | "elementaryos"      => Some(("\u{f309}", ICON_BLUE)),
         "zorin"                             => Some(("\u{f33e}", (21, 114, 161))),
         "parrot" | "parrotos"              => Some(("\u{f330}", (0, 186, 200))),
         "mx" | "mxlinux"                   => Some(("\u{f11b}", (80, 80, 80))),
@@ -127,8 +131,8 @@ fn distro_icon_by_family(combined: &str) -> Option<(&'static str, (u8, u8, u8))>
 pub fn named_dir_icon(name: &str) -> Option<(&'static str, (u8, u8, u8))> {
     match name.to_lowercase().as_str() {
         // --- XDG User Dirs ---
-        "desktop" => Some(("\u{f01c4}", (100, 160, 240))),
-        "documents" | "docs" => Some(("\u{f0c82}", (100, 160, 240))),
+        "desktop" => Some(("\u{f01c4}", ICON_BLUE)),
+        "documents" | "docs" => Some(("\u{f0c82}", ICON_BLUE)),
         "downloads" => Some(("\u{f024d}", (100, 200, 120))),
         "music" => Some(("\u{f1359}", (180, 100, 220))),
         "pictures" | "photos" | "images" | "media" => Some(("\u{f024f}", (255, 200, 60))),
@@ -142,8 +146,8 @@ pub fn named_dir_icon(name: &str) -> Option<(&'static str, (u8, u8, u8))> {
         "license" | "licenses" | "copying" => {
             Some(("\u{f0fc3}", (240, 190, 40)))
         }
-        "copyright" => Some(("\u{f1f9}", (100, 160, 240))),
-        "legal" => Some(("\u{f0e3}", (100, 160, 240))),
+        "copyright" => Some(("\u{f1f9}", ICON_BLUE)),
+        "legal" => Some(("\u{f0e3}", ICON_BLUE)),
 
         // --- Version Control ---
         ".git" | "git" => Some(("\u{e5fb}", (240, 93, 37))),
@@ -172,11 +176,11 @@ pub fn named_dir_icon(name: &str) -> Option<(&'static str, (u8, u8, u8))> {
         "client" | "server" | "backend" | "frontend" => Some(("\u{f233}", (100, 160, 220))),
         "styles" | "css" | "themes" | "scss" => Some(("\u{e6b8}", (230, 70, 70))),
         "js" | "javascript" | "ts" | "typescript" | "jsx" | "tsx" => Some(("\u{f2ee}", (230, 70, 70))),
-        "db" | "data" | "dataset" | "databases" | "sql" => Some(("\u{f12e3}", (100, 160, 240))),
-        "api" => Some(("\u{f19ec}", (100, 160, 240))),
-        "npm" => Some(("\u{e5fa}", (100, 160, 240))),
+        "db" | "data" | "dataset" | "databases" | "sql" => Some(("\u{f12e3}", ICON_BLUE)),
+        "api" => Some(("\u{f19ec}", ICON_BLUE)),
+        "npm" => Some(("\u{e5fa}", ICON_BLUE)),
         "src" | "source" | "sources" => Some(("\u{f0d09}", (100, 181, 246))),
-        "scripts" | "script" => Some(("\u{f0d09}", (255, 183, 77))),
+        "scripts" | "script" => Some(("\u{f0d09}", ICON_AMBER)),
         "include" | "includes" | "headers" => Some(("\u{f0d09}", (77, 208, 225))),
         "test" | "tests" | "spec" | "specs" => Some(("\u{F0C3}", (244, 67, 54))),
         "target" | "build" | "dist" | "out" | "release" | "debug" => {
@@ -186,10 +190,10 @@ pub fn named_dir_icon(name: &str) -> Option<(&'static str, (u8, u8, u8))> {
         "vendor" | "third_party" => Some(("\u{F1B3}", (144, 164, 174))),
 
         // --- Config & System ---
-        "usr" => Some(("\u{f024c}", (255, 183, 77))),
+        "usr" => Some(("\u{f024c}", ICON_AMBER)),
         ".config" | "config" | "conf" | "settings" | "cfg" => Some(("\u{f107d}", (200, 200, 200))),
         ".local" => Some(("\u{f024c}", (160, 160, 160))),
-        ".ssh" | "ssh" | "keys" | "certs" => Some(("\u{f08ac}", (255, 183, 77))),
+        ".ssh" | "ssh" | "keys" | "certs" => Some(("\u{f08ac}", ICON_AMBER)),
         ".cache" | "cache" => Some(("\u{f197e}", (158, 158, 158))),
         "var" | "tmp" | "temp" => Some(("\u{f0aba}", (210, 105, 30))),
         "logs" | "log" => Some(("\u{F18D}", (160, 160, 160))),
@@ -224,11 +228,11 @@ pub fn named_dir_icon(name: &str) -> Option<(&'static str, (u8, u8, u8))> {
         "swap" => Some(("\u{f0fb6}", (200, 200, 200))),
         "boot" => Some(("\u{f19f0}", (200, 200, 200))),
         "lost+found" => Some(("\u{f0968}", (200, 200, 200))),
-        _ if name.contains("bin") => Some(("\u{f107f}", (255, 183, 77))),
-        _ if name.contains("masoko") || name.contains("star") => Some(("\u{f069d}", (255, 183, 77))),
-        _ if name.contains("love") || name.contains("heart") => Some(("\u{f10ea}", (255, 183, 77))),
+        _ if name.contains("bin") => Some(("\u{f107f}", ICON_AMBER)),
+        _ if name.contains("masoko") || name.contains("star") => Some(("\u{f069d}", ICON_AMBER)),
+        _ if name.contains("love") || name.contains("heart") => Some(("\u{f10ea}", ICON_AMBER)),
         _ if name.contains("lib") => Some(("\u{f0770}", (100, 181, 246))),
-        _ if name.starts_with('.') => Some(("\u{f179e}", (120, 120, 120))),
+        _ if name.starts_with('.') => Some(("\u{f179e}", ICON_DIM)),
         _ => None,
     }
 }
@@ -237,20 +241,20 @@ pub fn named_file_icon(name: &str) -> Option<(&'static str, (u8, u8, u8))> {
     let name_low = name.to_lowercase();
     
     match name_low.as_str() {
-        "desktop" => Some(("\u{f10b5}", (100, 160, 240))),
-        "documents" | "docs" => Some(("\u{f0c82}", (100, 160, 240))),
+        "desktop" => Some(("\u{f10b5}", ICON_BLUE)),
+        "documents" | "docs" => Some(("\u{f0c82}", ICON_BLUE)),
         "downloads" => Some(("\u{f024d}", (100, 200, 120))),
         "music" => Some(("\u{f075a}", (180, 100, 220))),
-        "legal" => Some(("\u{f08ea}", (255, 183, 77))),
+        "legal" => Some(("\u{f08ea}", ICON_AMBER)),
         "makefile" => Some(("\u{f1323}", (158, 158, 158))),
         _ if name_low.contains("lib") => Some(("\u{f0770}", (100, 181, 246))),
         
-        _ if name_low.contains("masoko") || name_low.contains("star") => Some(("\u{f04ce}", (255, 183, 77))),
+        _ if name_low.contains("masoko") || name_low.contains("star") => Some(("\u{f04ce}", ICON_AMBER)),
         _ if name_low.contains("love") || name_low.contains("heart") || name_low.contains("adult") => Some(("\u{f02d1}", (244, 67, 54))),
 
-        _ if name_low.starts_with('.') => Some(("\u{f0613}", (120, 120, 120))),
-        _ if name_low.starts_with("license") => Some(("\u{f0fc3}", (120, 120, 120))),
-        _ if name_low.ends_with(".mmd") => Some(("\u{f154f}", (120, 120, 120))),
+        _ if name_low.starts_with('.') => Some(("\u{f0613}", ICON_DIM)),
+        _ if name_low.starts_with("license") => Some(("\u{f0fc3}", ICON_DIM)),
+        _ if name_low.ends_with(".mmd") => Some(("\u{f154f}", ICON_DIM)),
         _ => None,
     }
 }

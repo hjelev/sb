@@ -41,7 +41,7 @@ impl RemoteEntry {
 }
 
 pub(crate) struct SshMount {
-    pub(crate) _host_alias: String,
+    pub(crate) host_alias: String,
     pub(crate) mount_path: PathBuf,
     pub(crate) return_dir: PathBuf,
     pub(crate) remote_label: String,

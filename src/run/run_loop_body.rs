@@ -120,6 +120,7 @@ pub(crate) fn run_tui_body(
         app.pump_git_info();
         app.request_git_info_for_current_dir_once();
         app.pump_notes_progress();
+        app.pump_right_notes_progress();
         app.pump_internal_search_candidates_progress();
         app.pump_internal_search_content_progress();
         app.pump_preview_progress();
@@ -1338,10 +1339,10 @@ pub(crate) fn run_tui_body(
                     }
                 }
                 } else if app.is_dual_panel_mode() {
-                    let right_path = if app.right_dir.as_os_str().is_empty() {
+                    let right_path = if app.right.dir.as_os_str().is_empty() {
                         app.current_dir.clone()
                     } else {
-                        app.right_dir.clone()
+                        app.right.dir.clone()
                     };
                     let right_title = build_panel_title(
                         &right_path,
@@ -1374,22 +1375,22 @@ pub(crate) fn run_tui_body(
                     let right_show_pct = app.folder_size_enabled && right_show_size;
                     let right_size_min_max = if right_show_size {
                         ui::list_temperature::size_min_max_from_sizes(
-                            app.right_entry_render_cache.iter().map(|entry| entry.size_bytes),
+                            app.right.entry_render_cache.iter().map(|entry| entry.size_bytes),
                         )
                     } else {
                         None
                     };
                     let right_date_rank_by_ts = if right_show_date {
                         ui::list_temperature::date_rank_map_from_unix(
-                            app.right_entry_render_cache.iter().map(|entry| entry.modified_unix),
+                            app.right.entry_render_cache.iter().map(|entry| entry.modified_unix),
                         )
                     } else {
                         HashMap::new()
                     };
-                    let right_size_width = panel_size_width(&app.right_entry_render_cache, right_show_size);
+                    let right_size_width = panel_size_width(&app.right.entry_render_cache, right_show_size);
                     let right_pct_width = 4usize;
                     let right_date_width = 16usize;
-                    let right_total_for_pct = panel_percent_total(&app.right_entry_render_cache, right_show_pct);
+                    let right_total_for_pct = panel_percent_total(&app.right.entry_render_cache, right_show_pct);
                     let right_name_width = panel_name_width(
                         right_term_w,
                         right_show_size,
@@ -1415,14 +1416,14 @@ pub(crate) fn run_tui_body(
                     };
 
                     let right_rows: Vec<Row> = app
-                        .right_entry_render_cache
+                        .right.entry_render_cache
                         .iter()
                         .enumerate()
                         .map(|(idx, entry_cache)| {
-                            let right_is_marked = app.right_marked_indices.contains(&idx);
-                            let right_is_selected = idx == app.right_selected_index;
+                            let right_is_marked = app.right.marked_indices.contains(&idx);
+                            let right_is_selected = idx == app.right.selected_index;
                             let tree_prefix = app
-                                .right_tree_row_prefixes
+                                .right.tree_row_prefixes
                                 .get(idx)
                                 .map(|s| s.as_str())
                                 .unwrap_or("");
@@ -1435,6 +1436,11 @@ pub(crate) fn run_tui_body(
                             let available_name_width = right_effective_name_width
                                 .saturating_sub(prefix_width + icon_prefix_width)
                                 .max(1);
+                            let right_note_text = app
+                                .right_notes_by_name
+                                .get(&entry_cache.raw_name)
+                                .map(|s| s.as_str())
+                                .unwrap_or("");
                             let name = truncate_with_ellipsis(&entry_cache.raw_name, available_name_width);
                             let right_row_fill = Style::default().bg(right_pill_color);
                             let mut spans = Vec::new();
@@ -1463,7 +1469,28 @@ pub(crate) fn run_tui_body(
                             } else {
                                 entry_cache.name_style
                             };
+                            let mut rendered_right_note = String::new();
+                            if !right_note_text.is_empty() {
+                                let used = prefix_width + icon_prefix_width + name.chars().count();
+                                let sep = "  ";
+                                let sep_len = sep.chars().count();
+                                if used + sep_len < right_effective_name_width {
+                                    let remaining = right_effective_name_width - used - sep_len;
+                                    let clipped = truncate_with_ellipsis(right_note_text, remaining);
+                                    if !clipped.is_empty() {
+                                        rendered_right_note = format!("{}{}", sep, clipped);
+                                    }
+                                }
+                            }
                             spans.push(Span::styled(name, name_style));
+                            if !rendered_right_note.is_empty() {
+                                let right_note_style = if right_is_selected {
+                                    note_style.patch(right_row_fill)
+                                } else {
+                                    note_style
+                                };
+                                spans.push(Span::styled(rendered_right_note, right_note_style));
+                            }
                             let used_inner: usize = spans
                                 .iter()
                                 .skip(1)
@@ -1528,11 +1555,11 @@ pub(crate) fn run_tui_body(
                     let right_table = Table::new(right_rows, right_constraints)
                         .highlight_style(Style::default())
                         .highlight_symbol("");
-                    app.right_table_state.select(Some(app.right_selected_index));
-                    f.render_stateful_widget(right_table, right_table_render_area, &mut app.right_table_state);
+                    app.right.table_state.select(Some(app.right.selected_index));
+                    f.render_stateful_widget(right_table, right_table_render_area, &mut app.right.table_state);
 
-                    if let Some(sel) = app.right_table_state.selected() {
-                        let offset = app.right_table_state.offset();
+                    if let Some(sel) = app.right.table_state.selected() {
+                        let offset = app.right.table_state.offset();
                         if sel >= offset {
                             let row_in_view = sel - offset;
                             if row_in_view < right_table_render_area.height as usize {
@@ -1556,7 +1583,7 @@ pub(crate) fn run_tui_body(
                     }
 
                     // Render right panel scrollbar
-                    let right_needs_scroll = app.right_entries.len() > right_body_area.height as usize;
+                    let right_needs_scroll = app.right.entries.len() > right_body_area.height as usize;
                     let right_can_draw_scrollbar = right_body_area.width > 2 && right_needs_scroll;
                     if right_can_draw_scrollbar {
                         let right_sb_area = Rect::new(
@@ -1568,9 +1595,9 @@ pub(crate) fn run_tui_body(
                         let right_track_h = right_sb_area.height as usize;
                         if right_track_h > 0 {
                             let right_visible_rows = right_body_area.height.max(1) as usize;
-                            let right_total_rows = app.right_entries.len();
+                            let right_total_rows = app.right.entries.len();
                             let right_max_scroll = right_total_rows.saturating_sub(right_visible_rows);
-                            let right_offset = app.right_table_state.offset().min(right_max_scroll);
+                            let right_offset = app.right.table_state.offset().min(right_max_scroll);
                             let right_thumb_h = ((right_visible_rows * right_track_h + right_total_rows.saturating_sub(1)) / right_total_rows)
                                 .max(1)
                                 .min(right_track_h);
@@ -2519,7 +2546,7 @@ pub(crate) fn run_tui_body(
                 } else {
                     let mounted_aliases: HashSet<String> = app.ssh_mounts
                         .iter()
-                        .map(|m| m._host_alias.clone())
+                        .map(|m| m.host_alias.clone())
                         .collect();
                     for (i, entry) in app.remote_entries.iter().enumerate() {
                         let is_selected = i == app.ssh_picker_selection;
@@ -2731,11 +2758,11 @@ pub(crate) fn run_tui_body(
 
             // --- Footer ---
             let left_status = if app.is_dual_panel_mode() && app.active_panel == crate::DualPanelSide::Right {
-                let total_entries = app.right_entries.len();
+                let total_entries = app.right.entries.len();
                 let selected_ordinal = if total_entries == 0 {
                     0
                 } else {
-                    app.right_selected_index.min(total_entries - 1) + 1
+                    app.right.selected_index.min(total_entries - 1) + 1
                 };
                 let mut left_status_parts = vec![format!("{}/{}", selected_ordinal, total_entries)];
                 if !app.clipboard.is_empty() {
@@ -2759,11 +2786,11 @@ pub(crate) fn run_tui_body(
             let left_len = left_status.chars().count();
 
             let left_spans: Vec<Span> = if app.is_dual_panel_mode() && app.active_panel == crate::DualPanelSide::Right {
-                let total_entries = app.right_entries.len();
+                let total_entries = app.right.entries.len();
                 let selected_ordinal = if total_entries == 0 {
                     0
                 } else {
-                    app.right_selected_index.min(total_entries - 1) + 1
+                    app.right.selected_index.min(total_entries - 1) + 1
                 };
                 let mut spans = vec![
                     Span::styled(selected_ordinal.to_string(), Style::default().fg(Color::White)),
