@@ -306,7 +306,20 @@ jobs:
           echo "$ANNOUNCEMENT_BODY" > $RUNNER_TEMP/notes.txt
 
           gh release create "${{ needs.plan.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
-
+  homebrew:
+      name: Bump Homebrew formula
+      runs-on: ubuntu-latest
+      steps:
+        - name: Update Homebrew tap
+          uses: mislav/bump-homebrew-formula-action@v3
+          with:
+            formula-name: sb
+            homebrew-tap: hjelev/homebrew-tap
+            base-branch: main
+            download-url: https://github.com/hjelev/sb/archive/refs/tags/${{ github.ref_name }}.tar.gz
+            commit-message: "brew: update sb to ${{ github.ref_name }}"
+          env:
+            COMMITTER_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
   announce:
     needs:
       - plan
