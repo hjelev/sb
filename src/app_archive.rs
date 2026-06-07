@@ -46,9 +46,9 @@ impl App {
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_else(|| archive_path.to_string_lossy().into_owned());
             let mount_path = self.archive_mounts[existing_idx].mount_path.clone();
-            self.archive_mounts[existing_idx].return_dir = self.current_dir.clone();
+            self.archive_mounts[existing_idx].return_dir = self.active_panel_dir();
             self.archive_mounts[existing_idx].archive_name = archive_name;
-            self.try_enter_dir(mount_path);
+            self.try_enter_dir_on_active_panel(mount_path);
             return true;
         }
 
@@ -64,14 +64,14 @@ impl App {
                     .file_name()
                     .map(|name| name.to_string_lossy().into_owned())
                     .unwrap_or_else(|| archive_path.to_string_lossy().into_owned());
-                let return_dir = self.current_dir.clone();
+                let return_dir = self.active_panel_dir();
                 self.archive_mounts.push(ArchiveMount {
                     archive_path,
                     mount_path: mount_path.clone(),
                     return_dir,
                     archive_name,
                 });
-                self.try_enter_dir(mount_path);
+                self.try_enter_dir_on_active_panel(mount_path);
                 true
             }
             _ => {
@@ -160,6 +160,24 @@ impl App {
     }
 
     pub(crate) fn try_leave_archive(&mut self) -> bool {
+        if self.is_dual_panel_mode() && self.active_panel == crate::DualPanelSide::Right {
+            let Some(mount_idx) = self
+                .archive_mounts
+                .iter()
+                .rposition(|mount| mount.mount_path == self.right.dir)
+            else {
+                return false;
+            };
+
+            let return_dir = self.archive_mounts[mount_idx].return_dir.clone();
+            let archive_name = self.archive_mounts[mount_idx].archive_name.clone();
+            self.right.dir = return_dir;
+            if self.refresh_right_panel_entries().is_ok() {
+                self.select_right_entry_named(&archive_name);
+            }
+            return true;
+        }
+
         let Some(mount_idx) = self
             .archive_mounts
             .iter()

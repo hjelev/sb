@@ -1284,6 +1284,17 @@ IFS= read -rsn1 _
         }
     }
 
+    fn select_right_entry_named(&mut self, name: &str) {
+        if let Some(index) = self
+            .right.entries
+            .iter()
+            .position(|entry| entry.file_name().to_string_lossy() == name)
+        {
+            self.right.selected_index = index;
+            self.right.table_state.select(Some(index));
+        }
+    }
+
     fn try_enter_parent_dir(&mut self) {
         let child_name = self
             .current_dir

@@ -498,9 +498,11 @@ pub(crate) fn handle_app_key_event_body(
             }
             KeyCode::Left | KeyCode::Backspace => {
                 if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
-                    if let Some(parent) = app.right.dir.parent() {
-                        app.right.dir = parent.to_path_buf();
-                        let _ = app.refresh_right_panel_entries();
+                    if !app.try_leave_archive() {
+                        if let Some(parent) = app.right.dir.parent() {
+                            app.right.dir = parent.to_path_buf();
+                            let _ = app.refresh_right_panel_entries();
+                        }
                     }
                     return Ok(KeyDispatchOutcome::ContinueLoop);
                 }
