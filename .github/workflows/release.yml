@@ -310,6 +310,15 @@ jobs:
       name: Bump Homebrew formula
       runs-on: ubuntu-latest
       steps:
+        - name: Calculate release hash
+          id: hash
+          run: |
+            URL="https://github.com/hjelev/sb/archive/refs/tags/${{ github.ref_name }}.tar.gz"
+            # Download the tarball silently, calculate the hash, and extract just the hash string
+            SHA=$(curl -sL "$URL" | sha256sum | awk '{print $1}')
+            # Save it to GITHUB_OUTPUT so the next step can read it
+            echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+
         - name: Update Homebrew tap
           uses: mislav/bump-homebrew-formula-action@v3
           with:
@@ -317,9 +326,11 @@ jobs:
             homebrew-tap: hjelev/homebrew-tap
             base-branch: main
             download-url: https://github.com/hjelev/sb/archive/refs/tags/${{ github.ref_name }}.tar.gz
+            # Pass the manually calculated hash here to bypass the 303 error
+            download-sha256: ${{ steps.hash.outputs.sha256 }}
             commit-message: "brew: update sb to ${{ github.ref_name }}"
           env:
-            COMMITTER_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+            COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
   announce:
     needs:
       - plan

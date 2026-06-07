@@ -299,7 +299,7 @@ impl App {
 
         let mut tag_requested = false;
         if failed_step.is_none() {
-            println!("\nPress any key to return to sbrs, or press 't' to create+push a tag...");
+            println!("\nPress any key to return to shell buddy, or press 't' to create+push a tag...");
             let _ = io::stdout().flush();
             enable_raw_mode()?;
             loop {
@@ -310,7 +310,7 @@ impl App {
             }
             disable_raw_mode()?;
         } else {
-            println!("\nPress any key to return to sbrs...");
+            println!("\nPress any key to return to shell buddy...");
             let _ = io::stdout().flush();
             enable_raw_mode()?;
             loop {
@@ -371,7 +371,7 @@ impl App {
             }
         }
 
-        println!("\nPress Enter to return to sbrs...");
+        println!("\nPress Enter to return to shell buddy...");
         let _ = io::stdout().flush();
         let mut line = String::new();
         let _ = io::stdin().read_line(&mut line);

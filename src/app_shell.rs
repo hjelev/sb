@@ -250,7 +250,7 @@ impl App {
             }
         }
 
-        println!("\nPress Enter to return to sbrs...");
+        println!("\nPress Enter to return to shell buddy...");
         let _ = io::stdout().flush();
         let mut line = String::new();
         let _ = io::stdin().read_line(&mut line);

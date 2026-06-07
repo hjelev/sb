@@ -119,7 +119,7 @@ impl App {
         println!();
         println!("After install, verify with: brew --version");
         println!();
-        println!("Press Enter to return to sbrs...");
+        println!("Press Enter to return to shell buddy...");
         let _ = io::stdout().flush();
         let mut line = String::new();
         let _ = io::stdin().read_line(&mut line);
@@ -210,7 +210,7 @@ impl App {
             }
         }
 
-        println!("\nPress Enter to return to sbrs...");
+        println!("\nPress Enter to return to shell buddy...");
         let _ = io::stdout().flush();
         let mut line = String::new();
         let _ = io::stdin().read_line(&mut line);
