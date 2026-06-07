@@ -468,7 +468,32 @@ pub fn render_help_overlay(
     let shortcut_style = Style::default().fg(Color::Rgb(255, 220, 140)).add_modifier(Modifier::BOLD);
     let desc_style = Style::default().fg(Color::Rgb(200, 200, 200));
 
+    let config_path = {
+        let base = std::env::var("XDG_CONFIG_HOME")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var("HOME")
+                    .ok()
+                    .map(|h| PathBuf::from(h).join(".config"))
+            })
+            .unwrap_or_else(|| PathBuf::from(".config"));
+        base.join("sb").join("config")
+    };
+
+    let title_style = Style::default().fg(Color::Rgb(255, 255, 255)).add_modifier(Modifier::BOLD);
+    let subtitle_style = Style::default().fg(Color::Rgb(150, 150, 150));
+
     let mut lines: Vec<Line> = vec![
+        Line::from(Span::styled(
+            format!("Shell Buddy  v{}", env!("CARGO_PKG_VERSION")),
+            title_style,
+        )),
+        Line::from(Span::styled(
+            config_path.display().to_string(),
+            subtitle_style,
+        )),
         Line::from(""),
         Line::from(vec![
             Span::styled(
