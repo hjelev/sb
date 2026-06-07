@@ -5,7 +5,7 @@ mod run_loop_body;
 
 use std::{
     collections::{HashMap, HashSet},
-    env, fs,
+    env,
     io::{self, Stdout},
     time::Duration,
 };

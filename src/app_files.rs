@@ -481,12 +481,14 @@ impl App {
                     .stdout(Stdio::piped())
                     .spawn();
                 if let Ok(child) = hexyl {
-                    shown = Command::new("less")
-                        .args(["-R"])
-                        .stdin(child.stdout.unwrap())
-                        .status()
-                        .map(|s| s.success())
-                        .unwrap_or(false);
+                    if let Some(out) = child.stdout {
+                        shown = Command::new("less")
+                            .args(["-R"])
+                            .stdin(out)
+                            .status()
+                            .map(|s| s.success())
+                            .unwrap_or(false);
+                    }
                 }
             } else if self.integration_active("bat") {
                 let bat_cmd = Self::bat_tool().unwrap_or_else(|| "bat".to_string());

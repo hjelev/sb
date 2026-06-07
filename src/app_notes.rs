@@ -5,19 +5,24 @@ use std::{
     io,
     path::PathBuf,
     process::Command,
+    sync::mpsc,
     thread,
 };
-use crate::util::background::drain_channel;
 
 use crossterm::{
     cursor::{Hide, Show},
+    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
+    terminal::{
+        disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+    },
 };
-use crate::util::tui::{suspend_tui, resume_tui};
 
-use crate::{App, AppMode, NotesLoadMsg};
+use crate::util::background::drain_channel;
+use crate::{App, AppMode, DualPanelSide, NotesLoadMsg};
 
 impl App {
+
     pub(crate) fn notes_file_path(dir: &PathBuf) -> PathBuf {
         dir.join(".sb")
     }
@@ -116,38 +121,36 @@ impl App {
     }
 
     pub(crate) fn pump_notes_progress(&mut self) {
-        for msg in drain_channel(&mut self.notes_rx) {
-            let NotesLoadMsg::Finished(scan_id, path, notes) = msg;
+        for NotesLoadMsg::Finished(scan_id, path, notes) in drain_channel(&mut self.notes_rx) {
             if scan_id == self.notes_scan_id && path == self.current_dir {
                 self.notes_by_name = notes;
                 self.notes_loaded_for = Some(path);
-                self.notes_rx = None;
             }
         }
     }
 
     pub(crate) fn selected_note_targets(&self) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
-        let is_right = self.is_dual_panel_mode() && self.active_panel == crate::DualPanelSide::Right;
+        let is_right = self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right;
         if is_right {
             if !self.right.marked_indices.is_empty() {
                 for idx in &self.right.marked_indices {
                     if let Some(entry) = self.right.entries.get(*idx) {
-                        out.push(entry.file_name().to_string_lossy().into_owned());
+                        out.push(crate::util::classify::entry_name(entry));
                     }
                 }
             } else if let Some(entry) = self.right.entries.get(self.right.selected_index) {
-                out.push(entry.file_name().to_string_lossy().into_owned());
+                out.push(crate::util::classify::entry_name(entry));
             }
         } else {
             if !self.marked_indices.is_empty() {
                 for idx in &self.marked_indices {
                     if let Some(entry) = self.entries.get(*idx) {
-                        out.push(entry.file_name().to_string_lossy().into_owned());
+                        out.push(crate::util::classify::entry_name(entry));
                     }
                 }
             } else if let Some(entry) = self.entries.get(self.selected_index) {
-                out.push(entry.file_name().to_string_lossy().into_owned());
+                out.push(crate::util::classify::entry_name(entry));
             }
         }
         out.sort();
@@ -180,13 +183,13 @@ impl App {
         self.begin_input_edit(AppMode::NoteEditing, initial);
     }
 
-    fn entry_names_in_dir(dir: &PathBuf) -> HashSet<String> {
+    pub(crate) fn entry_names_in_dir(dir: &PathBuf) -> HashSet<String> {
         let mut names = HashSet::new();
         let Ok(entries) = fs::read_dir(dir) else {
             return names;
         };
         for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
+            let name = crate::util::classify::entry_name(&entry);
             if name == ".sb" {
                 continue;
             }
@@ -195,7 +198,7 @@ impl App {
         names
     }
 
-    fn write_notes_map(dir: &PathBuf, notes: &HashMap<String, String>, scan_id: u64) -> io::Result<()> {
+    pub(crate) fn write_notes_map(dir: &PathBuf, notes: &HashMap<String, String>, scan_id: u64) -> io::Result<()> {
         let notes_path = Self::notes_file_path(dir);
         if notes.is_empty() {
             match fs::remove_file(&notes_path) {
@@ -307,11 +310,13 @@ impl App {
         }
 
         let editor = env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
-        suspend_tui()?;
+        disable_raw_mode()?;
+        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
         execute!(io::stdout(), Show)?;
         let _ = Command::new(editor).arg(&todo_path).status();
+        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
         execute!(io::stdout(), Hide)?;
-        resume_tui()?;
+        enable_raw_mode()?;
         self.refresh_entries_or_status();
         self.set_status("opened ~/.todo");
         Ok(())

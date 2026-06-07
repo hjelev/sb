@@ -12,7 +12,6 @@ use crate::app_render_cache::{EntryRenderCache, EntryRenderConfig};
 use crate::ui::theme::ThemeId;
 use crate::ui::list_render;
 use crate::ui::list_temperature;
-use crate::util::config::AppConfig;
 use crate::App;
 
 pub(crate) fn rt_to_ct_color(color: ratatui::style::Color) -> CtColor {
@@ -50,7 +49,7 @@ pub fn list_current_directory(
     } else {
         env::current_dir()?
     };
-    let config = AppConfig::from_env();
+    let config = crate::app_init::init_config();
     let nerd_font_active = config.nerd_font_active;
     let no_color = config.no_color;
     let show_icons = config.show_icons;
@@ -118,7 +117,7 @@ pub fn list_current_directory(
     if tree_rows.is_none() {
         direct_entries = fs::read_dir(&current_dir)?
             .filter_map(|res| res.ok())
-            .filter(|e| include_hidden || !e.file_name().to_string_lossy().starts_with('.'))
+            .filter(|e| include_hidden || !crate::util::classify::is_hidden_entry(e))
             .collect();
         direct_entries.sort_by_key(|e| (e.path().is_file(), e.file_name()));
     }

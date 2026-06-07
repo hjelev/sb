@@ -56,7 +56,7 @@ impl App {
             if self.active_panel_show_hidden() {
                 true
             } else {
-                !entry.file_name().to_string_lossy().starts_with('.')
+                !crate::util::classify::is_hidden_entry(&entry)
             }
         })
     }
@@ -70,7 +70,7 @@ impl App {
             .filter_map(|entry| entry.ok())
             .filter(|entry| {
                 self.active_panel_show_hidden()
-                    || !entry.file_name().to_string_lossy().starts_with('.')
+                    || !crate::util::classify::is_hidden_entry(entry)
             })
             .map(|entry| entry.path())
             .filter(|entry_path| entry_path.is_dir())

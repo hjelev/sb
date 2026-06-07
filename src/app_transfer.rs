@@ -1,4 +1,5 @@
 use std::{
+    env,
     fs,
     io::{self, Read, Write},
     path::PathBuf,
@@ -10,20 +11,24 @@ use std::{
 
 use crossterm::{
     cursor::{Hide, Show},
+    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
+    terminal::{
+        disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+    },
 };
-use crate::util::tui::{suspend_tui, resume_tui};
 
-use crate::{App, AppMode, CopyProgressMsg, DualPanelSide};
+use crate::{util, App, AppMode, CopyProgressMsg, DualPanelSide};
 
 impl App {
+
     pub(crate) fn is_path_inside_remote_mount(&self, path: &PathBuf) -> bool {
         self.ssh_mounts
             .iter()
             .any(|m| path == &m.mount_path || path.starts_with(&m.mount_path))
     }
 
-    fn begin_transfer_from_sources(
+    pub(crate) fn begin_transfer_from_sources(
         &mut self,
         sources: Vec<PathBuf>,
         target_dir: PathBuf,
@@ -98,11 +103,19 @@ impl App {
                 (sources, self.right.dir.clone())
             }
             DualPanelSide::Right => {
-                let sources = self
-                    .right.entries
-                    .get(self.right.selected_index)
-                    .map(|e| vec![e.path()])
-                    .unwrap_or_default();
+                let sources = if !self.right.marked_indices.is_empty() {
+                    self.right.entries
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| self.right.marked_indices.contains(i))
+                        .map(|(_, e)| e.path())
+                        .collect()
+                } else {
+                    self.right.entries
+                        .get(self.right.selected_index)
+                        .map(|e| vec![e.path()])
+                        .unwrap_or_default()
+                };
                 (sources, self.current_dir.clone())
             }
         };
@@ -314,15 +327,19 @@ impl App {
             return Ok(());
         }
 
-        suspend_tui()?;
+        disable_raw_mode()?;
+        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
         execute!(io::stdout(), Show)?;
 
         let edit_result = (|| -> io::Result<String> {
-            let _ = Command::new(self.config.editor.clone()).arg(&tmp).status();
+            let _ = Command::new(env::var("EDITOR").unwrap_or_else(|_| "nano".to_string()))
+                .arg(&tmp)
+                .status();
             fs::read_to_string(&tmp)
         })();
 
-        resume_tui()?;
+        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+        enable_raw_mode()?;
         execute!(io::stdout(), Hide)?;
 
         let _ = fs::remove_file(&tmp);
@@ -393,16 +410,14 @@ impl App {
             self.copy_done_bytes.min(total)
         };
         let effective_total = if total == 0 {
-            done.saturating_add(self.copy_job_total_bytes).max(1)
+            done
+                .saturating_add(self.copy_job_total_bytes)
+                .max(1)
         } else {
             total.max(1)
         };
         let percent = if total == 0 {
-            if self.copy_total_rx.is_some() {
-                0.0
-            } else {
-                100.0
-            }
+            if self.copy_total_rx.is_some() { 0.0 } else { 100.0 }
         } else {
             (done as f64 * 100.0) / effective_total as f64
         };
@@ -412,11 +427,7 @@ impl App {
             .unwrap_or(0.0)
             .max(0.001);
         let bytes_per_sec = done as f64 / elapsed_secs;
-        let remaining = if total == 0 {
-            0
-        } else {
-            total.saturating_sub(done)
-        };
+        let remaining = if total == 0 { 0 } else { total.saturating_sub(done) };
         let eta_secs = if bytes_per_sec > 0.0 {
             (remaining as f64 / bytes_per_sec) as u64
         } else {
@@ -434,14 +445,9 @@ impl App {
         } else {
             Self::format_size(effective_total)
         };
-        let eta_label = if total == 0 {
-            "-".to_string()
-        } else {
-            Self::format_eta(eta_secs)
-        };
+        let eta_label = if total == 0 { "-".to_string() } else { Self::format_eta(eta_secs) };
         let scan_suffix = if scanning { " scanning size..." } else { "" };
-        let current_idx =
-            (self.paste_ok_items + self.paste_failed_items + 1).min(self.paste_total_items.max(1));
+        let current_idx = (self.paste_ok_items + self.paste_failed_items + 1).min(self.paste_total_items.max(1));
         let scope = if self.copy_from_remote { "remote " } else { "" };
         self.set_status(format!(
             "{}copy [{}] {:>3.0}% {}/{} {}/s eta {} ({}/{}) {}{}",
@@ -473,8 +479,8 @@ impl App {
             let total = Self::compute_total_bytes(&src).unwrap_or(0);
             let _ = tx.send(CopyProgressMsg::TotalBytes(total));
             let mut copied = 0u64;
-            let result =
-                Self::copy_path_with_progress(&src, &dest, &tx, &mut copied).map_err(|e| e.to_string());
+            let result = Self::copy_path_with_progress(&src, &dest, &tx, &mut copied)
+                .map_err(|e| e.to_string());
             let _ = tx.send(CopyProgressMsg::Finished(result));
         });
     }
@@ -519,15 +525,15 @@ impl App {
                             };
                             if let Err(e) = delete_res {
                                 self.paste_failed_items += 1;
-                                self.set_status(format!(
-                                    "move cleanup failed for {}: {}",
-                                    self.copy_item_name, e
-                                ));
+                                self.set_status(format!("move cleanup failed for {}: {}", self.copy_item_name, e));
                                 self.copy_job_total_bytes = 0;
                                 self.copy_done_before_job = self.copy_done_bytes;
                                 self.copy_item_name.clear();
                                 self.copy_from_remote = false;
                                 let _ = self.refresh_entries();
+                                if self.is_dual_panel_mode() {
+                                    let _ = self.refresh_right_panel_entries();
+                                }
                                 self.advance_paste_queue();
                                 return;
                             }
@@ -537,9 +543,6 @@ impl App {
                     self.copy_done_bytes = self
                         .copy_done_before_job
                         .saturating_add(self.copy_job_total_bytes);
-                    if self.is_dual_panel_mode() {
-                        let _ = self.refresh_right_panel_entries();
-                    }
                 }
                 Err(e) => {
                     self.paste_failed_items += 1;
@@ -552,6 +555,9 @@ impl App {
             self.copy_current_src = None;
             self.copy_from_remote = false;
             let _ = self.refresh_entries();
+            if self.is_dual_panel_mode() {
+                let _ = self.refresh_right_panel_entries();
+            }
             self.advance_paste_queue();
         } else {
             self.copy_rx = Some(rx);
@@ -560,7 +566,7 @@ impl App {
     }
 
     pub(crate) fn format_eta(total_seconds: u64) -> String {
-        crate::util::format::format_eta(total_seconds)
+        util::format::format_eta(total_seconds)
     }
 
     pub(crate) fn advance_paste_queue(&mut self) {

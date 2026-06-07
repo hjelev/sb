@@ -128,7 +128,7 @@ impl App {
     ) -> EntryRenderCache {
         let path = entry.path();
         let meta = entry.metadata().ok();
-        let is_hidden = entry.file_name().to_string_lossy().starts_with('.');
+        let is_hidden = crate::util::classify::is_hidden_entry(entry);
         let is_symlink = entry.file_type().map(|ft| ft.is_symlink()).unwrap_or(false);
         let is_dir = meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
         // icon_data is still needed for name_style color on regular nerd-font files.
@@ -249,7 +249,7 @@ impl App {
             .map(|d| d.as_secs());
 
         EntryRenderCache {
-            raw_name: entry.file_name().to_string_lossy().into_owned(),
+            raw_name: crate::util::classify::entry_name(entry),
             icon_glyph,
             icon_style,
             name_style,
