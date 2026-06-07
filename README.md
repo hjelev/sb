@@ -14,7 +14,7 @@
 
 ## Screenshot
 
-![Shell Buddy screenshot](images/screenshot.png)
+![Shell Buddy screenshot](images/screenshot-1.png)
 
 A terminal file manager (TUI) written in Rust using `ratatui` + `crossterm`.
 
