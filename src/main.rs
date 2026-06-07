@@ -1319,6 +1319,12 @@ IFS= read -rsn1 _
         let raw_input = self.input_buffer.trim().to_string();
         let target = self.resolve_input_path(&raw_input);
         if target.is_dir() {
+            // No-op: same directory, no filter to clear — skip refresh to avoid timestamp flicker
+            if target == self.current_dir && self.path_input_filter.is_none() {
+                self.mode = AppMode::Browsing;
+                self.clear_input_edit();
+                return;
+            }
             self.path_input_filter = None;
             self.try_enter_dir(target);
             self.mode = AppMode::Browsing;
