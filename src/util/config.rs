@@ -119,6 +119,8 @@ pub struct SbPersistConfig {
     pub view_mode: String,
     /// The active UI theme to restore on next launch.
     pub current_theme: String,
+    /// Integration keys that the user has explicitly disabled.
+    pub disabled_integrations: Vec<String>,
     /// Unknown settings (future-proofing: preserve any unrecognized key-value pairs).
     unknown: std::collections::HashMap<String, String>,
 }
@@ -128,6 +130,7 @@ impl Default for SbPersistConfig {
         Self {
             view_mode: "Normal".to_string(),
             current_theme: "original".to_string(),
+            disabled_integrations: Vec::new(),
             unknown: std::collections::HashMap::new(),
         }
     }
@@ -154,6 +157,14 @@ impl SbPersistConfig {
                 match key {
                     "view_mode" => cfg.view_mode = val.to_string(),
                     "current_theme" => cfg.current_theme = val.to_string(),
+                    "disabled_integrations" => {
+                        cfg.disabled_integrations = val
+                            .split(',')
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
+                            .map(String::from)
+                            .collect();
+                    }
                     _ => {
                         cfg.unknown.insert(key.to_string(), val.to_string());
                     }
@@ -173,6 +184,12 @@ impl SbPersistConfig {
         let mut lines = vec!["# sb config".to_string()];
         lines.push(format!("view_mode = {}", self.view_mode));
         lines.push(format!("current_theme = {}", self.current_theme));
+        if !self.disabled_integrations.is_empty() {
+            lines.push(format!(
+                "disabled_integrations = {}",
+                self.disabled_integrations.join(",")
+            ));
+        }
         for (key, val) in &self.unknown {
             lines.push(format!("{} = {}", key, val));
         }

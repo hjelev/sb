@@ -486,6 +486,9 @@ impl App {
             _ => {}
         }
         app.set_active_theme(ui::theme::theme_by_name(&persist.current_theme));
+        for key in &persist.disabled_integrations {
+            app.integration_overrides.insert(key.clone(), false);
+        }
         Ok(app)
     }
 
@@ -2258,6 +2261,11 @@ fn main() -> io::Result<()> {
     let mut persist = util::config::SbPersistConfig::load();
     persist.view_mode = format!("{:?}", app.view_mode);
     persist.current_theme = ui::theme::theme_name(app.active_theme).to_string();
+    persist.disabled_integrations = app
+        .integration_overrides
+        .iter()
+        .filter_map(|(k, &v)| if !v { Some(k.clone()) } else { None })
+        .collect();
     let _ = persist.save();
     disable_raw_mode()?;
     execute!(
