@@ -1368,6 +1368,31 @@ pub(crate) fn handle_app_key_event_body(
                 app.panel_tab = 1;
                 app.start_internal_search();
             }
+            KeyCode::Char('c') => {
+                let config_path = std::env::var("XDG_CONFIG_HOME")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+                    .map(std::path::PathBuf::from)
+                    .or_else(|| {
+                        std::env::var("HOME")
+                            .ok()
+                            .map(|h| std::path::PathBuf::from(h).join(".config"))
+                    })
+                    .unwrap_or_else(|| std::path::PathBuf::from(".config"))
+                    .join("sb")
+                    .join("config");
+                app.mode = AppMode::Browsing;
+                disable_raw_mode()?;
+                execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+                execute!(io::stdout(), Show)?;
+                let _ = Command::new(env::var("EDITOR").unwrap_or_else(|_| "nano".to_string()))
+                    .arg(&config_path)
+                    .status();
+                enable_raw_mode()?;
+                execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+                execute!(io::stdout(), Hide)?;
+                terminal.clear()?;
+            }
             _ => {}
         }
         AppMode::Integrations => {

@@ -647,6 +647,7 @@ pub fn render_help_overlay(
         Paragraph::new(shortcut_footer_lines(&[
             ("↑↓", "navigate"),
             ("Tab", "switch tabs"),
+            ("c", "open config"),
             ("Esc", "close"),
         ], theme_id, nerd_font)),
         help_footer_area,
