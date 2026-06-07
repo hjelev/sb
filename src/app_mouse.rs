@@ -512,20 +512,31 @@ impl App {
             AppMode::Browsing => {
                 if self.preview_focus_is_preview() {
                     if scroll_up {
-                        self.preview_scroll_up(3);
+                        self.preview_scroll_up(1);
                     } else {
-                        self.preview_scroll_down(3);
+                        self.preview_scroll_down(1);
+                    }
+                } else if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
+                    if !self.right.entries.is_empty() {
+                        let max_idx = self.right.entries.len() - 1;
+                        let next = if scroll_up {
+                            self.right.selected_index.saturating_sub(1)
+                        } else {
+                            (self.right.selected_index + 1).min(max_idx)
+                        };
+                        self.right.selected_index = next;
+                        self.right.table_state.select(Some(next));
                     }
                 } else {
-                    let delta = if scroll_up { -3 } else { 3 };
+                    let delta = if scroll_up { -1 } else { 1 };
                     self.move_selection_delta(delta);
                 }
             }
             AppMode::Help => {
                 if scroll_up {
-                    self.help_scroll_offset = self.help_scroll_offset.saturating_sub(3);
+                    self.help_scroll_offset = self.help_scroll_offset.saturating_sub(1);
                 } else {
-                    self.help_scroll_offset = (self.help_scroll_offset + 3).min(self.help_max_offset);
+                    self.help_scroll_offset = (self.help_scroll_offset + 1).min(self.help_max_offset);
                 }
             }
             AppMode::InternalSearch => {
@@ -578,10 +589,10 @@ impl App {
             }
             AppMode::ConfirmDelete => {
                 if scroll_up {
-                    self.confirm_delete_scroll_offset = self.confirm_delete_scroll_offset.saturating_sub(3);
+                    self.confirm_delete_scroll_offset = self.confirm_delete_scroll_offset.saturating_sub(1);
                 } else {
                     self.confirm_delete_scroll_offset =
-                        (self.confirm_delete_scroll_offset + 3).min(self.confirm_delete_max_offset);
+                        (self.confirm_delete_scroll_offset + 1).min(self.confirm_delete_max_offset);
                 }
             }
             _ => {}
@@ -902,8 +913,26 @@ impl App {
 
     pub(crate) fn handle_mouse_event(&mut self, mouse: MouseEvent, area: Rect) -> Option<KeyEvent> {
         match mouse.kind {
-            MouseEventKind::ScrollUp => self.handle_mouse_scroll(true),
-            MouseEventKind::ScrollDown => self.handle_mouse_scroll(false),
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+                if self.is_dual_panel_mode() {
+                    if let Some((left_frame, right_frame)) = self.dual_panel_frame_areas(area) {
+                        let in_left = mouse.column >= left_frame.x
+                            && mouse.column < left_frame.x + left_frame.width
+                            && mouse.row >= left_frame.y
+                            && mouse.row < left_frame.y + left_frame.height;
+                        let in_right = mouse.column >= right_frame.x
+                            && mouse.column < right_frame.x + right_frame.width
+                            && mouse.row >= right_frame.y
+                            && mouse.row < right_frame.y + right_frame.height;
+                        if in_left {
+                            self.active_panel = DualPanelSide::Left;
+                        } else if in_right {
+                            self.active_panel = DualPanelSide::Right;
+                        }
+                    }
+                }
+                self.handle_mouse_scroll(matches!(mouse.kind, MouseEventKind::ScrollUp));
+            }
             MouseEventKind::Down(MouseButton::Right) => {
                 self.file_list_scroll_dragging = false;
                 if matches!(

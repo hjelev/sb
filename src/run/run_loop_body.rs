@@ -3056,6 +3056,31 @@ pub(crate) fn run_tui_body(
                     next_key = Some(key);
                 }
                 Event::Mouse(mouse) => {
+                    let is_scroll = matches!(
+                        mouse.kind,
+                        crossterm::event::MouseEventKind::ScrollUp
+                            | crossterm::event::MouseEventKind::ScrollDown
+                    );
+                    if is_scroll {
+                        // Drain queued scroll events so one wheel tick = one move
+                        while event::poll(Duration::from_millis(0))? {
+                            match event::read()? {
+                                Event::Mouse(m)
+                                    if m.kind == mouse.kind => {}
+                                other => {
+                                    // Non-scroll event — put it back via deferred handling isn't
+                                    // possible, so just process it immediately before the scroll.
+                                    if let Event::Mouse(m2) = other {
+                                        let area = terminal.size()?;
+                                        if let Some(simulated_key) = app.handle_mouse_event(m2, area) {
+                                            deferred_key = Some(simulated_key);
+                                        }
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
                     let area = terminal.size()?;
                     if let Some(simulated_key) = app.handle_mouse_event(mouse, area) {
                         deferred_key = Some(simulated_key);
