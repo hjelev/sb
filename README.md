@@ -119,6 +119,12 @@ Notes:
 cargo install shell-buddy
 ```
 
+### From Homebrew
+
+```bash
+brew install hjelev/tap/shell-buddy
+```
+
 ### From Source
 
 ```bash
@@ -138,7 +144,7 @@ Use the installer there if you want the fastest setup without building from sour
 <summary><strong>Core Controls</strong></summary>
 
 - `q` / `Esc`: quit
-- `\``: toggle preview pane
+- `\``: toggle modes
 - `Enter` / `Right`: open entry / preview file
 - `Left` / `Backspace`: go to parent / leave mounted view
 - mouse left-click: select clicked entry

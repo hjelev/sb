@@ -2838,7 +2838,7 @@ pub(crate) fn run_tui_body(
                 ("s", "Size"),
                 ("o", "Open-GUI"),
                 ("f", "Find"),
-                ("`", "preview"),
+                ("`", "Mode"),
                 ("h", "Help"),
                 ("q", "Quit"),
             ];

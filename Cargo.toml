@@ -2,7 +2,7 @@
 name = "shell-buddy"
 version = "0.6.18"
 edition = "2024"
-description = "Shell Buddy (sbrs)"
+description = "Shell Buddy (sb)"
 repository = "https://github.com/hjelev/sb"
 homepage = "https://github.com/hjelev/sb"
 keywords = ["terminal", "file-manager", "tui", "preview", "images"]
