@@ -585,14 +585,14 @@ pub(crate) fn run_tui_body(
 
                 let left_border_color = if app.is_dual_panel_mode() {
                     if app.active_panel == crate::DualPanelSide::Left {
-                        Color::White
+                        active_theme.text_normal
                     } else {
                         Color::Rgb(120, 120, 120)
                     }
                 } else if app.preview_focus_is_preview() {
                     Color::DarkGray
                 } else {
-                    Color::White
+                    active_theme.text_normal
                 };
                 let left_block = Block::default()
                     .borders(Borders::ALL)
@@ -1197,7 +1197,7 @@ pub(crate) fn run_tui_body(
                     .border_type(BorderType::Rounded)
                     .title(preview_title)
                     .border_style(Style::default().fg(if app.preview_focus_is_preview() {
-                        active_theme.accent_primary
+                        active_theme.text_normal
                     } else {
                         Color::DarkGray
                     }))
@@ -1352,7 +1352,7 @@ pub(crate) fn run_tui_body(
                         .border_type(BorderType::Rounded)
                         .title(right_title)
                         .border_style(Style::default().fg(if app.active_panel == crate::DualPanelSide::Right {
-                            active_theme.accent_primary
+                            active_theme.text_normal
                         } else {
                             Color::Rgb(120, 120, 120)
                         }))
