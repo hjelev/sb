@@ -17,11 +17,8 @@ pub(crate) struct ThemeSpec {
     pub(crate) success: Color,
     pub(crate) warning: Color,
     pub(crate) error: Color,
-    #[allow(dead_code)]
     pub(crate) bg_selected: Color,
-    #[allow(dead_code)]
     pub(crate) bg_panel: Color,
-    #[allow(dead_code)]
     pub(crate) divider: Color,
     pub(crate) icon_default_file: Color,
     pub(crate) icon_default_dir: Color,

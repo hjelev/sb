@@ -1,15 +1,13 @@
-use std::time::{Duration, Instant};
-
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 
-use crate::{App, AppMode, InternalSearchScope, PreviewPaneFocus};
-
-const MAIN_LIST_DOUBLE_CLICK_WINDOW_MS: u64 = 320;
+use crate::ui;
+use crate::{App, AppMode, DualPanelSide, InternalSearchScope, PreviewPaneFocus};
 
 impl App {
+
     pub(crate) fn panel_tab_hit_test(relative_x: u16) -> Option<u8> {
-        crate::ui::panels::panel_tab_hit_test(relative_x)
+        ui::panels::panel_tab_hit_test(relative_x)
     }
 
     pub(crate) fn tabbed_overlay_close_area(popup_area: Rect) -> Rect {
@@ -21,13 +19,13 @@ impl App {
         )
     }
 
-    fn primary_content_area(area: Rect) -> Rect {
+    pub(crate) fn primary_content_area(area: Rect) -> Rect {
         Layout::default()
             .constraints([Constraint::Min(3), Constraint::Length(2)])
             .split(area)[0]
     }
 
-    fn tab_overlay_anchor(area: Rect) -> Rect {
+    pub(crate) fn tab_overlay_anchor(area: Rect) -> Rect {
         let area = Self::primary_content_area(area);
         let anchor_w = (area.width * 5 / 6).max(50).min(area.width);
         let anchor_h = (area.height * 5 / 6).max(12).min(area.height);
@@ -39,7 +37,7 @@ impl App {
         )
     }
 
-    fn open_panel_tab(&mut self, tab: u8) {
+    pub(crate) fn open_panel_tab(&mut self, tab: u8) {
         if tab == self.panel_tab
             && matches!(
                 (tab, self.mode),
@@ -49,6 +47,7 @@ impl App {
                     | (3, AppMode::SshPicker)
                     | (4, AppMode::SortMenu)
                     | (5, AppMode::Integrations)
+                    | (6, AppMode::Themes)
             )
         {
             return;
@@ -82,11 +81,19 @@ impl App {
                 self.panel_tab = 5;
                 self.mode = AppMode::Integrations;
             }
+            6 => {
+                self.theme_selected = ui::theme::THEMES
+                    .iter()
+                    .position(|theme| theme.id == self.active_theme)
+                    .unwrap_or(0);
+                self.panel_tab = 6;
+                self.mode = AppMode::Themes;
+            }
             _ => {}
         }
     }
 
-    fn close_tabbed_overlay(&mut self) {
+    pub(crate) fn close_tabbed_overlay(&mut self) {
         match self.mode {
             AppMode::InternalSearch => {
                 self.cancel_internal_search_candidate_scan();
@@ -97,6 +104,7 @@ impl App {
             AppMode::Help
             | AppMode::Bookmarks
             | AppMode::Integrations
+            | AppMode::Themes
             | AppMode::SortMenu
             | AppMode::SshPicker => {
                 self.mode = AppMode::Browsing;
@@ -112,6 +120,7 @@ impl App {
                 | AppMode::Help
                 | AppMode::Bookmarks
                 | AppMode::Integrations
+                | AppMode::Themes
                 | AppMode::SortMenu
                 | AppMode::SshPicker
         ) {
@@ -135,6 +144,7 @@ impl App {
                 | AppMode::Help
                 | AppMode::Bookmarks
                 | AppMode::Integrations
+                | AppMode::Themes
                 | AppMode::SortMenu
                 | AppMode::SshPicker
         ) {
@@ -169,10 +179,10 @@ impl App {
                 file_count += 1;
             }
         }
-        let title = crate::ui::dialogs::confirm_delete_title(file_count, folder_count);
-        let confirm_area = crate::ui::dialogs::confirm_delete_dialog_area(area, &title);
+        let title = ui::dialogs::confirm_delete_title(file_count, folder_count);
+        let confirm_area = ui::dialogs::confirm_delete_dialog_area(area, &title);
         let Some((button_area, confirm_start, confirm_w, cancel_start, cancel_w)) =
-            crate::ui::dialogs::confirm_delete_button_layout(confirm_area)
+            ui::dialogs::confirm_delete_button_layout(confirm_area)
         else {
             return false;
         };
@@ -239,7 +249,7 @@ impl App {
             .clone()
             .unwrap_or_else(|| "brew (not found)".to_string());
 
-        crate::ui::dialogs::confirm_integration_install_msg_lines(
+        ui::dialogs::confirm_integration_install_msg_lines(
             &key,
             &package,
             &brew_display,
@@ -249,7 +259,7 @@ impl App {
 
     pub(crate) fn confirm_integration_install_dialog_area(&self, area: Rect) -> Rect {
         let msg_lines = self.confirm_integration_install_msg_lines();
-        crate::ui::dialogs::confirm_integration_install_dialog_area(area, &msg_lines)
+        ui::dialogs::confirm_integration_install_dialog_area(area, &msg_lines)
     }
 
     pub(crate) fn confirm_integration_install_button_layout(
@@ -257,10 +267,10 @@ impl App {
         area: Rect,
     ) -> Option<(Rect, u16, u16, u16, u16)> {
         let confirm_area = self.confirm_integration_install_dialog_area(area);
-        crate::ui::dialogs::confirm_ok_cancel_button_layout(confirm_area)
+        ui::dialogs::confirm_ok_cancel_button_layout(confirm_area)
     }
 
-    fn inner_with_borders(area: Rect) -> Rect {
+    pub(crate) fn inner_with_borders(area: Rect) -> Rect {
         Rect::new(
             area.x.saturating_add(1),
             area.y.saturating_add(1),
@@ -269,7 +279,7 @@ impl App {
         )
     }
 
-    fn internal_search_header_rows(&self) -> usize {
+    pub(crate) fn internal_search_header_rows(&self) -> usize {
         let mut rows = 0usize;
         if self.internal_search_candidates_pending || self.internal_search_candidates_truncated {
             rows += 1;
@@ -578,7 +588,7 @@ impl App {
         }
     }
 
-    fn main_table_and_list_areas(&self, area: Rect) -> Option<(Rect, Rect)> {
+    pub(crate) fn main_table_and_list_areas(&self, area: Rect) -> Option<(Rect, Rect)> {
         if self.mode != AppMode::Browsing {
             return None;
         }
@@ -641,7 +651,7 @@ impl App {
         Some((table_area, list_area))
     }
 
-    fn preview_pane_frame_areas(&self, area: Rect) -> Option<(Rect, Rect)> {
+    pub(crate) fn preview_pane_frame_areas(&self, area: Rect) -> Option<(Rect, Rect)> {
         if !self.is_preview_mode() || !matches!(self.mode, AppMode::Browsing | AppMode::PathEditing) {
             return None;
         }
@@ -692,7 +702,7 @@ impl App {
         false
     }
 
-    fn main_table_scrollbar_area(&self, area: Rect) -> Option<Rect> {
+    pub(crate) fn main_table_scrollbar_area(&self, area: Rect) -> Option<Rect> {
         let (table_area, list_area) = self.main_table_and_list_areas(area)?;
         if list_area.width >= table_area.width || list_area.height == 0 {
             return None;
@@ -727,24 +737,15 @@ impl App {
 
         self.selected_index = target_idx;
         self.table_state.select(Some(target_idx));
+        if self.is_dual_panel_mode() {
+            self.active_panel = DualPanelSide::Left;
+        }
 
-        let now = Instant::now();
-        let is_double_click = self
-            .main_list_last_click
-            .as_ref()
-            .map(|(last_dir, last_idx, last_ts)| {
-                *last_idx == target_idx
-                    && *last_dir == self.current_dir
-                    && now.duration_since(*last_ts)
-                        <= Duration::from_millis(MAIN_LIST_DOUBLE_CLICK_WINDOW_MS)
-            })
-            .unwrap_or(false);
-
-        self.main_list_last_click = if is_double_click {
-            None
-        } else {
-            Some((self.current_dir.clone(), target_idx, now))
-        };
+        let is_double_click = Self::update_list_double_click_state(
+            &mut self.main_list_last_click,
+            &self.current_dir,
+            target_idx,
+        );
 
         if is_double_click {
             Some(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE))
@@ -753,7 +754,7 @@ impl App {
         }
     }
 
-    fn scroll_main_list_from_scrollbar_row(&mut self, area: Rect, row: u16, grab_offset: u16) {
+    pub(crate) fn scroll_main_list_from_scrollbar_row(&mut self, area: Rect, row: u16, grab_offset: u16) {
         let Some(sb_area) = self.main_table_scrollbar_area(area) else {
             return;
         };
@@ -782,30 +783,13 @@ impl App {
         let target_index = target_offset.min(self.entries.len().saturating_sub(1));
         self.selected_index = target_index;
         self.table_state.select(Some(target_index));
+        if self.is_dual_panel_mode() {
+            self.active_panel = DualPanelSide::Left;
+        }
     }
 
-    fn right_table_and_list_areas(&self, area: Rect) -> Option<(Rect, Rect)> {
-        if !self.is_dual_panel_mode() || self.mode != AppMode::Browsing {
-            return None;
-        }
-
-        let footer_height = 1;
-        let header_reserved_rows = 1;
-        let chunks = Layout::default()
-            .constraints([Constraint::Min(3), Constraint::Length(footer_height)])
-            .split(area);
-
-        let content_area = Rect::new(
-            chunks[0].x,
-            chunks[0].y + header_reserved_rows,
-            chunks[0].width,
-            chunks[0].height.saturating_sub(header_reserved_rows),
-        );
-
-        let right_frame_area = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .split(content_area)[1];
+    pub(crate) fn right_table_and_list_areas(&self, area: Rect) -> Option<(Rect, Rect)> {
+        let (_, right_frame_area) = self.dual_panel_frame_areas(area)?;
 
         let table_area = Rect::new(
             right_frame_area.x + 1,
@@ -834,20 +818,21 @@ impl App {
         Some((table_area, list_area))
     }
 
-    fn right_table_scrollbar_area(&self, area: Rect) -> Option<Rect> {
+    pub(crate) fn right_table_scrollbar_area(&self, area: Rect) -> Option<Rect> {
         let (table_area, list_area) = self.right_table_and_list_areas(area)?;
-        if table_area.width.saturating_sub(list_area.width) == 0 {
+        if list_area.width >= table_area.width || list_area.height == 0 {
             return None;
         }
+
         Some(Rect::new(
-            table_area.x + list_area.width,
+            list_area.x + list_area.width,
             list_area.y,
-            table_area.width.saturating_sub(list_area.width),
+            1,
             list_area.height,
         ))
     }
 
-    fn handle_right_list_click(&mut self, column: u16, row: u16, area: Rect) -> Option<KeyEvent> {
+    pub(crate) fn handle_right_list_click(&mut self, column: u16, row: u16, area: Rect) -> Option<KeyEvent> {
         let (_, list_area) = self.right_table_and_list_areas(area)?;
         if list_area.width == 0 || list_area.height == 0 {
             return None;
@@ -868,35 +853,22 @@ impl App {
 
         self.right.selected_index = target_idx;
         self.right.table_state.select(Some(target_idx));
+        self.active_panel = DualPanelSide::Right;
 
-        let now = Instant::now();
-        let is_double_click = self
-            .right.list_last_click
-            .as_ref()
-            .map(|(last_dir, last_idx, last_ts)| {
-                *last_idx == target_idx
-                    && *last_dir == self.right.dir
-                    && now.duration_since(*last_ts)
-                        <= Duration::from_millis(MAIN_LIST_DOUBLE_CLICK_WINDOW_MS)
-            })
-            .unwrap_or(false);
-
-        self.right.list_last_click = if is_double_click {
-            None
-        } else {
-            Some((self.right.dir.clone(), target_idx, now))
-        };
+        let is_double_click = Self::update_list_double_click_state(
+            &mut self.right.list_last_click,
+            &self.right.dir,
+            target_idx,
+        );
 
         if is_double_click {
-            // Switch to right panel and emit enter key
-            self.active_panel = crate::DualPanelSide::Right;
             Some(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE))
         } else {
             None
         }
     }
 
-    fn scroll_right_list_from_scrollbar_row(&mut self, area: Rect, row: u16, grab_offset: u16) {
+    pub(crate) fn scroll_right_list_from_scrollbar_row(&mut self, area: Rect, row: u16, grab_offset: u16) {
         let Some(sb_area) = self.right_table_scrollbar_area(area) else {
             return;
         };
@@ -925,6 +897,7 @@ impl App {
         let target_index = target_offset.min(self.right.entries.len().saturating_sub(1));
         self.right.selected_index = target_index;
         self.right.table_state.select(Some(target_index));
+        self.active_panel = DualPanelSide::Right;
     }
 
     pub(crate) fn handle_mouse_event(&mut self, mouse: MouseEvent, area: Rect) -> Option<KeyEvent> {
@@ -933,41 +906,49 @@ impl App {
             MouseEventKind::ScrollDown => self.handle_mouse_scroll(false),
             MouseEventKind::Down(MouseButton::Right) => {
                 self.file_list_scroll_dragging = false;
+                if matches!(
+                    self.mode,
+                    AppMode::DownloadInput | AppMode::DownloadNaming
+                ) {
+                    self.paste_clipboard_at_input_cursor();
+                    return None;
+                }
                 if matches!(self.mode, AppMode::Browsing | AppMode::PathEditing) {
                     return Some(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
                 }
             }
             MouseEventKind::Down(MouseButton::Left) => {
-                // Handle right panel scrollbar in dual panel mode
                 if self.is_dual_panel_mode() {
+                    if let Some((left_frame, right_frame)) = self.dual_panel_frame_areas(area) {
+                        let in_left = mouse.column >= left_frame.x
+                            && mouse.column < left_frame.x + left_frame.width
+                            && mouse.row >= left_frame.y
+                            && mouse.row < left_frame.y + left_frame.height;
+                        let in_right = mouse.column >= right_frame.x
+                            && mouse.column < right_frame.x + right_frame.width
+                            && mouse.row >= right_frame.y
+                            && mouse.row < right_frame.y + right_frame.height;
+                        if in_left {
+                            self.active_panel = DualPanelSide::Left;
+                        } else if in_right {
+                            self.active_panel = DualPanelSide::Right;
+                        }
+                    }
+
                     if let Some(sb_area) = self.right_table_scrollbar_area(area) {
                         if mouse.column >= sb_area.x
                             && mouse.column < sb_area.x + sb_area.width
                             && mouse.row >= sb_area.y
                             && mouse.row < sb_area.y + sb_area.height
                         {
-                            let track_h = sb_area.height as usize;
-                            let visible_rows = sb_area.height.max(1) as usize;
                             let total_rows = self.right.entries.len();
-                            let max_scroll = total_rows.saturating_sub(visible_rows);
-                            if track_h > 0 && max_scroll > 0 {
-                                let offset = self.right.table_state.offset().min(max_scroll);
-                                let thumb_h = ((visible_rows * track_h + total_rows.saturating_sub(1)) / total_rows)
-                                    .max(1)
-                                    .min(track_h);
-                                let scroll_space = track_h.saturating_sub(thumb_h);
-                                let thumb_y = if max_scroll == 0 {
-                                    0
-                                } else {
-                                    (offset * scroll_space + (max_scroll / 2)) / max_scroll
-                                };
-                                let row_rel = mouse.row.saturating_sub(sb_area.y) as usize;
-                                let in_thumb = row_rel >= thumb_y && row_rel < thumb_y + thumb_h;
-                                self.right.list_scroll_grab_offset = if in_thumb {
-                                    (row_rel.saturating_sub(thumb_y)) as u16
-                                } else {
-                                    (thumb_h / 2) as u16
-                                };
+                            if let Some(grab_offset) = Self::scrollbar_grab_offset_for_row(
+                                sb_area,
+                                total_rows,
+                                self.right.table_state.offset(),
+                                mouse.row,
+                            ) {
+                                self.right.list_scroll_grab_offset = grab_offset;
                                 self.right.list_scroll_dragging = true;
                                 self.scroll_right_list_from_scrollbar_row(
                                     area,
@@ -979,36 +960,21 @@ impl App {
                         }
                     }
                 }
-                
-                // Handle left panel scrollbar
+
                 if let Some(sb_area) = self.main_table_scrollbar_area(area) {
                     if mouse.column >= sb_area.x
                         && mouse.column < sb_area.x + sb_area.width
                         && mouse.row >= sb_area.y
                         && mouse.row < sb_area.y + sb_area.height
                     {
-                        let track_h = sb_area.height as usize;
-                        let visible_rows = sb_area.height.max(1) as usize;
                         let total_rows = self.entries.len();
-                        let max_scroll = total_rows.saturating_sub(visible_rows);
-                        if track_h > 0 && max_scroll > 0 {
-                            let offset = self.table_state.offset().min(max_scroll);
-                            let thumb_h = ((visible_rows * track_h + total_rows.saturating_sub(1)) / total_rows)
-                                .max(1)
-                                .min(track_h);
-                            let scroll_space = track_h.saturating_sub(thumb_h);
-                            let thumb_y = if max_scroll == 0 {
-                                0
-                            } else {
-                                (offset * scroll_space + (max_scroll / 2)) / max_scroll
-                            };
-                            let row_rel = mouse.row.saturating_sub(sb_area.y) as usize;
-                            let in_thumb = row_rel >= thumb_y && row_rel < thumb_y + thumb_h;
-                            self.file_list_scroll_grab_offset = if in_thumb {
-                                (row_rel.saturating_sub(thumb_y)) as u16
-                            } else {
-                                (thumb_h / 2) as u16
-                            };
+                        if let Some(grab_offset) = Self::scrollbar_grab_offset_for_row(
+                            sb_area,
+                            total_rows,
+                            self.table_state.offset(),
+                            mouse.row,
+                        ) {
+                            self.file_list_scroll_grab_offset = grab_offset;
                             self.file_list_scroll_dragging = true;
                             self.scroll_main_list_from_scrollbar_row(
                                 area,
@@ -1027,10 +993,8 @@ impl App {
                 if let Some(key) = self.handle_main_list_click(mouse.column, mouse.row, area) {
                     return Some(key);
                 }
-                if self.is_dual_panel_mode() {
-                    if let Some(key) = self.handle_right_list_click(mouse.column, mouse.row, area) {
-                        return Some(key);
-                    }
+                if let Some(key) = self.handle_right_list_click(mouse.column, mouse.row, area) {
+                    return Some(key);
                 }
                 if self.handle_tab_close_click(mouse.column, mouse.row, area) {
                     return None;

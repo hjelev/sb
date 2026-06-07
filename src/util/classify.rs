@@ -1,98 +1,75 @@
-//! Unified path metadata classification.
+//! Path/entry classification helpers.
 //!
-//! Replaces scattered patterns of `fs::symlink_metadata()` + `is_dir()` + `is_symlink()`
-//! checks across the codebase with a single source of truth.
-#![allow(dead_code)]
+//! A single home for the small filesystem-name and symlink checks that were
+//! previously copy-pasted across the directory scanners, tree renderer and
+//! status code.
 
 use std::fs;
 use std::path::Path;
-use std::io;
 
-/// Result of classifying a path.
-#[derive(Debug, Clone, Copy)]
-pub struct PathClass {
-    /// Whether the path (dereferenced) is a directory
-    pub is_dir: bool,
-    /// Whether the path is a symbolic link
-    pub is_symlink: bool,
-    /// File size in bytes
-    pub size: u64,
+/// Returns true if a file name marks a hidden entry (dotfile convention).
+pub fn is_hidden_name(name: &str) -> bool {
+    name.starts_with('.')
 }
 
-/// Classify a path into its type (file, dir, symlink).
+/// Returns true if a directory entry is hidden (its name starts with `.`).
 ///
-/// Uses `symlink_metadata()` to avoid following symlinks, then checks properties.
-///
-/// # Arguments
-/// * `path` - Path to classify
-///
-/// # Returns
-/// * `Ok(PathClass)` with classification
-/// * `Err` if path doesn't exist or can't be accessed
-///
-/// # Example
-/// ```ignore
-/// let class = classify_path(&my_path)?;
-/// if class.is_dir {
-///     println!("Directory");
-/// } else if class.is_symlink {
-///     println!("Symlink");
-/// } else {
-///     println!("Regular file");
-/// }
-/// ```
-pub fn classify_path<P: AsRef<Path>>(path: P) -> io::Result<PathClass> {
-    let path = path.as_ref();
-    let meta = fs::symlink_metadata(path)?;
-
-    Ok(PathClass {
-        is_dir: meta.is_dir(),
-        is_symlink: meta.is_symlink(),
-        size: meta.len(),
-    })
+/// Centralizes the `entry.file_name().to_string_lossy().starts_with('.')`
+/// pattern that the directory scanners and tree renderer all repeated.
+pub fn is_hidden_entry(entry: &fs::DirEntry) -> bool {
+    is_hidden_name(&entry.file_name().to_string_lossy())
 }
 
-/// Get metadata for a path, following symlinks (standard `metadata()`).
+/// Returns a directory entry's file name as a (lossy) `String`.
 ///
-/// Use this when you want the target of a symlink's metadata.
-/// Use `classify_path()` when you want to know if something IS a symlink.
-pub fn get_metadata<P: AsRef<Path>>(path: P) -> io::Result<fs::Metadata> {
-    fs::metadata(path.as_ref())
+/// Replaces the repeated `entry.file_name().to_string_lossy().into_owned()`.
+pub fn entry_name(entry: &fs::DirEntry) -> String {
+    entry.file_name().to_string_lossy().into_owned()
+}
+
+/// Returns a path's final component as a (lossy) `String`, if it has one.
+///
+/// Replaces the repeated `path.file_name().map(|n| n.to_string_lossy().into_owned())`.
+pub fn path_file_name(path: &Path) -> Option<String> {
+    path.file_name().map(|n| n.to_string_lossy().into_owned())
+}
+
+/// Returns true if `path` itself is a symbolic link.
+///
+/// Uses `symlink_metadata()` so the link is inspected rather than its target;
+/// any access error is treated as "not a symlink" (matching the previous
+/// inline `.unwrap_or(false)` callers).
+pub fn is_symlink<P: AsRef<Path>>(path: P) -> bool {
+    fs::symlink_metadata(path)
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::File;
-    use tempfile::TempDir;
+    use std::path::PathBuf;
 
     #[test]
-    fn test_classify_regular_file() -> io::Result<()> {
-        let tmpdir = TempDir::new()?;
-        let file_path = tmpdir.path().join("test.txt");
-        File::create(&file_path)?;
-
-        let class = classify_path(&file_path)?;
-        assert!(!class.is_dir);
-        assert!(!class.is_symlink);
-        Ok(())
+    fn test_is_hidden_name() {
+        assert!(is_hidden_name(".bashrc"));
+        assert!(is_hidden_name(".sb"));
+        assert!(!is_hidden_name("README.md"));
+        assert!(!is_hidden_name("file."));
     }
 
     #[test]
-    fn test_classify_directory() -> io::Result<()> {
-        let tmpdir = TempDir::new()?;
-        let subdir = tmpdir.path().join("subdir");
-        fs::create_dir(&subdir)?;
-
-        let class = classify_path(&subdir)?;
-        assert!(class.is_dir);
-        assert!(!class.is_symlink);
-        Ok(())
+    fn test_path_file_name() {
+        assert_eq!(
+            path_file_name(&PathBuf::from("/a/b/c.txt")),
+            Some("c.txt".to_string())
+        );
+        assert_eq!(path_file_name(&PathBuf::from("/")), None);
     }
 
     #[test]
-    fn test_classify_nonexistent() {
-        let class = classify_path("/tmp/nonexistent_path_12345");
-        assert!(class.is_err());
+    fn test_is_symlink_on_missing_path() {
+        // A path that cannot be stat'd is reported as "not a symlink".
+        assert!(!is_symlink("/tmp/nonexistent_path_12345_classify"));
     }
 }

@@ -41,8 +41,8 @@ impl App {
             };
 
             for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                if name.starts_with('.') {
+                let name = crate::util::classify::entry_name(&entry);
+                if crate::util::classify::is_hidden_name(&name) {
                     continue;
                 }
 

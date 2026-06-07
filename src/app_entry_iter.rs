@@ -1,14 +1,13 @@
 //! Entry filtering and iteration helpers.
 //!
-//! Replaces index-heavy loops with cleaner, more abstract methods for:
-//! - Iterating visible entries
-//! - Iterating marked entries
+//! Provides a small, tested abstraction for working with a filtered set of
+//! entry indices (counting them and summing a size function over them).
+//!
+//! Intentionally allowed to be dead code: this is a deliberately-kept,
+//! unit-tested utility that does not yet have a call site. The allow is
+//! scoped to this file so the rest of the crate still gets `dead_code`
+//! enforcement (which is what surfaces abandoned helpers like this one).
 #![allow(dead_code)]
-//! - Getting the selected entry
-//! - Computing summary stats over marked entries
-
-// This module will be expanded as App entries structure is understood better.
-// For now, it provides the interface that will be used to abstract index-based logic.
 
 /// Iterator result over filtered entries.
 ///
@@ -49,7 +48,7 @@ mod tests {
     #[test]
     fn test_filtered_entry_iter_total_size() {
         let iter = FilteredEntryIter::new(vec![0, 1, 2]);
-        let sizes = vec![100, 200, 300, 400];
+        let sizes = [100, 200, 300, 400];
         let total = iter.total_size(|idx| {
             sizes.get(idx).copied().unwrap_or(0)
         });

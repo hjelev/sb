@@ -63,7 +63,7 @@ fn walk_tree_rows(
 ) -> io::Result<()> {
     let mut entries: Vec<_> = fs::read_dir(dir)?
         .filter_map(|res| res.ok())
-        .filter(|entry| include_hidden || !entry.file_name().to_string_lossy().starts_with('.'))
+        .filter(|entry| include_hidden || !crate::util::classify::is_hidden_entry(entry))
         .collect();
 
     App::sort_entries_by_mode(&mut entries, sort_mode, folder_size_cache);
@@ -82,6 +82,8 @@ fn walk_tree_rows(
         let should_descend = is_dir && max_depth.map(|limit| depth < limit).unwrap_or(true);
         if should_descend {
             ancestor_last.push(is_last);
+            // best-effort: an unreadable subdirectory (e.g. permission denied)
+            // is skipped so the rest of the tree still renders.
             let _ = walk_tree_rows(
                 &path,
                 include_hidden,
@@ -111,7 +113,7 @@ fn walk_tree_rows_with_expansions(
 ) -> io::Result<()> {
     let mut entries: Vec<_> = fs::read_dir(dir)?
         .filter_map(|res| res.ok())
-        .filter(|entry| include_hidden || !entry.file_name().to_string_lossy().starts_with('.'))
+        .filter(|entry| include_hidden || !crate::util::classify::is_hidden_entry(entry))
         .collect();
 
     App::sort_entries_by_mode(&mut entries, sort_mode, folder_size_cache);
@@ -129,6 +131,8 @@ fn walk_tree_rows_with_expansions(
             let effective_expand = own_expand.max(inherited_expand);
             if effective_expand > 0 {
                 ancestor_last.push(is_last);
+                // best-effort: an unreadable subdirectory is skipped so the
+                // rest of the tree still renders.
                 let _ = walk_tree_rows_with_expansions(
                     &path,
                     include_hidden,

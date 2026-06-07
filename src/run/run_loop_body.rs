@@ -529,9 +529,7 @@ pub(crate) fn run_tui_body(
             };
 
             let build_panel_title = |path: &_, path_text: String, editing: bool, title_width: u16| -> Line {
-                let is_symlink = fs::symlink_metadata(path)
-                    .map(|m| m.file_type().is_symlink())
-                    .unwrap_or(false);
+                let is_symlink = crate::util::classify::is_symlink(path);
                 let (folder_icon, folder_icon_style) = App::icon_for_path(
                     path,
                     app.show_icons,
@@ -1156,9 +1154,7 @@ pub(crate) fn run_tui_body(
                         .filter(|n| !n.is_empty())
                         .unwrap_or("Preview")
                         .to_string();
-                    let is_symlink = fs::symlink_metadata(&path)
-                        .map(|m| m.file_type().is_symlink())
-                        .unwrap_or(false);
+                    let is_symlink = crate::util::classify::is_symlink(&path);
                     let (icon_glyph, icon_style) = App::icon_for_path(
                         &path,
                         app.show_icons,
@@ -1648,10 +1644,7 @@ pub(crate) fn run_tui_body(
                 if let (Some(status_text), Some(frame_area)) = (active_status, active_frame_area) {
                     let lower_msg = status_text.to_ascii_lowercase();
                     let selected_total_is_shown = lower_msg.starts_with("selected:");
-                    let is_error = lower_msg.contains("error")
-                        || lower_msg.contains("failed")
-                        || lower_msg.contains("not found")
-                        || lower_msg.contains("refresh failed");
+                    let is_error = crate::ui::status::is_error_message(&status_text);
                     let msg_style = if selected_total_is_shown {
                         Style::default().fg(Color::Rgb(150, 220, 150))
                     } else if app.copy_rx.is_some() || app.archive_rx.is_some() {
@@ -1919,10 +1912,7 @@ pub(crate) fn run_tui_body(
                             InternalSearchResult::Content { rel_path, .. } => rel_path,
                         };
                         let abs_path = app.current_dir.join(rel_path_for_icon);
-                        let is_symlink = abs_path
-                            .symlink_metadata()
-                            .map(|m| m.file_type().is_symlink())
-                            .unwrap_or(false);
+                        let is_symlink = crate::util::classify::is_symlink(&abs_path);
                         let is_dir = abs_path.is_dir();
                         let icon_name = rel_path_for_icon
                             .file_name()
@@ -2104,7 +2094,7 @@ pub(crate) fn run_tui_body(
                 let db_title = app
                     .db_preview_path
                     .as_ref()
-                    .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+                    .and_then(|p| crate::util::classify::path_file_name(p))
                     .unwrap_or_else(|| "SQLite Preview".to_string());
 
                 let mut lines: Vec<Line> = vec![
@@ -2326,14 +2316,13 @@ pub(crate) fn run_tui_body(
                 let area = f.size();
                 let selected_entry = app.entries.get(app.selected_index);
                 let old_name = selected_entry
-                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .map(|e| crate::util::classify::entry_name(e))
                     .unwrap_or_else(|| app.input_buffer.clone());
                 let selected_path = selected_entry.map(|e| e.path());
                 let selected_is_dir = selected_path.as_ref().map(|p| p.is_dir()).unwrap_or(false);
                 let selected_is_symlink = selected_path
                     .as_ref()
-                    .and_then(|p| p.symlink_metadata().ok())
-                    .map(|m| m.file_type().is_symlink())
+                    .map(crate::util::classify::is_symlink)
                     .unwrap_or(false);
                 let dialog_w = (area.width * 2 / 3).max(36).min(area.width.saturating_sub(4).max(1));
                 let dialog_h = 3u16.min(area.height.saturating_sub(2).max(1));
@@ -2903,11 +2892,7 @@ pub(crate) fn run_tui_body(
 
                 if let Some(status_text) = status_line_message {
                     let msg_area = Rect::new(chunks[1].x, chunks[1].y, chunks[1].width, 1);
-                    let lower_msg = status_text.to_ascii_lowercase();
-                    let is_error = lower_msg.contains("error")
-                        || lower_msg.contains("failed")
-                        || lower_msg.contains("not found")
-                        || lower_msg.contains("refresh failed");
+                    let is_error = crate::ui::status::is_error_message(&status_text);
                     let msg_style = if selected_total_is_shown {
                         Style::default().fg(Color::Rgb(150, 220, 150))
                     } else if app.copy_rx.is_some() || app.archive_rx.is_some() {

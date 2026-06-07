@@ -27,6 +27,17 @@ icy_sixel = "0.5"
 [dev-dependencies]
 tempfile = "3"
 
+[lints.rust]
+# Catch unused/dead items at build time so half-finished refactors don't rot
+# silently (modules that fall out of the `mod` tree, abandoned helpers, etc.).
+dead_code = "warn"
+unused_imports = "warn"
+
+[lints.clippy]
+# Opt into Clippy's standard suite as warnings (priority -1 so individual
+# lints below can override it).
+all = { level = "warn", priority = -1 }
+
 [profile.release]
 opt-level = 3       # Optimize for speed — see https://doc.rust-lang.org/cargo/reference/profiles.html#opt-level
 lto = true          # Enable Link Time Optimization (huge help)

@@ -1,12 +1,17 @@
 const KNOWN_STATUS_ICONS: [&str; 10] = ["", "󰜺", "󰱒", "", "", "", "󰍉", "󰖟", "", ""];
 
+/// Returns true if a status message reads as a failure.
+///
+/// Shared by the footer renderer and the status-icon picker so the
+/// "what counts as an error" rule lives in one place.
+pub fn is_error_message(msg: &str) -> bool {
+    let lower = msg.to_ascii_lowercase();
+    lower.contains("error") || lower.contains("failed") || lower.contains("not found")
+}
+
 pub fn status_icon_for_message(msg: &str) -> &'static str {
     let lower = msg.to_ascii_lowercase();
-    if lower.contains("error")
-        || lower.contains("failed")
-        || lower.contains("not found")
-        || lower.contains("invalid")
-    {
+    if is_error_message(msg) || lower.contains("invalid") {
         ""
     } else if lower.contains("cancel") {
         "󰜺"

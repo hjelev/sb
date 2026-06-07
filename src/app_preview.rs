@@ -99,7 +99,7 @@ impl App {
             let mut direct_entries: Vec<_> = std::fs::read_dir(&self.right.dir)?
                 .filter_map(|res| res.ok())
                 .filter(|e| {
-                    self.right.show_hidden || !e.file_name().to_string_lossy().starts_with('.')
+                    self.right.show_hidden || !crate::util::classify::is_hidden_entry(e)
                 })
                 .collect();
             Self::sort_entries_by_mode(&mut direct_entries, self.right.sort_mode, folder_size_cache);

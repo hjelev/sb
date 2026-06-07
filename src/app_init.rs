@@ -2,7 +2,6 @@
 //!
 //! Extracted from main.rs to keep startup logic organized.
 //! In future phases, more of main() function will be moved here.
-#![allow(dead_code)]
 
 use std::env;
 use crate::util::config::AppConfig;

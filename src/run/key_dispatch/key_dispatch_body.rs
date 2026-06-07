@@ -44,10 +44,12 @@ pub(crate) fn handle_app_key_event_body(
                         .stderr(Stdio::null())
                         .spawn();
                     if let Ok(child) = log_child {
-                        let _ = Command::new("less")
-                            .args(["-R"])
-                            .stdin(child.stdout.unwrap())
-                            .status();
+                        if let Some(out) = child.stdout {
+                            let _ = Command::new("less")
+                                .args(["-R"])
+                                .stdin(out)
+                                .status();
+                        }
                     } else {
                         let _ = Command::new("git")
                             .args([
@@ -251,10 +253,12 @@ pub(crate) fn handle_app_key_event_body(
                                 .stdout(Stdio::piped())
                                 .spawn();
                             if let Ok(child) = hexyl {
-                                let _ = Command::new("less")
-                                    .args(["-R"])
-                                    .stdin(child.stdout.unwrap())
-                                    .status();
+                                if let Some(out) = child.stdout {
+                                    let _ = Command::new("less")
+                                        .args(["-R"])
+                                        .stdin(out)
+                                        .status();
+                                }
                             } else {
                                 let _ = Command::new("less")
                                     .args(["-R", selected_path.to_str().unwrap_or_default()])
@@ -370,7 +374,7 @@ pub(crate) fn handle_app_key_event_body(
                     if let Some(e) = app.entries.get(target_idx) {
                         app.selected_index = target_idx;
                         app.table_state.select(Some(target_idx));
-                        let current_name = e.file_name().to_string_lossy().into_owned();
+                        let current_name = crate::util::classify::entry_name(e);
                         app.begin_input_edit(AppMode::Renaming, current_name);
                     }
                 }
@@ -722,10 +726,12 @@ pub(crate) fn handle_app_key_event_body(
                                 .stdout(Stdio::piped())
                                 .spawn();
                             if let Ok(child) = hexyl {
-                                let _ = Command::new("less")
-                                    .args(["-R"])
-                                    .stdin(child.stdout.unwrap())
-                                    .status();
+                                if let Some(out) = child.stdout {
+                                    let _ = Command::new("less")
+                                        .args(["-R"])
+                                        .stdin(out)
+                                        .status();
+                                }
                             }
                         } else if app.integration_active("bat") {
                             let bat_cmd = App::bat_tool().unwrap_or_else(|| "bat".to_string());
@@ -734,7 +740,7 @@ pub(crate) fn handle_app_key_event_body(
                                 .arg(&selected_path)
                                 .status();
                         } else {
-                            let _ = Command::new("less").args(["-R", selected_path.to_str().unwrap()]).status();
+                            let _ = Command::new("less").arg("-R").arg(&selected_path).status();
                         }
                         enable_raw_mode()?; execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
                         terminal.clear()?;
@@ -853,7 +859,7 @@ pub(crate) fn handle_app_key_event_body(
             KeyCode::Char('e') | KeyCode::F(4) => {
                 if let Some(path) = app.active_selected_entry_path() {
                     if path.is_dir() {
-                        let current_name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                        let current_name = crate::util::classify::path_file_name(&path).unwrap_or_default();
                         app.begin_input_edit(AppMode::Renaming, current_name);
                     } else if App::is_age_protected_file(&path) {
                         if !app.integration_active("age") {
