@@ -6,8 +6,8 @@ use crate::{App, AppMode, DualPanelSide, InternalSearchScope, PreviewPaneFocus};
 
 impl App {
 
-    pub(crate) fn panel_tab_hit_test(relative_x: u16) -> Option<u8> {
-        ui::panels::panel_tab_hit_test(relative_x)
+    pub(crate) fn panel_tab_hit_test(relative_x: u16, active: u8, avail_width: u16) -> Option<u8> {
+        ui::panels::panel_tab_hit_test(relative_x, active, avail_width)
     }
 
     pub(crate) fn tabbed_overlay_close_area(popup_area: Rect) -> Rect {
@@ -157,7 +157,7 @@ impl App {
         }
 
         let relative_x = column.saturating_sub(popup_area.x + 1);
-        if let Some(tab) = Self::panel_tab_hit_test(relative_x) {
+        if let Some(tab) = Self::panel_tab_hit_test(relative_x, self.panel_tab, popup_area.width.saturating_sub(3)) {
             self.open_panel_tab(tab);
             return true;
         }

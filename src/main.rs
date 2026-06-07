@@ -2090,8 +2090,8 @@ IFS= read -rsn1 _
 
 
 
-    fn panel_tab_bar_line(active: u8, theme_id: ui::theme::ThemeId) -> Line<'static> {
-        ui::panels::panel_tab_bar_line(active, theme_id)
+    fn panel_tab_bar_line(active: u8, theme_id: ui::theme::ThemeId, nerd_font: bool, avail_width: u16) -> Line<'static> {
+        ui::panels::panel_tab_bar_line(active, theme_id, nerd_font, avail_width)
     }
 
     fn dual_panel_frame_areas(&self, area: Rect) -> Option<(Rect, Rect)> {

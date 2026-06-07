@@ -18,22 +18,101 @@ const PANEL_TABS: &[(&str, u8)] = &[
     (" Themes ", 6),
 ];
 
-pub fn panel_tab_bar_line(active: u8, theme_id: ThemeId) -> Line<'static> {
+// Scroll indicators shown when the tab bar is wider than the available space.
+const TAB_MORE_LEFT: &str = "‹";
+const TAB_MORE_RIGHT: &str = "›";
+
+/// Rendered width of a single tab label (its full padded text).
+fn tab_label_width(index: usize) -> usize {
+    PANEL_TABS[index].0.chars().count()
+}
+
+/// Decide which contiguous run of tabs is visible for the given `active` tab and
+/// available title `avail` width. Returns `(lo, hi, more_left, more_right)` where
+/// `lo..=hi` is the visible range (always including `active`) and the booleans
+/// indicate hidden tabs beyond each edge (drawn as `‹` / `›`). When everything
+/// fits, the full range is returned and no indicators are shown.
+fn visible_tab_window(active: usize, avail: usize) -> (usize, usize, bool, bool) {
+    let n = PANEL_TABS.len();
+    let active = active.min(n - 1);
+
+    let full: usize = (0..n).map(tab_label_width).sum::<usize>() + n.saturating_sub(1);
+    if full <= avail {
+        return (0, n - 1, false, false);
+    }
+
+    // Brute-force the widest contiguous window containing `active` that fits.
+    let mut best = (active, active);
+    let mut best_count = 0usize;
+    for lo in 0..=active {
+        for hi in active..n {
+            let mut w: usize = (lo..=hi).map(tab_label_width).sum::<usize>() + (hi - lo);
+            if lo > 0 {
+                w += TAB_MORE_LEFT.chars().count();
+            }
+            if hi < n - 1 {
+                w += TAB_MORE_RIGHT.chars().count();
+            }
+            if w <= avail && (hi - lo + 1) > best_count {
+                best_count = hi - lo + 1;
+                best = (lo, hi);
+            }
+        }
+    }
+    let (lo, hi) = best;
+    (lo, hi, lo > 0, hi < n - 1)
+}
+
+pub fn panel_tab_bar_line(
+    active: u8,
+    theme_id: ThemeId,
+    nerd_font: bool,
+    avail_width: u16,
+) -> Line<'static> {
     let spec = theme_spec(theme_id);
-    let active_style = Style::default().fg(spec.text_normal).add_modifier(Modifier::BOLD);
     let inactive_style = Style::default().fg(Color::Rgb(120, 120, 120));
     let sep_style = Style::default().fg(spec.divider);
+    let indicator_style = Style::default()
+        .fg(spec.divider)
+        .add_modifier(Modifier::BOLD);
+    let pill_bg = spec.divider;
+    // Dividers are bright across all themes, so a dark foreground keeps the
+    // active tab label readable on the pill.
+    let pill_text = Style::default()
+        .fg(Color::Rgb(20, 20, 20))
+        .bg(pill_bg)
+        .add_modifier(Modifier::BOLD);
+
+    let (lo, hi, more_left, more_right) =
+        visible_tab_window(active as usize, avail_width as usize);
+
     let mut spans: Vec<Span<'static>> = Vec::new();
-    for (i, (label, idx)) in PANEL_TABS.iter().enumerate() {
-        if i > 0 {
-            spans.push(Span::styled("│", sep_style));
+    if more_left {
+        spans.push(Span::styled(TAB_MORE_LEFT, indicator_style));
+    }
+    for i in lo..=hi {
+        let (label, idx) = PANEL_TABS[i];
+        if i > lo {
+            spans.push(Span::styled("─", sep_style));
         }
-        let style = if *idx == active {
-            active_style
+        if idx == active {
+            // Active tab: a rounded pill with the selected background. The cap
+            // glyphs replace the label's existing padding spaces so the rendered
+            // width is unchanged — keeping `panel_tab_hit_test` aligned.
+            if nerd_font {
+                let cap_style = Style::default().fg(pill_bg);
+                spans.push(Span::styled(PILL_LEFT_CAP, cap_style));
+                spans.push(Span::styled(label.trim().to_string(), pill_text));
+                spans.push(Span::styled(PILL_RIGHT_CAP, cap_style));
+            } else {
+                spans.push(Span::styled(label, pill_text));
+            }
         } else {
-            inactive_style
-        };
-        spans.push(Span::styled(*label, style));
+            spans.push(Span::styled(label, inactive_style));
+        }
+    }
+    if more_right {
+        spans.push(Span::styled(TAB_MORE_RIGHT, indicator_style));
     }
     Line::from(spans)
 }
@@ -45,13 +124,14 @@ fn render_overlay_block(
     area: Rect,
     panel_tab: u8,
     theme_id: ThemeId,
+    nerd_font: bool,
 ) -> Rect {
     use crate::ui::theme::theme_spec;
     let spec = theme_spec(theme_id);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .title(panel_tab_bar_line(panel_tab, theme_id))
+        .title(panel_tab_bar_line(panel_tab, theme_id, nerd_font, area.width.saturating_sub(3)))
         .title_style(Style::default().fg(spec.text_normal))
         .style(Style::default().bg(spec.bg_panel).fg(spec.text_normal))
         .border_style(Style::default().fg(spec.divider));
@@ -112,22 +192,38 @@ fn indent_lines<'a>(lines: &[Line<'a>]) -> Vec<Line<'a>> {
         .collect()
 }
 
-pub fn panel_tab_hit_test(relative_x: u16) -> Option<u8> {
+pub fn panel_tab_hit_test(relative_x: u16, active: u8, avail_width: u16) -> Option<u8> {
+    let (lo, hi, more_left, more_right) =
+        visible_tab_window(active as usize, avail_width as usize);
+
     let mut cursor = 0u16;
 
-    for (index, (label, tab)) in PANEL_TABS.iter().enumerate() {
-        if index > 0 {
+    // Clicking the left chevron scrolls by selecting the tab just before the window.
+    if more_left {
+        if relative_x == cursor {
+            return Some((lo - 1) as u8);
+        }
+        cursor = cursor.saturating_add(1);
+    }
+
+    for i in lo..=hi {
+        if i > lo {
             if relative_x == cursor {
                 return None;
             }
             cursor = cursor.saturating_add(1);
         }
 
-        let width = label.chars().count() as u16;
+        let width = tab_label_width(i) as u16;
         if relative_x >= cursor && relative_x < cursor.saturating_add(width) {
-            return Some(*tab);
+            return Some(PANEL_TABS[i].1);
         }
         cursor = cursor.saturating_add(width);
+    }
+
+    // Clicking the right chevron scrolls by selecting the tab just after the window.
+    if more_right && relative_x == cursor {
+        return Some((hi + 1) as u8);
     }
 
     None
@@ -315,7 +411,7 @@ pub fn render_integrations_overlay(
     let int_h = (lines.len() as u16 + 4).min(tab_overlay_anchor.height);
     let int_area = Rect::new(tab_overlay_anchor.x, tab_overlay_anchor.y, int_w, int_h);
     f.render_widget(Clear, int_area);
-    let int_inner = render_overlay_block(f, int_area, panel_tab, theme_id);
+    let int_inner = render_overlay_block(f, int_area, panel_tab, theme_id, nerd_font);
     let int_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(2)])
@@ -487,7 +583,7 @@ pub fn render_help_overlay(
     );
     f.render_widget(Clear, help_area);
 
-    let help_inner = render_overlay_block(f, help_area, panel_tab, theme_id);
+    let help_inner = render_overlay_block(f, help_area, panel_tab, theme_id, nerd_font);
     let help_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(2)])
@@ -596,7 +692,7 @@ pub fn render_bookmarks_overlay(
         bm_h,
     );
     f.render_widget(Clear, bm_area);
-    let bm_inner = render_overlay_block(f, bm_area, panel_tab, theme_id);
+    let bm_inner = render_overlay_block(f, bm_area, panel_tab, theme_id, nerd_font);
     let bm_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(2)])
@@ -679,7 +775,7 @@ pub fn render_sort_overlay(
         sort_h,
     );
     f.render_widget(Clear, sort_area);
-    let sort_inner = render_overlay_block(f, sort_area, panel_tab, theme_id);
+    let sort_inner = render_overlay_block(f, sort_area, panel_tab, theme_id, nerd_font_active);
     let sort_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(2)])
@@ -759,7 +855,7 @@ pub fn render_themes_overlay(
     let theme_h = (lines.len() as u16 + 7).max(12).min(tab_overlay_anchor.height);
     let theme_area = Rect::new(tab_overlay_anchor.x, tab_overlay_anchor.y, theme_w, theme_h);
     f.render_widget(Clear, theme_area);
-    let theme_inner = render_overlay_block(f, theme_area, panel_tab, theme_id);
+    let theme_inner = render_overlay_block(f, theme_area, panel_tab, theme_id, nerd_font);
     let theme_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(2)])
@@ -774,4 +870,53 @@ pub fn render_themes_overlay(
         ], theme_id, nerd_font)),
         theme_chunks[1],
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Full padded width of all 7 tabs plus 6 single-column separators.
+    fn full_width() -> usize {
+        (0..PANEL_TABS.len()).map(tab_label_width).sum::<usize>() + PANEL_TABS.len() - 1
+    }
+
+    #[test]
+    fn window_shows_all_tabs_when_space_is_ample() {
+        let avail = full_width();
+        assert_eq!(visible_tab_window(3, avail), (0, 6, false, false));
+        assert_eq!(visible_tab_window(0, avail + 50), (0, 6, false, false));
+    }
+
+    #[test]
+    fn window_keeps_active_visible_and_flags_hidden_edges() {
+        // Narrow bar: active at the far right must stay in view.
+        let (lo, hi, more_left, more_right) = visible_tab_window(6, 30);
+        assert!(lo <= 6 && hi == 6, "active 6 must be visible: {lo}..={hi}");
+        assert!(more_left, "tabs are hidden to the left");
+        assert!(!more_right, "nothing hidden past the last tab");
+
+        // Active at the far left.
+        let (lo, hi, more_left, more_right) = visible_tab_window(0, 30);
+        assert_eq!(lo, 0);
+        assert!(hi < 6);
+        assert!(!more_left);
+        assert!(more_right);
+    }
+
+    #[test]
+    fn hit_test_maps_visible_tabs_and_chevrons() {
+        // Wide: behaves like a plain, fully-rendered bar.
+        let avail = full_width() as u16;
+        assert_eq!(panel_tab_hit_test(0, 0, avail), Some(0)); // " Help "
+        assert_eq!(panel_tab_hit_test(6, 0, avail), None); // separator
+        assert_eq!(panel_tab_hit_test(7, 0, avail), Some(1)); // " Search "
+
+        // Narrow + active=6 → window is tabs 5..=6 with a left chevron at x0.
+        let (lo, hi, more_left, more_right) = visible_tab_window(6, 30);
+        assert_eq!((lo, hi, more_left, more_right), (5, 6, true, false));
+        assert_eq!(panel_tab_hit_test(0, 6, 30), Some(4)); // left chevron → tab before window
+        assert_eq!(panel_tab_hit_test(1, 6, 30), Some(5)); // first visible tab
+        assert_eq!(panel_tab_hit_test(16, 6, 30), Some(6)); // active tab
+    }
 }

@@ -1699,7 +1699,7 @@ pub(crate) fn run_tui_body(
                 let popup_block = Block::default()
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
-                    .title(App::panel_tab_bar_line(app.panel_tab, app.active_theme))
+                    .title(App::panel_tab_bar_line(app.panel_tab, app.active_theme, app.nerd_font_active, popup_area.width.saturating_sub(3)))
                     .title_style(Style::default().fg(active_theme.text_normal))
                     .style(Style::default().bg(active_theme.bg_panel).fg(active_theme.text_normal))
                     .border_style(Style::default().fg(active_theme.divider));
@@ -2624,7 +2624,7 @@ pub(crate) fn run_tui_body(
                 let ssh_block = Block::default()
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
-                    .title(App::panel_tab_bar_line(app.panel_tab, app.active_theme))
+                    .title(App::panel_tab_bar_line(app.panel_tab, app.active_theme, app.nerd_font_active, ssh_area.width.saturating_sub(3)))
                     .title_style(Style::default().fg(active_theme.text_normal))
                     .style(Style::default().bg(active_theme.bg_panel).fg(active_theme.text_normal))
                     .border_style(Style::default().fg(active_theme.divider));
