@@ -563,13 +563,16 @@ impl App {
     fn build_preview_content(
         request_id: u64,
         path: PathBuf,
-        use_bat: bool,
-        use_file: bool,
-        use_resvg: bool,
-        show_icons: bool,
-        nerd_font_active: bool,
-        theme_id: ui::theme::ThemeId,
+        opts: PreviewBuildOptions,
     ) -> PreviewContentMsg {
+        let PreviewBuildOptions {
+            use_bat,
+            use_file,
+            use_resvg,
+            show_icons,
+            nerd_font_active,
+            theme_id,
+        } = opts;
         if path.is_dir() {
             let mut entries = Vec::new();
             let mut line_kinds = Vec::new();

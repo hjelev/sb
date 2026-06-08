@@ -53,27 +53,30 @@ fn panel_name_width(
         .max(1)
 }
 
-fn push_metric_cells(
-    cells: &mut Vec<Cell>,
-    entry_cache: &EntryRenderCache,
-    show_size: bool,
-    size_width: usize,
-    size_style: Style,
-    show_pct: bool,
-    pct_width: usize,
-    total_for_pct: Option<u64>,
-    show_date: bool,
-    date_style: Style,
-) {
-    if show_size {
+/// The optional size/percent/date metric columns for one file-list row.
+///
+/// Each column is `Some` only when it should render. The percent column is
+/// nested under the size column (it only appears when size is also shown) and
+/// reuses the size column's style.
+struct MetricColumns {
+    /// `(width, style)` for the size column.
+    size: Option<(usize, Style)>,
+    /// `(width, total_bytes_for_pct)` for the percent column.
+    pct: Option<(usize, Option<u64>)>,
+    /// Style for the (pre-formatted) date column.
+    date: Option<Style>,
+}
+
+fn push_metric_cells(cells: &mut Vec<Cell>, entry_cache: &EntryRenderCache, cols: &MetricColumns) {
+    if let Some((size_width, size_style)) = cols.size {
         let size_col = format!("{:>width$}", entry_cache.size_col.trim(), width = size_width);
         cells.push(Cell::from(Span::styled(size_col, size_style)));
-        if show_pct {
+        if let Some((pct_width, total_for_pct)) = cols.pct {
             let pct_col = format_percent_col(total_for_pct, entry_cache.size_bytes, pct_width);
             cells.push(Cell::from(Span::styled(pct_col, size_style)));
         }
     }
-    if show_date {
+    if let Some(date_style) = cols.date {
         cells.push(Cell::from(Span::styled(entry_cache.date_col.clone(), date_style)));
     }
 }
@@ -858,14 +861,11 @@ pub(crate) fn run_tui_body(
                 push_metric_cells(
                     &mut cells,
                     entry_cache,
-                    show_size,
-                    size_width,
-                    size_style,
-                    show_pct,
-                    pct_width,
-                    left_total_for_pct,
-                    show_date,
-                    date_style,
+                    &MetricColumns {
+                        size: show_size.then_some((size_width, size_style)),
+                        pct: show_pct.then_some((pct_width, left_total_for_pct)),
+                        date: show_date.then_some(date_style),
+                    },
                 );
                 Row::new(cells).style(if is_selected {
                     Style::default().bg(left_pill_color)
@@ -1513,14 +1513,11 @@ pub(crate) fn run_tui_body(
                             push_metric_cells(
                                 &mut cells,
                                 entry_cache,
-                                right_show_size,
-                                right_size_width,
-                                right_size_style,
-                                right_show_pct,
-                                right_pct_width,
-                                right_total_for_pct,
-                                right_show_date,
-                                right_date_style,
+                                &MetricColumns {
+                                    size: right_show_size.then_some((right_size_width, right_size_style)),
+                                    pct: right_show_pct.then_some((right_pct_width, right_total_for_pct)),
+                                    date: right_show_date.then_some(right_date_style),
+                                },
                             );
                             Row::new(cells).style(if right_is_selected {
                                 right_selection_style
@@ -2487,12 +2484,14 @@ pub(crate) fn run_tui_body(
                 ui::panels::render_integrations_overlay(
                     f,
                     area,
-                    tab_overlay_anchor,
-                    app.panel_tab,
-                    app.active_theme,
+                    ui::panels::OverlayChrome {
+                        anchor: tab_overlay_anchor,
+                        panel_tab: app.panel_tab,
+                        theme_id: app.active_theme,
+                        nerd_font: app.nerd_font_active,
+                    },
                     &app.integration_rows_cache,
                     app.integration_selected,
-                    app.nerd_font_active,
                 );
             } else if app.mode == AppMode::Themes {
                 ui::panels::render_themes_overlay(
@@ -2507,13 +2506,15 @@ pub(crate) fn run_tui_body(
                 let options = App::sort_mode_options();
                 ui::panels::render_sort_overlay(
                     f,
-                    tab_overlay_anchor,
-                    app.panel_tab,
-                    app.active_theme,
+                    ui::panels::OverlayChrome {
+                        anchor: tab_overlay_anchor,
+                        panel_tab: app.panel_tab,
+                        theme_id: app.active_theme,
+                        nerd_font: app.nerd_font_active,
+                    },
                     &options,
                     app.sort_menu_selected,
                     app.sort_mode,
-                    app.nerd_font_active,
                 );
             } else if app.mode == AppMode::SshPicker {
                 let ssh_popup_w = tab_overlay_anchor.width;
@@ -2750,13 +2751,15 @@ pub(crate) fn run_tui_body(
                 let delete_state = ui::dialogs::render_confirm_delete_dialog(
                     f,
                     area,
-                    &title,
-                    &to_delete,
-                    app.confirm_delete_scroll_offset,
-                    app.confirm_delete_button_focus == 0,
-                    app.show_icons,
-                    app.nerd_font_active,
-                    active_theme,
+                    &ui::dialogs::ConfirmDeleteView {
+                        title: &title,
+                        to_delete: &to_delete,
+                        scroll_offset: app.confirm_delete_scroll_offset,
+                        confirm_focused: app.confirm_delete_button_focus == 0,
+                        show_icons: app.show_icons,
+                        nerd_font_active: app.nerd_font_active,
+                        theme: active_theme,
+                    },
                     |path, path_is_symlink| {
                         App::icon_for_path(path, app.show_icons, app.nerd_font_active, path_is_symlink, app.active_theme)
                     },

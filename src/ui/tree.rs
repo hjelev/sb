@@ -7,6 +7,25 @@ pub(crate) struct TreeRow {
     pub(crate) prefix: String,
 }
 
+/// Recursion-invariant settings for [`walk_tree_rows`] (everything that stays
+/// the same across the depth-first walk).
+#[derive(Clone, Copy)]
+struct TreeWalkConfig<'a> {
+    include_hidden: bool,
+    max_depth: Option<usize>,
+    sort_mode: SortMode,
+    folder_size_cache: Option<&'a HashMap<PathBuf, u64>>,
+}
+
+/// Recursion-invariant settings for [`walk_tree_rows_with_expansions`].
+#[derive(Clone, Copy)]
+struct TreeExpandConfig<'a> {
+    include_hidden: bool,
+    sort_mode: SortMode,
+    folder_size_cache: Option<&'a HashMap<PathBuf, u64>>,
+    expansion_levels: &'a HashMap<PathBuf, usize>,
+}
+
 pub(crate) fn collect_tree_rows(
     root: &PathBuf,
     include_hidden: bool,
@@ -18,10 +37,12 @@ pub(crate) fn collect_tree_rows(
     let mut ancestor_last = Vec::new();
     walk_tree_rows(
         root,
-        include_hidden,
-        max_depth,
-        sort_mode,
-        folder_size_cache,
+        &TreeWalkConfig {
+            include_hidden,
+            max_depth,
+            sort_mode,
+            folder_size_cache,
+        },
         1,
         &mut ancestor_last,
         &mut rows,
@@ -40,10 +61,12 @@ pub(crate) fn collect_tree_rows_with_expansions(
     let mut ancestor_last = Vec::new();
     walk_tree_rows_with_expansions(
         root,
-        include_hidden,
-        sort_mode,
-        folder_size_cache,
-        expansion_levels,
+        &TreeExpandConfig {
+            include_hidden,
+            sort_mode,
+            folder_size_cache,
+            expansion_levels,
+        },
         0,
         &mut ancestor_last,
         &mut rows,
@@ -53,14 +76,17 @@ pub(crate) fn collect_tree_rows_with_expansions(
 
 fn walk_tree_rows(
     dir: &PathBuf,
-    include_hidden: bool,
-    max_depth: Option<usize>,
-    sort_mode: SortMode,
-    folder_size_cache: Option<&HashMap<PathBuf, u64>>,
+    config: &TreeWalkConfig,
     depth: usize,
     ancestor_last: &mut Vec<bool>,
     out: &mut Vec<TreeRow>,
 ) -> io::Result<()> {
+    let &TreeWalkConfig {
+        include_hidden,
+        max_depth,
+        sort_mode,
+        folder_size_cache,
+    } = config;
     let mut entries: Vec<_> = fs::read_dir(dir)?
         .filter_map(|res| res.ok())
         .filter(|entry| include_hidden || !crate::util::classify::is_hidden_entry(entry))
@@ -84,16 +110,7 @@ fn walk_tree_rows(
             ancestor_last.push(is_last);
             // best-effort: an unreadable subdirectory (e.g. permission denied)
             // is skipped so the rest of the tree still renders.
-            let _ = walk_tree_rows(
-                &path,
-                include_hidden,
-                max_depth,
-                sort_mode,
-                folder_size_cache,
-                depth + 1,
-                ancestor_last,
-                out,
-            );
+            let _ = walk_tree_rows(&path, config, depth + 1, ancestor_last, out);
             ancestor_last.pop();
         }
     }
@@ -103,14 +120,17 @@ fn walk_tree_rows(
 
 fn walk_tree_rows_with_expansions(
     dir: &PathBuf,
-    include_hidden: bool,
-    sort_mode: SortMode,
-    folder_size_cache: Option<&HashMap<PathBuf, u64>>,
-    expansion_levels: &HashMap<PathBuf, usize>,
+    config: &TreeExpandConfig,
     inherited_expand: usize,
     ancestor_last: &mut Vec<bool>,
     out: &mut Vec<TreeRow>,
 ) -> io::Result<()> {
+    let &TreeExpandConfig {
+        include_hidden,
+        sort_mode,
+        folder_size_cache,
+        expansion_levels,
+    } = config;
     let mut entries: Vec<_> = fs::read_dir(dir)?
         .filter_map(|res| res.ok())
         .filter(|entry| include_hidden || !crate::util::classify::is_hidden_entry(entry))
@@ -135,10 +155,7 @@ fn walk_tree_rows_with_expansions(
                 // rest of the tree still renders.
                 let _ = walk_tree_rows_with_expansions(
                     &path,
-                    include_hidden,
-                    sort_mode,
-                    folder_size_cache,
-                    expansion_levels,
+                    config,
                     effective_expand.saturating_sub(1),
                     ancestor_last,
                     out,
