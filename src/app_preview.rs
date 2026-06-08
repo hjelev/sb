@@ -213,23 +213,16 @@ impl App {
         self.preview_line_kinds = vec![crate::PreviewLineKind::Plain];
         self.preview_footer = None;
 
-        let use_bat = Self::integration_availability_and_detail("bat").0;
-        let use_file = Self::integration_availability_and_detail("file").0;
-        let use_resvg = self.integration_active("resvg");
-        let show_icons = self.show_icons;
-        let nerd_font_active = self.nerd_font_active;
-        let theme_id = self.active_theme;
+        let opts = crate::PreviewBuildOptions {
+            use_bat: Self::integration_availability_and_detail("bat").0,
+            use_file: Self::integration_availability_and_detail("file").0,
+            use_resvg: self.integration_active("resvg"),
+            show_icons: self.show_icons,
+            nerd_font_active: self.nerd_font_active,
+            theme_id: self.active_theme,
+        };
         self.preview_rx = Some(spawn_worker(move |tx| {
-            let msg = App::build_preview_content(
-                request_id,
-                path,
-                use_bat,
-                use_file,
-                use_resvg,
-                show_icons,
-                nerd_font_active,
-                theme_id,
-            );
+            let msg = App::build_preview_content(request_id, path, opts);
             let _ = tx.send(msg);
         }));
     }
