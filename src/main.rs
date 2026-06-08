@@ -143,6 +143,8 @@ struct App {
     integration_selected: usize,
     bookmark_selected: usize,
     bookmark_edit_idx: usize,
+    bookmark_delete_idx: usize,
+    confirm_delete_bookmark_button_focus: u8,
     integration_overrides: HashMap<String, bool>,
     integration_rows_cache: Vec<IntegrationRow>,
     integration_install_key: Option<String>,
@@ -359,6 +361,8 @@ impl App {
             integration_selected: 0,
             bookmark_selected: 0,
             bookmark_edit_idx: 0,
+            bookmark_delete_idx: 0,
+            confirm_delete_bookmark_button_focus: 0,
             integration_overrides: HashMap::new(),
             integration_rows_cache: Vec::new(),
             integration_install_key: None,
@@ -1296,6 +1300,10 @@ impl App {
     fn load_bookmarks() -> Vec<(usize, Option<PathBuf>)> {
         let cfg = crate::util::config::SbPersistConfig::load();
         (0..=9).map(|i| {
+            // Tombstone: config explicitly marks this slot deleted — overrides env var
+            if cfg.bookmarks.get(&(i as u8)).map(|v| v == "<deleted>").unwrap_or(false) {
+                return (i, None);
+            }
             let path = env::var(format!("SB_BOOKMARK_{}", i))
                 .ok()
                 .or_else(|| cfg.bookmarks.get(&(i as u8)).cloned())
@@ -1303,6 +1311,40 @@ impl App {
                 .filter(|p| p.is_dir());
             (i, path)
         }).collect()
+    }
+
+    fn delete_bookmark(&self, idx: usize) {
+        let from_env = env::var(format!("SB_BOOKMARK_{}", idx)).is_ok();
+        let mut cfg = crate::util::config::SbPersistConfig::load();
+        if from_env {
+            cfg.bookmarks.insert(idx as u8, "<deleted>".to_string());
+        } else {
+            cfg.bookmarks.remove(&(idx as u8));
+        }
+        let _ = cfg.save();
+    }
+
+    fn handle_confirm_delete_bookmark_key(&mut self, key: KeyEvent) {
+        if Self::handle_ok_cancel_focus_key(key.code, &mut self.confirm_delete_bookmark_button_focus, false) {
+            return;
+        }
+        match key.code {
+            KeyCode::Char('y') => {
+                self.confirm_delete_bookmark_button_focus = 0;
+                self.delete_bookmark(self.bookmark_delete_idx);
+                self.mode = AppMode::Bookmarks;
+            }
+            KeyCode::Enter => {
+                if self.confirm_delete_bookmark_button_focus == 0 {
+                    self.delete_bookmark(self.bookmark_delete_idx);
+                }
+                self.mode = AppMode::Bookmarks;
+            }
+            KeyCode::Char('n') | KeyCode::Esc => {
+                self.mode = AppMode::Bookmarks;
+            }
+            _ => {}
+        }
     }
 
 }

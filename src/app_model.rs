@@ -178,6 +178,7 @@ pub(crate) enum AppMode {
     ConfirmDelete,
     Bookmarks,
     BookmarkEditing,
+    ConfirmDeleteBookmark,
     Integrations,
     Themes,
     SortMenu,
