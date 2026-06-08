@@ -5,6 +5,18 @@ use std::path::PathBuf;
 
 use ratatui::prelude::Color;
 
+/// Tool/display options for building a file preview, threaded from the UI state
+/// into the background preview worker.
+#[derive(Clone, Copy)]
+pub(crate) struct PreviewBuildOptions {
+    pub(crate) use_bat: bool,
+    pub(crate) use_file: bool,
+    pub(crate) use_resvg: bool,
+    pub(crate) show_icons: bool,
+    pub(crate) nerd_font_active: bool,
+    pub(crate) theme_id: crate::ui::theme::ThemeId,
+}
+
 pub(crate) struct ArchiveMount {
     pub(crate) archive_path: PathBuf,
     pub(crate) mount_path: PathBuf,

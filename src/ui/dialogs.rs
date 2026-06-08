@@ -330,21 +330,37 @@ pub struct ConfirmDeleteRenderState {
     pub clamped_offset: u16,
 }
 
+/// The inputs to [`render_confirm_delete_dialog`] (everything except the frame,
+/// the target area, and the per-row icon callback).
+pub struct ConfirmDeleteView<'a> {
+    pub title: &'a str,
+    pub to_delete: &'a [PathBuf],
+    pub scroll_offset: u16,
+    pub confirm_focused: bool,
+    pub show_icons: bool,
+    pub nerd_font_active: bool,
+    pub theme: &'a ThemeSpec,
+}
+
 pub fn render_confirm_delete_dialog<F>(
     f: &mut Frame,
     area: Rect,
-    title: &str,
-    to_delete: &[PathBuf],
-    scroll_offset: u16,
-    confirm_focused: bool,
-    show_icons: bool,
-    nerd_font_active: bool,
-    theme: &ThemeSpec,
+    view: &ConfirmDeleteView,
     mut icon_for_path: F,
 ) -> ConfirmDeleteRenderState
 where
     F: FnMut(&Path, bool) -> (String, Style),
 {
+    let &ConfirmDeleteView {
+        title,
+        to_delete,
+        scroll_offset,
+        confirm_focused,
+        show_icons,
+        nerd_font_active,
+        theme,
+    } = view;
+
     let confirm_area = confirm_delete_dialog_area(area, title);
     f.render_widget(Clear, confirm_area);
 
