@@ -486,3 +486,108 @@ where
         clamped_offset: offset as u16,
     }
 }
+
+pub fn render_confirm_delete_bookmark_dialog(
+    f: &mut Frame,
+    area: Rect,
+    bookmark_idx: usize,
+    bookmark_path: &str,
+    from_env: bool,
+    button_focus: u8,
+    nerd_font_active: bool,
+    theme: &ThemeSpec,
+) {
+    let mut lines: Vec<Line<'static>> = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  Bookmark: ", Style::default().fg(Color::Rgb(140, 200, 255))),
+            Span::styled(
+                format!("[{}]  {}", bookmark_idx, bookmark_path),
+                Style::default().fg(theme.text_normal),
+            ),
+        ]),
+    ];
+
+    if from_env {
+        lines.push(Line::from(vec![
+            Span::styled("  Source:   ", Style::default().fg(Color::Rgb(140, 200, 255))),
+            Span::styled(
+                format!("$SB_BOOKMARK_{} (environment variable)", bookmark_idx),
+                Style::default().fg(Color::Rgb(220, 180, 80)),
+            ),
+        ]));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  A deleted marker will be saved to config so this",
+            Style::default().fg(Color::Rgb(160, 160, 160)),
+        )));
+        lines.push(Line::from(Span::styled(
+            "  bookmark stays hidden while the env var is set.",
+            Style::default().fg(Color::Rgb(160, 160, 160)),
+        )));
+    } else {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  This bookmark will be removed from your config.",
+            Style::default().fg(Color::Rgb(160, 160, 160)),
+        )));
+    }
+    lines.push(Line::from(""));
+
+    let content_h = lines.len() as u16;
+    let dialog_w = (bookmark_path.len() as u16 + 20).max(54).min(area.width.saturating_sub(4));
+    let dialog_h = (content_h + 4).max(8).min(area.height.saturating_sub(4));
+    let confirm_area = Rect::new(
+        (area.width.saturating_sub(dialog_w)) / 2,
+        (area.height.saturating_sub(dialog_h)) / 2,
+        dialog_w,
+        dialog_h,
+    );
+    f.render_widget(Clear, confirm_area);
+
+    let title = if nerd_font_active {
+        " \u{f1f8} Delete Bookmark "
+    } else {
+        " Delete Bookmark "
+    };
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title(title)
+        .title_style(Style::default().fg(theme.text_normal))
+        .border_style(Style::default().fg(Color::Rgb(255, 100, 100)));
+    let inner = block.inner(confirm_area);
+    f.render_widget(block, confirm_area);
+
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), sections[0]);
+
+    if let Some((button_area, _, _, _, _)) = confirm_ok_cancel_button_layout(confirm_area) {
+        let delete_focused = button_focus == 0;
+        let mut button_spans: Vec<Span> = vec![Span::styled("  ", Style::default())];
+        button_spans.extend(dialog_button_spans(
+            "Delete",
+            delete_focused,
+            Color::Rgb(255, 130, 130),
+            Color::Rgb(220, 200, 200),
+            nerd_font_active,
+        ));
+        button_spans.push(Span::styled("    ", Style::default()));
+        button_spans.extend(dialog_button_spans(
+            "Cancel",
+            !delete_focused,
+            Color::Rgb(200, 200, 220),
+            Color::Rgb(220, 200, 200),
+            nerd_font_active,
+        ));
+        f.render_widget(
+            Paragraph::new(Line::from(button_spans)).alignment(Alignment::Center),
+            button_area,
+        );
+    }
+}

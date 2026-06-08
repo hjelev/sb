@@ -548,6 +548,15 @@ pub(crate) fn handle_app_key_event_body(
                 }
                 app.mode = AppMode::Browsing;
             }
+            KeyCode::Char('d') => {
+                let idx = app.bookmark_selected;
+                let bookmarks = App::load_bookmarks();
+                if bookmarks.get(idx).map(|(_, p)| p.is_some()).unwrap_or(false) {
+                    app.bookmark_delete_idx = idx;
+                    app.confirm_delete_bookmark_button_focus = 0;
+                    app.mode = AppMode::ConfirmDeleteBookmark;
+                }
+            }
             _ => {}
         },
         AppMode::BookmarkEditing => match key.code {
@@ -577,6 +586,9 @@ pub(crate) fn handle_app_key_event_body(
         }
         AppMode::ConfirmExtract => {
             app.handle_confirm_extract_key(key);
+        }
+        AppMode::ConfirmDeleteBookmark => {
+            app.handle_confirm_delete_bookmark_key(key);
         }
         AppMode::ConfirmDownloadOverwrite => match key.code {
             KeyCode::Enter | KeyCode::Char('y') => {

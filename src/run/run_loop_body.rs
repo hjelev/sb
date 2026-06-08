@@ -2433,7 +2433,7 @@ pub(crate) fn run_tui_body(
                         ),
                     confirm_area,
                 );
-            } else if app.mode == AppMode::Bookmarks || app.mode == AppMode::BookmarkEditing {
+            } else if app.mode == AppMode::Bookmarks || app.mode == AppMode::BookmarkEditing || app.mode == AppMode::ConfirmDeleteBookmark {
                 let bookmarks = App::load_bookmarks();
                 if !bookmarks.is_empty() && app.bookmark_selected >= bookmarks.len() {
                     app.bookmark_selected = bookmarks.len() - 1;
@@ -2471,6 +2471,27 @@ pub(crate) fn run_tui_body(
                     f.set_cursor(
                         cursor_x.min(rename_area.x + rename_area.width.saturating_sub(1)),
                         rename_area.y + 1,
+                    );
+                } else if app.mode == AppMode::ConfirmDeleteBookmark {
+                    let area = f.size();
+                    let bm_idx = app.bookmark_delete_idx;
+                    let bookmarks = App::load_bookmarks();
+                    let path_str = bookmarks
+                        .iter()
+                        .find(|(i, _)| *i == bm_idx)
+                        .and_then(|(_, p)| p.as_ref())
+                        .map(|p| p.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    let from_env = std::env::var(format!("SB_BOOKMARK_{}", bm_idx)).is_ok();
+                    ui::dialogs::render_confirm_delete_bookmark_dialog(
+                        f,
+                        area,
+                        bm_idx,
+                        &path_str,
+                        from_env,
+                        app.confirm_delete_bookmark_button_focus,
+                        app.nerd_font_active,
+                        active_theme,
                     );
                 }
             } else if app.mode == AppMode::Integrations {

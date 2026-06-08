@@ -737,6 +737,7 @@ pub fn render_bookmarks_overlay(
         Paragraph::new(shortcut_footer_lines(&[
             ("↑↓", "navigate"),
             ("Enter/0-9", "jump"),
+            ("d", "delete"),
             ("Tab", "switch tabs"),
             ("Esc", "close"),
         ], theme_id, nerd_font)),
