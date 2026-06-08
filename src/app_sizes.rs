@@ -8,7 +8,7 @@ use std::{
     thread,
     time::UNIX_EPOCH,
 };
-use crate::util::background::drain_channel;
+use crate::util::background::{drain_channel, spawn_worker};
 
 use rayon::prelude::*;
 
@@ -55,9 +55,7 @@ impl App {
             return;
         }
 
-        let (tx, rx) = mpsc::channel();
-        self.recursive_mtime_rx = Some(rx);
-        thread::spawn(move || {
+        self.recursive_mtime_rx = Some(spawn_worker(move |tx| {
             let updated: Vec<(PathBuf, u64)> = dir_paths
                 .par_iter()
                 .map(|dir| (dir.clone(), App::compute_latest_modified_unix_recursive(dir).unwrap_or(0)))
@@ -67,7 +65,7 @@ impl App {
                 let _ = tx.send(RecursiveMtimeMsg::EntryMtime(scan_id, dir, latest_unix));
             }
             let _ = tx.send(RecursiveMtimeMsg::Finished(scan_id));
-        });
+        }));
     }
 
     pub(crate) fn pump_recursive_mtime_progress(&mut self) {
@@ -336,9 +334,7 @@ impl App {
             return;
         }
 
-        let (tx, rx) = mpsc::channel();
-        self.folder_size_rx = Some(rx);
-        thread::spawn(move || {
+        self.folder_size_rx = Some(spawn_worker(move |tx| {
             let sized: Vec<(PathBuf, u64)> = dir_paths
                 .par_iter()
                 .map(|dir| (dir.clone(), App::compute_total_display_bytes(dir).unwrap_or(0)))
@@ -347,7 +343,7 @@ impl App {
                 let _ = tx.send(FolderSizeMsg::EntrySize(scan_id, dir, size));
             }
             let _ = tx.send(FolderSizeMsg::Finished(scan_id));
-        });
+        }));
     }
 
     pub(crate) fn clear_current_dir_total_size_state(&mut self) {
@@ -397,12 +393,10 @@ impl App {
         self.current_dir_total_size_pending = true;
         self.current_dir_total_size_bytes = None;
 
-        let (tx, rx) = mpsc::channel();
-        self.current_dir_total_size_rx = Some(rx);
-        thread::spawn(move || {
+        self.current_dir_total_size_rx = Some(spawn_worker(move |tx| {
             let total = App::compute_total_display_bytes(&current_dir).unwrap_or(0);
             let _ = tx.send(CurrentDirTotalSizeMsg::Finished(scan_id, total));
-        });
+        }));
     }
 
     pub(crate) fn pump_current_dir_total_size_progress(&mut self) {

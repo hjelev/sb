@@ -1,4 +1,28 @@
-use std::sync::mpsc::{Receiver, TryRecvError};
+use std::sync::mpsc::{self, Receiver, TryRecvError};
+
+/// Spawn a background worker thread wired to a fresh channel.
+///
+/// Creates an `mpsc` channel, hands the `Sender` to `work` (which runs on the
+/// new thread), and returns the `Receiver` for the caller to store and poll
+/// with [`drain_channel`]. Replaces the hand-rolled
+/// `let (tx, rx) = channel(); thread::spawn(move || { … tx.send(…) })` pattern.
+///
+/// # Usage pattern
+/// ```ignore
+/// self.notes_rx = Some(spawn_worker(move |tx| {
+///     let notes = load_notes(&dir);
+///     let _ = tx.send(NotesLoadMsg { dir, notes });
+/// }));
+/// ```
+pub fn spawn_worker<T, F>(work: F) -> Receiver<T>
+where
+    T: Send + 'static,
+    F: FnOnce(mpsc::Sender<T>) + Send + 'static,
+{
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || work(tx));
+    rx
+}
 
 /// Drain all currently-available messages from an optional channel receiver.
 ///

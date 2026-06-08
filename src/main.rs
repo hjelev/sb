@@ -33,7 +33,6 @@ use std::{
     path::PathBuf,
     process::{Command, Stdio},
     sync::mpsc::{self, Receiver},
-    thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 mod integration;
@@ -1703,8 +1702,6 @@ IFS= read -rsn1 _
         };
 
         let output_path = self.current_dir.join(&file_name);
-        let (tx, rx) = mpsc::channel();
-        self.download_rx = Some(rx);
         self.download_active_name = file_name.clone();
         self.download_pending_url = None;
         self.download_pending_name = None;
@@ -1713,13 +1710,13 @@ IFS= read -rsn1 _
         self.mode = AppMode::Browsing;
         self.set_status(format!("downloading {} via {}", file_name, tool));
 
-        thread::spawn(move || {
+        self.download_rx = Some(util::background::spawn_worker(move |tx| {
             let result = util::command::CommandBuilder::download_with_progress(tool, &url, &output_path, |hint| {
                 let _ = tx.send(DownloadProgressMsg::Status(hint.to_string()));
             });
 
             let _ = tx.send(DownloadProgressMsg::Finished { file_name, result });
-        });
+        }));
     }
 
     /// Drains all pending download messages for this frame.
@@ -1887,12 +1884,10 @@ IFS= read -rsn1 _
         }
         let dir = self.right.dir.clone();
         self.right_notes_by_name.clear();
-        let (tx, rx) = mpsc::channel();
-        self.right_notes_rx = Some(rx);
-        thread::spawn(move || {
+        self.right_notes_rx = Some(util::background::spawn_worker(move |tx| {
             let notes = App::load_notes_map_for_dir(&dir);
             let _ = tx.send(NotesLoadMsg::Finished(0, dir, notes));
-        });
+        }));
     }
 
     fn pump_right_notes_progress(&mut self) {

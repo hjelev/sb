@@ -1,4 +1,5 @@
 use crate::{App, DualPanelSide, EntryRenderConfig, PreviewPaneFocus, ViewMode};
+use crate::util::background::spawn_worker;
 
 impl App {
     pub(crate) fn cycle_view_mode(&mut self) {
@@ -218,9 +219,7 @@ impl App {
         let show_icons = self.show_icons;
         let nerd_font_active = self.nerd_font_active;
         let theme_id = self.active_theme;
-        let (tx, rx) = std::sync::mpsc::channel();
-        self.preview_rx = Some(rx);
-        std::thread::spawn(move || {
+        self.preview_rx = Some(spawn_worker(move |tx| {
             let msg = App::build_preview_content(
                 request_id,
                 path,
@@ -232,6 +231,6 @@ impl App {
                 theme_id,
             );
             let _ = tx.send(msg);
-        });
+        }));
     }
 }
