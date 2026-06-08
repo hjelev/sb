@@ -27,8 +27,14 @@ use ratatui::style::Color;
 
 use crate::ui::theme::{IconThemeMode, ThemeId, ThemeSpec, THEMES};
 
-/// The example skin shipped with the binary and seeded on first run.
-const BUNDLED_MIDNIGHT_COMMANDER: &str = include_str!("../../assets/skins/midnight-commander.ini");
+/// Skins shipped with the binary and seeded to `~/.config/sb/skins/` on first run.
+const BUNDLED_SKINS: &[(&str, &str)] = &[
+    ("midnight-commander.ini", include_str!("../../assets/skins/midnight-commander.ini")),
+    ("nord.ini",               include_str!("../../assets/skins/nord.ini")),
+    ("catppuccin.ini",         include_str!("../../assets/skins/catppuccin.ini")),
+    ("gruvbox.ini",            include_str!("../../assets/skins/gruvbox.ini")),
+    ("tokyo-night.ini",        include_str!("../../assets/skins/tokyo-night.ini")),
+];
 
 /// Returns the skins directory: `~/.config/sb/skins`.
 fn skins_dir() -> PathBuf {
@@ -224,14 +230,16 @@ pub(crate) fn parse_skin(text: &str, fallback_name: &str) -> ThemeSpec {
     spec
 }
 
-/// Writes the bundled example skin to `skins_dir()` if it is not already present.
-fn seed_bundled_skin(dir: &std::path::Path) {
-    let target = dir.join("midnight-commander.ini");
-    if target.exists() {
+/// Writes all bundled skins to `skins_dir()`, skipping any that already exist.
+fn seed_bundled_skins(dir: &std::path::Path) {
+    if std::fs::create_dir_all(dir).is_err() {
         return;
     }
-    if std::fs::create_dir_all(dir).is_ok() {
-        let _ = std::fs::write(&target, BUNDLED_MIDNIGHT_COMMANDER);
+    for (filename, content) in BUNDLED_SKINS {
+        let target = dir.join(filename);
+        if !target.exists() {
+            let _ = std::fs::write(&target, content);
+        }
     }
 }
 
@@ -241,7 +249,7 @@ fn seed_bundled_skin(dir: &std::path::Path) {
 /// unparseable files are skipped.
 pub(crate) fn load_custom_themes() -> Vec<ThemeSpec> {
     let dir = skins_dir();
-    seed_bundled_skin(&dir);
+    seed_bundled_skins(&dir);
 
     let mut themes: Vec<ThemeSpec> = Vec::new();
     let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -288,7 +296,7 @@ mod tests {
 
     #[test]
     fn parse_skin_maps_fields() {
-        let spec = parse_skin(BUNDLED_MIDNIGHT_COMMANDER, "midnight-commander");
+        let spec = parse_skin(BUNDLED_SKINS[0].1, "midnight-commander");
         assert_eq!(spec.name, "midnight commander");
         assert_eq!(spec.text_normal, Color::Gray); // lightgray
         assert_eq!(spec.bg_panel, Color::Blue);
