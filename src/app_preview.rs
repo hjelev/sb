@@ -1,5 +1,18 @@
 use crate::{App, DualPanelSide, EntryRenderConfig, PreviewPaneFocus, ViewMode};
 use crate::util::background::spawn_worker;
+use std::fs;
+use std::io::{self, Read};
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
+use std::sync::mpsc;
+use std::time::Duration;
+use crossterm::cursor::MoveTo;
+use crossterm::event::{self, Event, KeyCode};
+use crossterm::execute;
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType};
+use ratatui::prelude::*;
+use crate::ui;
+use crate::{PreviewBuildOptions, PreviewContentMsg, PreviewLineKind};
 
 impl App {
     pub(crate) fn cycle_view_mode(&mut self) {
@@ -225,5 +238,384 @@ impl App {
             let msg = App::build_preview_content(request_id, path, opts);
             let _ = tx.send(msg);
         }));
+    }
+}
+
+impl App {
+    pub(crate) fn pump_preview_progress(&mut self) {
+        let Some(rx) = self.preview_rx.take() else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(PreviewContentMsg::Ready {
+                request_id,
+                path,
+                lines,
+                line_kinds,
+                footer,
+                image_rgb,
+            }) => {
+                if request_id == self.preview_request_id {
+                    self.preview_target_path = Some(path.clone());
+                    if image_rgb.is_none() {
+                        self.preview_cache
+                            .insert(path.clone(), (lines.clone(), line_kinds.clone(), footer.clone()));
+                    }
+                    self.preview_lines = lines;
+                    self.preview_line_kinds = line_kinds;
+                    self.preview_footer = footer;
+                    if let Some((ref rgb, w, h)) = image_rgb {
+                        self.preview_image_png = App::encode_rgb_to_png(rgb, w, h);
+                    } else {
+                        self.preview_image_png = None;
+                    }
+                    self.preview_image_rgb = image_rgb;
+                    self.preview_pending = false;
+                    self.preview_scroll_offset = 0;
+                }
+            }
+            Ok(PreviewContentMsg::Failed {
+                request_id,
+                path,
+                message,
+            }) => {
+                if request_id == self.preview_request_id {
+                    self.preview_target_path = Some(path);
+                    self.preview_lines = vec![message];
+                    self.preview_line_kinds = vec![PreviewLineKind::Plain];
+                    self.preview_footer = None;
+                self.preview_image_rgb = None;
+                self.preview_image_png = None;
+                    self.preview_pending = false;
+                    self.preview_scroll_offset = 0;
+                }
+            }
+            Err(mpsc::TryRecvError::Empty) => {
+                self.preview_rx = Some(rx);
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.preview_pending = false;
+            }
+        }
+    }
+
+    fn build_preview_content(
+        request_id: u64,
+        path: PathBuf,
+        opts: PreviewBuildOptions,
+    ) -> PreviewContentMsg {
+        let PreviewBuildOptions {
+            use_bat,
+            use_file,
+            use_resvg,
+            show_icons,
+            nerd_font_active,
+            theme_id,
+        } = opts;
+        if path.is_dir() {
+            let mut entries = Vec::new();
+            let mut line_kinds = Vec::new();
+            let mut names = Vec::new();
+            if let Ok(read_dir) = fs::read_dir(&path) {
+                for item in read_dir.flatten().take(500) {
+                    names.push(item.path());
+                }
+            }
+            names.sort_by(|a, b| {
+                let a_name = a
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_lowercase())
+                    .unwrap_or_default();
+                let b_name = b
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_lowercase())
+                    .unwrap_or_default();
+                a_name.cmp(&b_name)
+            });
+
+            for entry_path in names {
+                let file_name = entry_path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| entry_path.to_string_lossy().into_owned());
+                let is_symlink = entry_path
+                    .symlink_metadata()
+                    .map(|m| m.file_type().is_symlink())
+                    .unwrap_or(false);
+                let is_dir = entry_path.is_dir();
+                #[cfg(unix)]
+                let is_executable = {
+                    use std::os::unix::fs::PermissionsExt;
+                    !is_dir
+                        && entry_path
+                            .metadata()
+                            .map(|m| m.permissions().mode() & 0o111 != 0)
+                            .unwrap_or(false)
+                };
+                #[cfg(not(unix))]
+                let is_executable = false;
+                let is_hidden = crate::util::classify::is_hidden_name(&file_name);
+
+                let (icon_glyph, icon_style) = App::icon_for_name(
+                    &file_name,
+                    is_dir,
+                    show_icons,
+                    nerd_font_active,
+                    is_symlink,
+                    theme_id,
+                );
+                let icon_prefix = if show_icons && !icon_glyph.is_empty() {
+                    format!(" {} ", icon_glyph)
+                } else {
+                    String::new()
+                };
+                let suffix = if is_dir { "/" } else { "" };
+                entries.push(format!("{}{}{}", icon_prefix, file_name, suffix));
+
+                let spec = ui::theme::theme_spec(theme_id);
+                let mut style = if is_symlink {
+                    Style::default().fg(spec.text_symlink)
+                } else if is_dir {
+                    Style::default()
+                        .fg(spec.icon_default_dir)
+                        .add_modifier(Modifier::BOLD)
+                } else if is_executable {
+                    Style::default().fg(spec.text_executable)
+                } else {
+                    icon_style.fg.map_or_else(
+                        || Style::default().fg(spec.text_normal),
+                        |fg| Style::default().fg(fg),
+                    )
+                };
+
+                if is_hidden {
+                    style = style.add_modifier(Modifier::DIM);
+                }
+
+                line_kinds.push(PreviewLineKind::Styled {
+                    fg: style.fg,
+                    bold: style.add_modifier.contains(Modifier::BOLD),
+                    dim: style.add_modifier.contains(Modifier::DIM),
+                });
+            }
+
+            if entries.is_empty() {
+                entries.push("[empty folder]".to_string());
+                line_kinds.push(PreviewLineKind::Plain);
+            }
+
+            let footer = App::compute_total_display_bytes(&path)
+                .ok()
+                .map(|bytes| format!("Total: {}", App::format_size(bytes)));
+            return PreviewContentMsg::Ready {
+                request_id,
+                path,
+                lines: entries,
+                line_kinds,
+                footer,
+                image_rgb: None,
+            };
+        }
+
+        if !path.exists() {
+            return PreviewContentMsg::Failed {
+                request_id,
+                path,
+                message: "[file not found]".to_string(),
+            };
+        }
+
+        if App::is_svg_file(&path) && use_resvg {
+            let image_rgb = App::decode_svg_to_rgb_scaled(&path);
+            let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            let footer = Some(format!("Size: {}", App::format_size(size)));
+            let lines = if image_rgb.is_none() {
+                vec!["[svg could not be rendered]".to_string()]
+            } else {
+                Vec::new()
+            };
+            let line_kinds = vec![PreviewLineKind::Plain; lines.len()];
+            return PreviewContentMsg::Ready {
+                request_id,
+                path,
+                lines,
+                line_kinds,
+                footer,
+                image_rgb,
+            };
+        }
+
+        if App::is_image_file(&path) {
+            let image_rgb = App::decode_image_to_rgb_scaled(&path);
+            let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            let footer = Some(format!("Size: {}", App::format_size(size)));
+            let lines = if image_rgb.is_none() {
+                vec!["[image could not be decoded]".to_string()]
+            } else {
+                Vec::new()
+            };
+            let line_kinds = vec![PreviewLineKind::Plain; lines.len()];
+            return PreviewContentMsg::Ready {
+                request_id,
+                path,
+                lines,
+                line_kinds,
+                footer,
+                image_rgb,
+            };
+        }
+
+        let mut lines: Vec<String> = Vec::new();
+
+        if App::is_binary_file(&path) {
+            lines.push("[binary file]".to_string());
+            if use_file
+                && let Ok(out) = Command::new("file").arg("-b").arg(&path).output() {
+                    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    if !text.is_empty() {
+                        lines.push(text);
+                    }
+                }
+            let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            let footer = Some(format!("Size: {}", App::format_size(size)));
+            let line_kinds = vec![PreviewLineKind::Plain; lines.len()];
+            return PreviewContentMsg::Ready {
+                request_id,
+                path,
+                lines,
+                line_kinds,
+                footer,
+                image_rgb: None,
+            };
+        }
+
+        let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        if size > 10 * 1024 * 1024 {
+            lines.push("[preview truncated: file larger than 10MB]".to_string());
+        }
+
+        // Number of leading header lines (e.g. truncation notice) that should
+        // not receive a line-number gutter.
+        let header_len = lines.len();
+
+        if use_bat
+            && let Ok(out) = Command::new("bat")
+                .args(["--paging=never", "--style=numbers", "--color=always", "--line-range", "1:220"])
+                .arg(&path)
+                .output()
+                && out.status.success() {
+                    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+                    lines.extend(text.lines().take(220).map(|s| s.to_string()));
+                }
+
+        // Fall back to reading the file directly when bat is unavailable or
+        // produced no content, prepending our own line-number gutter.
+        if lines.len() == header_len {
+            let mut bytes = Vec::new();
+            if let Ok(mut file) = fs::File::open(&path) {
+                let _ = file.read_to_end(&mut bytes);
+            }
+            let text = String::from_utf8_lossy(&bytes).into_owned();
+            lines.extend(
+                text.lines()
+                    .take(220)
+                    .enumerate()
+                    .map(|(idx, line)| format!("\x1b[38;5;240m{:>4} │\x1b[0m {}", idx + 1, line)),
+            );
+        }
+
+        if lines.is_empty() {
+            lines.push("[no preview output]".to_string());
+        }
+
+        let footer = Some(format!("Size: {}", App::format_size(size)));
+        let line_kinds = vec![PreviewLineKind::Plain; lines.len()];
+        PreviewContentMsg::Ready {
+            request_id,
+            path,
+            lines,
+            line_kinds,
+            footer,
+            image_rgb: None,
+        }
+    }
+
+    pub(crate) fn preview_json_with_jnv(path: &PathBuf) -> io::Result<bool> {
+        let mut child = Command::new("jnv").arg(path).spawn();
+        if let Ok(ref mut proc) = child {
+            println!("Viewing JSON: {}", path.display());
+            println!("Press q, Esc, or Left to close preview.");
+            enable_raw_mode()?;
+            loop {
+                if proc.try_wait()?.is_some() {
+                    break;
+                }
+                if event::poll(Duration::from_millis(120))?
+                    && let Event::Key(k) = event::read()?
+                        && matches!(k.code, KeyCode::Char('q') | KeyCode::Esc | KeyCode::Left) {
+                            let _ = proc.kill();
+                            let _ = proc.wait();
+                            break;
+                        }
+            }
+            disable_raw_mode()?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    pub(crate) fn preview_single_image_with_tool(path: &PathBuf, tool: &str) -> bool {
+        let script = r#"
+tool="$1"
+img="$2"
+clear
+"$tool" -- "$img"
+printf '\n[Press any key to return]\n'
+IFS= read -rsn1 _
+"#;
+
+        Command::new("bash")
+            .arg("-lc")
+            .arg(script)
+            .arg("--")
+            .arg(tool)
+            .arg(path)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+
+    pub(crate) fn preview_cast_with_asciinema(path: &PathBuf) -> io::Result<bool> {
+        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+
+        let mut child = match Command::new("asciinema")
+            .arg("play")
+            .arg(path)
+            .stdin(Stdio::null())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(_) => return Ok(false),
+        };
+
+        println!("Playing cast: {}", path.display());
+        println!("Press q or Esc to stop playback.");
+
+        enable_raw_mode()?;
+        loop {
+            if child.try_wait()?.is_some() {
+                break;
+            }
+            if event::poll(Duration::from_millis(120))?
+                && let Event::Key(k) = event::read()?
+                    && matches!(k.code, KeyCode::Char('q') | KeyCode::Esc) {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        break;
+                    }
+        }
+        disable_raw_mode()?;
+        Ok(true)
     }
 }
