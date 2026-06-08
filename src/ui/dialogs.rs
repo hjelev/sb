@@ -439,7 +439,7 @@ where
             let thumb_h = if to_delete.is_empty() {
                 track_h
             } else {
-                ((visible_rows * track_h + to_delete.len() - 1) / to_delete.len())
+                (visible_rows * track_h).div_ceil(to_delete.len())
                     .max(1)
                     .min(track_h)
             };

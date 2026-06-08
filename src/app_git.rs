@@ -8,11 +8,10 @@ use std::{
 };
 use crossterm::{
     cursor::MoveTo,
-    event::{self, Event, KeyCode, DisableMouseCapture, EnableMouseCapture},
+    event::{self, Event, KeyCode, EnableMouseCapture},
     execute,
     terminal::{
         disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType, EnterAlternateScreen,
-        LeaveAlternateScreen,
     },
 };
 
@@ -148,7 +147,7 @@ impl App {
             }
         });
 
-        let tag_info = latest_tag.and_then(|tag| {
+        let tag_info = latest_tag.map(|tag| {
             let ahead = CommandBuilder::git_command(path, &["rev-list", "--count", &format!("{}..HEAD", tag)])
                 .ok()
                 .and_then(|out| {
@@ -162,7 +161,7 @@ impl App {
                     }
                 })
                 .unwrap_or(0);
-            Some((tag, ahead))
+            (tag, ahead)
         });
 
         Some((branch, is_dirty, tag_info))
@@ -253,8 +252,7 @@ impl App {
     }
 
     pub(crate) fn run_git_commit_and_push(&mut self, commit_message: &str, amend: bool) -> io::Result<()> {
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
 
         let mut failed_step: Option<String> = None;
         let mut push_forced = false;

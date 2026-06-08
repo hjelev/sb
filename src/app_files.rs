@@ -7,14 +7,14 @@ use std::{
 };
 use crossterm::{
     cursor::{Hide, Show},
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    event::{self, EnableMouseCapture, Event, KeyCode},
     execute,
     terminal::{
         disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType, EnterAlternateScreen,
-        LeaveAlternateScreen,
     },
 };
 
+use crate::util::tui::{resume_tui, suspend_tui};
 use crate::{App, ArchiveKind, ZIP_BASED_EXTENSIONS};
 
 impl App {
@@ -308,8 +308,7 @@ impl App {
             return Ok(());
         }
 
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
         let result = Self::age_encrypt_file_interactive(input, &protected_path);
         execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
         execute!(io::stdout(), TermClear(ClearType::All), crossterm::cursor::MoveTo(0, 0))?;
@@ -339,8 +338,7 @@ impl App {
             return Ok(());
         }
 
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
         let result = Self::age_decrypt_file_interactive(input, &plain_path);
         execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
         execute!(io::stdout(), TermClear(ClearType::All), crossterm::cursor::MoveTo(0, 0))?;
@@ -367,8 +365,7 @@ impl App {
             return Ok(false);
         };
 
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
         let decrypted = Self::age_decrypt_file_interactive(input, &tmp_path);
 
         let mut shown = false;
@@ -440,15 +437,13 @@ impl App {
                         if proc.try_wait()?.is_some() {
                             break;
                         }
-                        if event::poll(Duration::from_millis(120))? {
-                            if let Event::Key(k) = event::read()? {
-                                if matches!(k.code, KeyCode::Char('q') | KeyCode::Esc | KeyCode::Left) {
+                        if event::poll(Duration::from_millis(120))?
+                            && let Event::Key(k) = event::read()?
+                                && matches!(k.code, KeyCode::Char('q') | KeyCode::Esc | KeyCode::Left) {
                                     let _ = proc.kill();
                                     let _ = proc.wait();
                                     break;
                                 }
-                            }
-                        }
                     }
                     disable_raw_mode()?;
                     shown = true;
@@ -480,8 +475,8 @@ impl App {
                     .arg(&tmp_path)
                     .stdout(Stdio::piped())
                     .spawn();
-                if let Ok(child) = hexyl {
-                    if let Some(out) = child.stdout {
+                if let Ok(child) = hexyl
+                    && let Some(out) = child.stdout {
                         shown = Command::new("less")
                             .args(["-R"])
                             .stdin(out)
@@ -489,7 +484,6 @@ impl App {
                             .map(|s| s.success())
                             .unwrap_or(false);
                     }
-                }
             } else if self.integration_active("bat") {
                 let bat_cmd = Self::bat_tool().unwrap_or_else(|| "bat".to_string());
                 shown = Command::new(bat_cmd)
@@ -526,13 +520,11 @@ impl App {
             return Ok(false);
         };
 
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
         execute!(io::stdout(), Show)?;
         let decrypted = Self::age_decrypt_file_interactive(input, &tmp_path);
         if decrypted.is_err() {
-            execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-            enable_raw_mode()?;
+            resume_tui()?;
             execute!(io::stdout(), Hide)?;
             let _ = fs::remove_file(&tmp_path);
             let _ = fs::remove_dir_all(&tmp_dir);
@@ -546,8 +538,7 @@ impl App {
             .status();
 
         let result = Self::age_encrypt_file_interactive(&tmp_path, input);
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-        enable_raw_mode()?;
+        resume_tui()?;
         execute!(io::stdout(), Hide)?;
 
         let _ = fs::remove_file(&tmp_path);

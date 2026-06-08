@@ -11,14 +11,15 @@ use std::{
 
 use crossterm::{
     cursor::{Hide, Show},
-    event::{DisableMouseCapture, EnableMouseCapture},
+    event::EnableMouseCapture,
     execute,
     terminal::{
-        disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+        enable_raw_mode, EnterAlternateScreen,
     },
 };
 
 use crate::util::background::drain_channel;
+use crate::util::tui::suspend_tui;
 use crate::{App, AppMode, DualPanelSide, NotesLoadMsg};
 
 impl App {
@@ -142,16 +143,14 @@ impl App {
             } else if let Some(entry) = self.right.entries.get(self.right.selected_index) {
                 out.push(crate::util::classify::entry_name(entry));
             }
-        } else {
-            if !self.marked_indices.is_empty() {
-                for idx in &self.marked_indices {
-                    if let Some(entry) = self.entries.get(*idx) {
-                        out.push(crate::util::classify::entry_name(entry));
-                    }
+        } else if !self.marked_indices.is_empty() {
+            for idx in &self.marked_indices {
+                if let Some(entry) = self.entries.get(*idx) {
+                    out.push(crate::util::classify::entry_name(entry));
                 }
-            } else if let Some(entry) = self.entries.get(self.selected_index) {
-                out.push(crate::util::classify::entry_name(entry));
             }
+        } else if let Some(entry) = self.entries.get(self.selected_index) {
+            out.push(crate::util::classify::entry_name(entry));
         }
         out.sort();
         out.dedup();
@@ -298,8 +297,8 @@ impl App {
         };
 
         let todo_path = PathBuf::from(home).join(".todo");
-        if !todo_path.exists() {
-            if let Err(e) = fs::OpenOptions::new()
+        if !todo_path.exists()
+            && let Err(e) = fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
                 .open(&todo_path)
@@ -307,11 +306,9 @@ impl App {
                 self.set_status(format!("failed to create ~/.todo: {}", e));
                 return Ok(());
             }
-        }
 
         let editor = env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
         execute!(io::stdout(), Show)?;
         let _ = Command::new(editor).arg(&todo_path).status();
         execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;

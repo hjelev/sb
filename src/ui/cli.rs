@@ -425,7 +425,7 @@ pub enum DirectFileMode {
     Edit,
 }
 
-pub fn parse_direct_file_mode_args<'a>(args: &'a [String]) -> Option<(DirectFileMode, &'a str)> {
+pub fn parse_direct_file_mode_args(args: &[String]) -> Option<(DirectFileMode, &str)> {
     let mut edit_mode = false;
     let mut pager_mode = false;
     let mut has_hidden_list_mode = false;

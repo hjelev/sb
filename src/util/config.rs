@@ -175,11 +175,10 @@ impl SbPersistConfig {
                             .collect();
                     }
                     k if k.starts_with("bookmark_") => {
-                        if let Ok(n) = k["bookmark_".len()..].parse::<u8>() {
-                            if n <= 9 && !val.is_empty() {
+                        if let Ok(n) = k["bookmark_".len()..].parse::<u8>()
+                            && n <= 9 && !val.is_empty() {
                                 cfg.bookmarks.insert(n, val.to_string());
                             }
-                        }
                     }
                     _ => {
                         cfg.unknown.insert(key.to_string(), val.to_string());

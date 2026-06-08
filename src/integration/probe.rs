@@ -54,14 +54,13 @@ pub fn terminal_image_protocol() -> (TerminalImageProtocol, String) {
 }
 
 pub fn integration_probe(cmd: &str) -> (bool, String) {
-    if let Ok(out) = Command::new("which").arg(cmd).output() {
-        if out.status.success() {
+    if let Ok(out) = Command::new("which").arg(cmd).output()
+        && out.status.success() {
             let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
             if !path.is_empty() {
                 return (true, path);
             }
         }
-    }
 
     // Fallback for environments where `which` is unavailable or shell setup differs.
     match Command::new(cmd)

@@ -11,10 +11,10 @@ use std::{
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use crossterm::{
     cursor::MoveTo,
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    event::{self, EnableMouseCapture, Event, KeyCode},
     execute,
     style::{Color as CtColor, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
-    terminal::{disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType, EnterAlternateScreen},
 };
 use image::{imageops::FilterType, GenericImageView, ImageFormat, ImageReader};
 use ratatui::{
@@ -23,6 +23,7 @@ use ratatui::{
     text::{Line, Span},
 };
 
+use crate::util::tui::{resume_tui, suspend_tui};
 use crate::{integration::probe::TerminalImageProtocol, App};
 
 /// Box-filter average of one halfblock pixel cell.
@@ -167,8 +168,7 @@ impl App {
 
         let start_idx = images.iter().position(|p| *p == start_path).unwrap_or(0);
 
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
 
         let fallback_result = Self::render_halfblock_fullscreen_slideshow(&images, start_idx);
 
@@ -240,11 +240,10 @@ impl App {
                 io::stdout().flush().map_err(|e| e.to_string())?;
 
                 let key = loop {
-                    if event::poll(std::time::Duration::from_millis(120)).map_err(|e| e.to_string())? {
-                        if let Event::Key(k) = event::read().map_err(|e| e.to_string())? {
+                    if event::poll(std::time::Duration::from_millis(120)).map_err(|e| e.to_string())?
+                        && let Event::Key(k) = event::read().map_err(|e| e.to_string())? {
                             break k;
                         }
-                    }
                 };
 
                 match key.code {
@@ -645,8 +644,7 @@ impl App {
 
         let start_idx = images.iter().position(|p| *p == start_path).unwrap_or(0);
 
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
 
         let native_result = Self::render_native_fullscreen_slideshow(&images, start_idx, protocol);
 
@@ -698,11 +696,10 @@ impl App {
                 io::stdout().flush().map_err(|e| e.to_string())?;
 
                 let key = loop {
-                    if event::poll(std::time::Duration::from_millis(120)).map_err(|e| e.to_string())? {
-                        if let Event::Key(k) = event::read().map_err(|e| e.to_string())? {
+                    if event::poll(std::time::Duration::from_millis(120)).map_err(|e| e.to_string())?
+                        && let Event::Key(k) = event::read().map_err(|e| e.to_string())? {
                             break k;
                         }
-                    }
                 };
 
                 match key.code {
@@ -854,8 +851,7 @@ impl App {
             stamp
         ));
 
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
 
         let script = r#"
 idx="$1"
@@ -920,8 +916,7 @@ printf '%s\n' "${paths[$idx]}" > "$out_file"
         }
         let _ = fs::remove_file(&result_file);
 
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-        enable_raw_mode()?;
+        resume_tui()?;
         Self::drain_pending_terminal_events();
 
         if let Some(name) = images[idx].file_name() {
@@ -955,8 +950,7 @@ printf '%s\n' "${paths[$idx]}" > "$out_file"
             stamp
         ));
 
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
 
         let script = r#"
 idx="$1"
@@ -1021,8 +1015,7 @@ printf '%s\n' "${paths[$idx]}" > "$out_file"
         }
         let _ = fs::remove_file(&result_file);
 
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-        enable_raw_mode()?;
+        resume_tui()?;
         Self::drain_pending_terminal_events();
 
         if let Some(name) = images[idx].file_name() {

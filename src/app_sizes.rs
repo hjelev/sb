@@ -581,13 +581,11 @@ impl App {
 
         let file_type = metadata.file_type();
         if file_type.is_symlink() {
-            if follow_symlink_dir {
-                if let Ok(target_meta) = fs::metadata(src) {
-                    if target_meta.is_dir() {
+            if follow_symlink_dir
+                && let Ok(target_meta) = fs::metadata(src)
+                    && target_meta.is_dir() {
                         return Self::compute_dir_total_bytes(src);
                     }
-                }
-            }
             return Ok(metadata.len());
         }
 
@@ -611,13 +609,11 @@ impl App {
 
         let file_type = metadata.file_type();
         if file_type.is_symlink() {
-            if follow_symlink_dir {
-                if let Ok(target_meta) = fs::metadata(src) {
-                    if target_meta.is_dir() {
+            if follow_symlink_dir
+                && let Ok(target_meta) = fs::metadata(src)
+                    && target_meta.is_dir() {
                         return Self::compute_dir_total_display_bytes(src);
                     }
-                }
-            }
             return Ok(Self::display_leaf_size(&metadata));
         }
 

@@ -50,22 +50,20 @@ fn parse_color(token: &str) -> Option<Color> {
     }
     // #rrggbb hex
     if let Some(hex) = lower.strip_prefix('#') {
-        if hex.len() == 6 {
-            if let Ok(rgb) = u32::from_str_radix(hex, 16) {
+        if hex.len() == 6
+            && let Ok(rgb) = u32::from_str_radix(hex, 16) {
                 let r = ((rgb >> 16) & 0xff) as u8;
                 let g = ((rgb >> 8) & 0xff) as u8;
                 let b = (rgb & 0xff) as u8;
                 return Some(Color::Rgb(r, g, b));
             }
-        }
         return None;
     }
     // colorN (0..=255) — MC also accepts `colorNN`
-    if let Some(n) = lower.strip_prefix("color") {
-        if let Ok(idx) = n.parse::<u8>() {
+    if let Some(n) = lower.strip_prefix("color")
+        && let Ok(idx) = n.parse::<u8>() {
             return Some(Color::Indexed(idx));
         }
-    }
     // Bare numeric index
     if let Ok(idx) = lower.parse::<u8>() {
         return Some(Color::Indexed(idx));

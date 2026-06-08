@@ -32,7 +32,7 @@ impl App {
 
     pub(crate) fn try_mount_archive_with(&mut self, archive_path: PathBuf, tool: &str) -> bool {
         if !self.integration_active(tool) {
-            self.set_status(&format!("{} not installed", tool));
+            self.set_status(format!("{} not installed", tool));
             return false;
         }
 
@@ -76,7 +76,7 @@ impl App {
             }
             _ => {
                 let _ = safe_cleanup_path(&mount_path);
-                self.set_status(&format!("failed to mount archive with {}", tool));
+                self.set_status(format!("failed to mount archive with {}", tool));
                 false
             }
         }
@@ -297,7 +297,7 @@ impl App {
         }
 
         if !self.integration_enabled("zip") || !Self::integration_probe("zip").0 {
-            self.set_status("zip not found in PATH");
+            self.status_tool_not_found("zip");
             return;
         }
 

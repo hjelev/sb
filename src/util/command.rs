@@ -3,8 +3,10 @@
 //! Replaces scattered `Command::new()` patterns with a builder that:
 //! - Captures stderr for better error messages
 //! - Returns consistent Result types (no silent failures)
-#![allow(dead_code)]
 //! - Provides high-level methods for common commands (git, archive, preview)
+
+// Some builder methods are intended API surface not yet wired up at all call sites.
+#![allow(dead_code)]
 
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -71,15 +73,12 @@ impl CommandBuilder {
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .status()
-            {
-                if status.success() {
+                && status.success() {
                     return Ok(());
                 }
-            }
         }
 
-        Err(io::Error::new(
-            io::ErrorKind::Other,
+        Err(io::Error::other(
             format!("Failed to unmount {}", path_str),
         ))
     }

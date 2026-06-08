@@ -1,5 +1,6 @@
 use super::*;
 use crate::ui::theme;
+use crate::util::tui::{resume_tui, suspend_tui};
 
 pub(crate) fn handle_app_key_event_body(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
@@ -27,8 +28,7 @@ pub(crate) fn handle_app_key_event_body(
                     && App::get_git_info(&work_dir).is_some()
                 {
                     let fmt = "%C(bold blue)%h%C(reset) - %C(cyan)%ad%C(reset) | %C(yellow)%d%C(reset) %C(white)%s%C(reset) %C(green)[%an]%C(reset)";
-                    disable_raw_mode()?;
-                    execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+                    suspend_tui()?;
                     execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
                     let log_child = Command::new("git")
                         .args([
@@ -190,7 +190,7 @@ pub(crate) fn handle_app_key_event_body(
                     if selected_path.is_dir() {
                         app.set_status("age protection works on files only");
                     } else if !app.integration_active("age") {
-                        app.set_status("age not found in PATH");
+                        app.status_tool_not_found("age");
                     } else if App::is_age_protected_file(&selected_path) {
                         app.unprotect_file_with_age(&selected_path)?;
                         terminal.clear()?;
@@ -242,10 +242,9 @@ pub(crate) fn handle_app_key_event_body(
                 terminal.clear()?;
             }
             KeyCode::Char('l') => {
-                if let Some(selected_path) = app.active_selected_entry_path() {
-                    if !selected_path.is_dir() {
-                        disable_raw_mode()?;
-                        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+                if let Some(selected_path) = app.active_selected_entry_path()
+                    && !selected_path.is_dir() {
+                        suspend_tui()?;
                         if App::is_binary_file(&selected_path) && app.integration_active("hexyl") {
                             use std::process::Stdio;
                             let hexyl = Command::new("hexyl")
@@ -273,7 +272,6 @@ pub(crate) fn handle_app_key_event_body(
                         execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
                         terminal.clear()?;
                     }
-                }
             }
             KeyCode::Char('n') => {
                 app.begin_input_edit(AppMode::NewFile, String::new());
@@ -341,7 +339,7 @@ pub(crate) fn handle_app_key_event_body(
             KeyCode::F(2) | KeyCode::Char('r') => {
                 if app.marked_indices.len() > 1 {
                     if !app.integration_active("vidir") {
-                        app.set_status("vidir not found in PATH");
+                        app.status_tool_not_found("vidir");
                     } else {
                         let targets: Vec<PathBuf> = app.entries
                             .iter()
@@ -352,8 +350,7 @@ pub(crate) fn handle_app_key_event_body(
                         if targets.is_empty() {
                             app.set_status("no selected item to rename");
                         } else {
-                            disable_raw_mode()?;
-                            execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+                            suspend_tui()?;
                             let mut cmd = Command::new("vidir");
                             for p in &targets {
                                 cmd.arg(p);
@@ -498,12 +495,11 @@ pub(crate) fn handle_app_key_event_body(
             }
             KeyCode::Left | KeyCode::Backspace => {
                 if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
-                    if !app.try_leave_archive() {
-                        if let Some(parent) = app.right.dir.parent() {
+                    if !app.try_leave_archive()
+                        && let Some(parent) = app.right.dir.parent() {
                             app.right.dir = parent.to_path_buf();
                             let _ = app.refresh_right_panel_entries();
                         }
-                    }
                     return Ok(KeyDispatchOutcome::ContinueLoop);
                 }
                 if !app.try_leave_archive() && !app.try_leave_ssh_mount() {
@@ -513,11 +509,10 @@ pub(crate) fn handle_app_key_event_body(
             KeyCode::Enter | KeyCode::Right => {
                 // Right in the right panel only navigates into directories; Enter opens everything.
                 if key.code == KeyCode::Right && app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
-                    if let Some(selected_path) = app.right.entries.get(app.right.selected_index).map(|e| e.path()) {
-                        if selected_path.is_dir() {
+                    if let Some(selected_path) = app.right.entries.get(app.right.selected_index).map(|e| e.path())
+                        && selected_path.is_dir() {
                             app.try_enter_dir_on_active_panel(selected_path);
                         }
-                    }
                     return Ok(KeyDispatchOutcome::ContinueLoop);
                 }
 
@@ -533,7 +528,7 @@ pub(crate) fn handle_app_key_event_body(
                     }
                     else if App::is_age_protected_file(&selected_path) {
                         if !app.integration_active("age") {
-                            app.set_status("age not found in PATH");
+                            app.status_tool_not_found("age");
                         } else if app.preview_age_file(&selected_path)? {
                             terminal.clear()?;
                         }
@@ -566,19 +561,16 @@ pub(crate) fn handle_app_key_event_body(
                         }
                     }
                     else if App::is_markdown_file(&selected_path) && app.integration_active("glow") {
-                        disable_raw_mode()?;
-                        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+                        suspend_tui()?;
                         let _ = Command::new("glow")
                             .arg("-p")
                             .arg(&selected_path)
                             .status();
-                        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-                        enable_raw_mode()?;
+                        resume_tui()?;
                         terminal.clear()?;
                     }
                     else if App::is_mermaid_file(&selected_path) && app.integration_active("mmdflux") {
-                        disable_raw_mode()?;
-                        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+                        suspend_tui()?;
                         if let Ok(mut child) = Command::new("mmdflux")
                             .arg(&selected_path)
                             .stdout(Stdio::piped())
@@ -592,46 +584,38 @@ pub(crate) fn handle_app_key_event_body(
                             }
                             let _ = child.wait();
                         }
-                        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-                        enable_raw_mode()?;
+                        resume_tui()?;
                         terminal.clear()?;
                     }
                     else if App::is_html_file(&selected_path) && app.integration_active("links") {
-                        disable_raw_mode()?;
-                        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+                        suspend_tui()?;
                         let _ = Command::new("links").arg(&selected_path).status();
-                        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-                        enable_raw_mode()?;
+                        resume_tui()?;
                         terminal.clear()?;
                     }
                     else if App::is_json_file(&selected_path) && app.integration_active("jnv") {
-                        disable_raw_mode()?;
-                        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+                        suspend_tui()?;
                         execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
                         let _ = App::preview_json_with_jnv(&selected_path);
-                        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-                        enable_raw_mode()?;
+                        resume_tui()?;
                         terminal.clear()?;
                     }
                     else if App::is_delimited_text_file(&selected_path) && app.integration_active("csvlens") {
-                        disable_raw_mode()?;
-                        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+                        suspend_tui()?;
                         let _ = Command::new("csvlens").arg(&selected_path).status();
-                        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-                        enable_raw_mode()?;
+                        resume_tui()?;
                         terminal.clear()?;
                     }
                     else if App::is_sqlite_db_file(&selected_path) {
                         if app.integration_active("sqlite3") {
                             app.begin_sqlite_preview(selected_path);
                         } else {
-                            app.set_status("sqlite3 not found in PATH");
+                            app.status_tool_not_found("sqlite3");
                         }
                     }
                     else if App::is_audio_file(&selected_path) && app.integration_active("sox") {
                         use std::process::Stdio;
-                        disable_raw_mode()?;
-                        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+                        suspend_tui()?;
                         execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
 
                         let mut child = if App::integration_probe("play").0 {
@@ -659,26 +643,22 @@ pub(crate) fn handle_app_key_event_body(
                                 if proc.try_wait()?.is_some() {
                                     break;
                                 }
-                                if event::poll(Duration::from_millis(120))? {
-                                    if let Event::Key(k) = event::read()? {
-                                        if matches!(k.code, KeyCode::Char('q') | KeyCode::Esc | KeyCode::Left) {
+                                if event::poll(Duration::from_millis(120))?
+                                    && let Event::Key(k) = event::read()?
+                                        && matches!(k.code, KeyCode::Char('q') | KeyCode::Esc | KeyCode::Left) {
                                             let _ = proc.kill();
                                             let _ = proc.wait();
                                             break;
                                         }
-                                    }
-                                }
                             }
                             disable_raw_mode()?;
                         }
 
-                        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-                        enable_raw_mode()?;
+                        resume_tui()?;
                         terminal.clear()?;
                     }
                     else if App::is_pdf_file(&selected_path) && app.integration_active("pdftotext") {
-                        disable_raw_mode()?;
-                        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+                        suspend_tui()?;
 
                         let mut shown = false;
                         if let Ok(mut child) = Command::new("pdftotext")
@@ -705,18 +685,15 @@ pub(crate) fn handle_app_key_event_body(
                                 .status();
                         }
 
-                        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-                        enable_raw_mode()?;
+                        resume_tui()?;
                         terminal.clear()?;
                     }
                     else if App::is_cast_file(&selected_path) && app.integration_active("asciinema") {
-                        disable_raw_mode()?;
-                        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+                        suspend_tui()?;
 
                         let _ = App::preview_cast_with_asciinema(&selected_path)?;
 
-                        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-                        enable_raw_mode()?;
+                        resume_tui()?;
                         terminal.clear()?;
                     }
                     else { 
@@ -727,14 +704,13 @@ pub(crate) fn handle_app_key_event_body(
                                 .arg(&selected_path)
                                 .stdout(Stdio::piped())
                                 .spawn();
-                            if let Ok(child) = hexyl {
-                                if let Some(out) = child.stdout {
+                            if let Ok(child) = hexyl
+                                && let Some(out) = child.stdout {
                                     let _ = Command::new("less")
                                         .args(["-R"])
                                         .stdin(out)
                                         .status();
                                 }
-                            }
                         } else if app.integration_active("bat") {
                             let bat_cmd = App::bat_tool().unwrap_or_else(|| "bat".to_string());
                             let _ = Command::new(bat_cmd)
@@ -802,7 +778,7 @@ pub(crate) fn handle_app_key_event_body(
             KeyCode::Char('G') => {
                 let work_dir = app.active_panel_dir();
                 if !app.integration_active("git") {
-                    app.set_status("git not found in PATH");
+                    app.status_tool_not_found("git");
                 } else {
                     match App::get_git_info(&work_dir) {
                         Some((_, true, _)) => {
@@ -865,7 +841,7 @@ pub(crate) fn handle_app_key_event_body(
                         app.begin_input_edit(AppMode::Renaming, current_name);
                     } else if App::is_age_protected_file(&path) {
                         if !app.integration_active("age") {
-                            app.set_status("age not found in PATH");
+                            app.status_tool_not_found("age");
                         } else if app.edit_age_file(&path)? {
                             terminal.clear()?;
                         }
@@ -1170,14 +1146,13 @@ pub(crate) fn handle_app_key_event_body(
                 app.cancel_internal_search_content_request();
                 app.clear_input_edit();
                 app.mode = AppMode::Browsing;
-                if let Some(path) = selected_path {
-                    if let Some(parent) = path.parent() {
+                if let Some(path) = selected_path
+                    && let Some(parent) = path.parent() {
                         app.try_enter_dir(parent.to_path_buf());
                         if let Some(name) = path.file_name() {
                             app.select_entry_named(&name.to_string_lossy());
                         }
                     }
-                }
             }
             KeyCode::Up => {
                 app.internal_search_selected = app.internal_search_selected.saturating_sub(1);
@@ -1382,8 +1357,7 @@ pub(crate) fn handle_app_key_event_body(
                     .join("sb")
                     .join("config");
                 app.mode = AppMode::Browsing;
-                disable_raw_mode()?;
-                execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+                suspend_tui()?;
                 execute!(io::stdout(), Show)?;
                 let _ = Command::new(env::var("EDITOR").unwrap_or_else(|_| "nano".to_string()))
                     .arg(&config_path)
@@ -1532,8 +1506,7 @@ pub(crate) fn handle_app_key_event_body(
                             if already_mounted {
                                 app.mount_ssh_host(&host)?;
                             } else {
-                                disable_raw_mode()?;
-                                execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+                                suspend_tui()?;
                                 let result = app.mount_ssh_host(&host);
                                 enable_raw_mode()?;
                                 execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
@@ -1549,8 +1522,7 @@ pub(crate) fn handle_app_key_event_body(
                             if already_mounted {
                                 app.mount_rclone_remote(&name, &rtype)?;
                             } else {
-                                disable_raw_mode()?;
-                                execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+                                suspend_tui()?;
                                 println!("Connecting to rclone remote: {}…", name);
                                 let result = app.mount_rclone_remote(&name, &rtype);
                                 enable_raw_mode()?;

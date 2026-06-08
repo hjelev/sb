@@ -192,8 +192,8 @@ impl App {
         self.preview_image_rgb = None;
         self.preview_image_png = None;
 
-        if !Self::is_image_file(&path) {
-            if let Some(cached) = self.preview_cache.get(&path).cloned() {
+        if !Self::is_image_file(&path)
+            && let Some(cached) = self.preview_cache.get(&path).cloned() {
                 self.preview_target_path = Some(path);
                 self.preview_lines = cached.0;
                 self.preview_line_kinds = cached.1;
@@ -202,7 +202,6 @@ impl App {
                 self.preview_scroll_offset = 0;
                 return;
             }
-        }
 
         self.preview_request_id = self.preview_request_id.saturating_add(1);
         let request_id = self.preview_request_id;

@@ -193,9 +193,7 @@ pub(crate) fn run_tui_body(
             };
             let os_icon_glyph: Option<&'static str> = if app.nerd_font_active {
                 // Use the remote OS icon if we're inside an SSH/rclone mount
-                app.ssh_mounts.iter()
-                    .filter(|m| app.current_dir.starts_with(&m.mount_path))
-                    .last()
+                app.ssh_mounts.iter().rfind(|m| app.current_dir.starts_with(&m.mount_path))
                     .and_then(|m| m.remote_os_icon.map(|(glyph, _)| glyph))
                     .or_else(|| app.os_icon.map(|(glyph, _)| glyph))
             } else {
@@ -257,8 +255,8 @@ pub(crate) fn run_tui_body(
                     },
                 ]
             };
-            if app.integration_enabled("git") {
-                if let Some((branch, is_dirty, tag_info)) = app.cached_git_info_for_current_dir() {
+            if app.integration_enabled("git")
+                && let Some((branch, is_dirty, tag_info)) = app.cached_git_info_for_current_dir() {
                     let branch_style = Style::default().fg(Color::Rgb(100, 150, 255));
                     left_spans.push(Span::styled(" (", branch_style));
                     left_spans.push(Span::styled(branch, branch_style));
@@ -278,7 +276,6 @@ pub(crate) fn run_tui_body(
                     }
                     left_spans.push(Span::styled(")", branch_style));
                 }
-            }
             let mut header_right_is_clock = false;
             let header_right = if let Some(total_suffix) = app.current_dir_total_size_header_suffix() {
                 let icon_style = Style::default().fg(Color::Rgb(100, 160, 240));
@@ -430,8 +427,8 @@ pub(crate) fn run_tui_body(
                     middle_rect,
                 );
             }
-            if show_right {
-                if let Some(header_right_line) = header_right {
+            if show_right
+                && let Some(header_right_line) = header_right {
                     let mut scrollbar_offset = if scrollbar_visible_in_main { 1 } else { 0 };
                     // Nudge the clock left by a per-view amount.
                     if header_right_is_clock {
@@ -456,7 +453,6 @@ pub(crate) fn run_tui_body(
                         );
                     }
                 }
-            }
             if app.mode == AppMode::PathEditing {
                 let sep_len = UnicodeWidthStr::width(header_sep) as u16;
                 app.clamp_input_cursor();
@@ -944,8 +940,8 @@ pub(crate) fn run_tui_body(
 
             // If the selected item is truncated, temporarily hide its metadata and
             // render its full name across the whole row width.
-            if let Some(selected_idx) = app.table_state.selected() {
-                if let Some(entry_cache) = app.entry_render_cache.get(selected_idx) {
+            if let Some(selected_idx) = app.table_state.selected()
+                && let Some(entry_cache) = app.entry_render_cache.get(selected_idx) {
                     let tree_prefix = app.tree_row_prefixes.get(selected_idx).map(|s| s.as_str()).unwrap_or("");
                     let full_name = entry_cache.raw_name.as_str();
                     let prefix_width_for_check = tree_prefix.chars().count();
@@ -1065,10 +1061,9 @@ pub(crate) fn run_tui_body(
                         }
                     }
                 }
-            }
 
-            if use_main_pill {
-                if let Some(selected_idx) = app.table_state.selected() {
+            if use_main_pill
+                && let Some(selected_idx) = app.table_state.selected() {
                     let offset = app.table_state.offset();
                     if selected_idx >= offset {
                         let row_in_view = selected_idx - offset;
@@ -1091,7 +1086,6 @@ pub(crate) fn run_tui_body(
                         }
                     }
                 }
-            }
 
             // --- Bottom divider border ---
             let bottom_border_y = table_area.y + table_area.height;
@@ -1290,8 +1284,8 @@ pub(crate) fn run_tui_body(
                 };
                 f.render_widget(Paragraph::new(rendered_lines), preview_text_area);
 
-                if let Some(footer_text) = app.preview_footer.as_ref() {
-                    if preview_footer_area.height > 0 {
+                if let Some(footer_text) = app.preview_footer.as_ref()
+                    && preview_footer_area.height > 0 {
                         f.render_widget(
                             Paragraph::new(Line::from(Span::styled(
                                 footer_text.clone(),
@@ -1301,7 +1295,6 @@ pub(crate) fn run_tui_body(
                             preview_footer_area,
                         );
                     }
-                }
 
                 if preview_can_draw_scrollbar {
                     let sb_area = Rect::new(
@@ -2317,7 +2310,7 @@ pub(crate) fn run_tui_body(
                 let area = f.size();
                 let selected_entry = app.entries.get(app.selected_index);
                 let old_name = selected_entry
-                    .map(|e| crate::util::classify::entry_name(e))
+                    .map(crate::util::classify::entry_name)
                     .unwrap_or_else(|| app.input_buffer.clone());
                 let selected_path = selected_entry.map(|e| e.path());
                 let selected_is_dir = selected_path.as_ref().map(|p| p.is_dir()).unwrap_or(false);
@@ -2410,13 +2403,11 @@ pub(crate) fn run_tui_body(
                     .download_pending_name
                     .as_deref()
                     .unwrap_or("download");
-                let lines = vec![
-                    "Overwrite existing file?".to_string(),
+                let lines = ["Overwrite existing file?".to_string(),
                     String::new(),
                     format!(" {}", file_name),
                     String::new(),
-                    " y / Enter = overwrite    n / Esc = cancel".to_string(),
-                ];
+                    " y / Enter = overwrite    n / Esc = cancel".to_string()];
                 let msg = lines.join("\n");
                 let content_w = lines
                     .iter()
@@ -2977,7 +2968,7 @@ pub(crate) fn run_tui_body(
                 | crate::integration::probe::TerminalImageProtocol::Sixel
         );
         if native_pane_supported && app.is_preview_mode() {
-            if let (Some(area), Some(ref png), Some((rgb, iw, ih))) = (
+            if let (Some(area), Some(png), Some((rgb, iw, ih))) = (
                 app.preview_native_area,
                 app.preview_image_png.as_ref(),
                 app.preview_image_rgb.as_ref(),

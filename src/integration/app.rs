@@ -7,14 +7,14 @@ use std::{
 
 use crossterm::{
     cursor::MoveTo,
-    event::{DisableMouseCapture, EnableMouseCapture},
+    event::EnableMouseCapture,
     execute,
     terminal::{
-        disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType, EnterAlternateScreen,
-        LeaveAlternateScreen,
+        enable_raw_mode, Clear as TermClear, ClearType, EnterAlternateScreen,
     },
 };
 
+use crate::util::tui::suspend_tui;
 use crate::{integration, App, AppMode, ArchiveKind};
 
 use super::{catalog, probe, rows::IntegrationRow};
@@ -107,8 +107,7 @@ impl App {
     }
 
     pub(crate) fn show_brew_setup_guidance(&mut self) -> io::Result<()> {
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
 
         println!("Homebrew was not found on this system.");
         println!();
@@ -158,8 +157,7 @@ impl App {
 
         let brew = brew_path.unwrap_or_default();
 
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
 
         println!("Installing integration '{}' with Homebrew", key);
 

@@ -728,14 +728,13 @@ impl App {
 
         if App::is_binary_file(&path) {
             lines.push("[binary file]".to_string());
-            if use_file {
-                if let Ok(out) = Command::new("file").arg("-b").arg(&path).output() {
+            if use_file
+                && let Ok(out) = Command::new("file").arg("-b").arg(&path).output() {
                     let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
                     if !text.is_empty() {
                         lines.push(text);
                     }
                 }
-            }
             let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             let footer = Some(format!("Size: {}", App::format_size(size)));
             let line_kinds = vec![PreviewLineKind::Plain; lines.len()];
@@ -758,18 +757,15 @@ impl App {
         // not receive a line-number gutter.
         let header_len = lines.len();
 
-        if use_bat {
-            if let Ok(out) = Command::new("bat")
+        if use_bat
+            && let Ok(out) = Command::new("bat")
                 .args(["--paging=never", "--style=numbers", "--color=always", "--line-range", "1:220"])
                 .arg(&path)
                 .output()
-            {
-                if out.status.success() {
+                && out.status.success() {
                     let text = String::from_utf8_lossy(&out.stdout).into_owned();
                     lines.extend(text.lines().take(220).map(|s| s.to_string()));
                 }
-            }
-        }
 
         // Fall back to reading the file directly when bat is unavailable or
         // produced no content, prepending our own line-number gutter.
@@ -813,15 +809,13 @@ impl App {
                 if proc.try_wait()?.is_some() {
                     break;
                 }
-                if event::poll(Duration::from_millis(120))? {
-                    if let Event::Key(k) = event::read()? {
-                        if matches!(k.code, KeyCode::Char('q') | KeyCode::Esc | KeyCode::Left) {
+                if event::poll(Duration::from_millis(120))?
+                    && let Event::Key(k) = event::read()?
+                        && matches!(k.code, KeyCode::Char('q') | KeyCode::Esc | KeyCode::Left) {
                             let _ = proc.kill();
                             let _ = proc.wait();
                             break;
                         }
-                    }
-                }
             }
             disable_raw_mode()?;
             Ok(true)
@@ -872,15 +866,13 @@ IFS= read -rsn1 _
             if child.try_wait()?.is_some() {
                 break;
             }
-            if event::poll(Duration::from_millis(120))? {
-                if let Event::Key(k) = event::read()? {
-                    if matches!(k.code, KeyCode::Char('q') | KeyCode::Esc) {
+            if event::poll(Duration::from_millis(120))?
+                && let Event::Key(k) = event::read()?
+                    && matches!(k.code, KeyCode::Char('q') | KeyCode::Esc) {
                         let _ = child.kill();
                         let _ = child.wait();
                         break;
                     }
-                }
-            }
         }
         disable_raw_mode()?;
         Ok(true)
@@ -932,7 +924,7 @@ IFS= read -rsn1 _
         let is_dirs: Vec<bool> = metas.iter()
             .map(|m| m.as_ref().map(|m| m.is_dir()).unwrap_or(false))
             .collect();
-        let names: Vec<String> = entries.iter().map(|e| Self::entry_name_key(e)).collect();
+        let names: Vec<String> = entries.iter().map(Self::entry_name_key).collect();
         let paths: Vec<PathBuf> = entries.iter().map(|e| e.path()).collect();
         let sizes: Vec<u64>    = metas.iter()
             .enumerate()
@@ -958,7 +950,7 @@ IFS= read -rsn1 _
                 .map(|d| d.as_secs())
                 .unwrap_or(0)
         }).collect();
-        let exts: Vec<String>  = entries.iter().map(|e| Self::entry_extension_key(e)).collect();
+        let exts: Vec<String>  = entries.iter().map(Self::entry_extension_key).collect();
 
         let mut indices: Vec<usize> = (0..entries.len()).collect();
         indices.sort_by(|&a, &b| {
@@ -987,12 +979,11 @@ IFS= read -rsn1 _
         if !self.tree_expansion_levels.is_empty() {
             let selected_path = self.entries.get(self.selected_index).map(|e| e.path());
             let _ = self.refresh_entries();
-            if let Some(path) = selected_path {
-                if let Some(idx) = self.entries.iter().position(|e| e.path() == path) {
+            if let Some(path) = selected_path
+                && let Some(idx) = self.entries.iter().position(|e| e.path() == path) {
                     self.selected_index = idx;
                     self.table_state.select(Some(idx));
                 }
-            }
             return;
         }
         let selected_path = self.entries.get(self.selected_index).map(|e| e.path());
@@ -1105,6 +1096,11 @@ IFS= read -rsn1 _
         } else {
             self.status_message = msg;
         }
+    }
+
+    /// Set a status message reporting that a required external tool is missing.
+    fn status_tool_not_found(&mut self, tool: &str) {
+        self.set_status(format!("{} not found in PATH", tool));
     }
 
     fn panel_status_message(&self, side: DualPanelSide) -> Option<&str> {
@@ -1313,16 +1309,14 @@ IFS= read -rsn1 _
 
     fn resolve_input_path(&self, raw: &str) -> PathBuf {
         let trimmed = raw.trim();
-        if let Some(rest) = trimmed.strip_prefix("~/") {
-            if let Ok(home) = env::var("HOME") {
+        if let Some(rest) = trimmed.strip_prefix("~/")
+            && let Ok(home) = env::var("HOME") {
                 return PathBuf::from(home).join(rest);
             }
-        }
-        if trimmed == "~" {
-            if let Ok(home) = env::var("HOME") {
+        if trimmed == "~"
+            && let Ok(home) = env::var("HOME") {
                 return PathBuf::from(home);
             }
-        }
 
         let candidate = PathBuf::from(trimmed);
         if candidate.is_absolute() {
@@ -1465,8 +1459,8 @@ IFS= read -rsn1 _
                 self.set_status("refresh failed");
                 return;
             }
-            if let Some(name) = last_created {
-                if let Some(index) = self
+            if let Some(name) = last_created
+                && let Some(index) = self
                     .right.entries
                     .iter()
                     .position(|entry| entry.file_name().to_string_lossy() == name)
@@ -1474,7 +1468,6 @@ IFS= read -rsn1 _
                     self.right.selected_index = index;
                     self.right.table_state.select(Some(index));
                 }
-            }
         } else {
             self.refresh_entries_or_status();
             if let Some(name) = last_created {
@@ -1705,7 +1698,7 @@ IFS= read -rsn1 _
         }
 
         let Some(tool) = self.preferred_download_tool() else {
-            self.set_status("wget/curl not found in PATH");
+            self.status_tool_not_found("wget/curl");
             return;
         };
 
@@ -1990,7 +1983,7 @@ IFS= read -rsn1 _
         // Surface delete failures (e.g. permission denied) instead of silently
         // leaving the item in place; this status takes priority over refresh's.
         if let Some(err) = last_err {
-            self.set_status(&format!("delete failed for {} item(s): {}", failed, err));
+            self.set_status(format!("delete failed for {} item(s): {}", failed, err));
         }
     }
 
@@ -2231,14 +2224,13 @@ fn main() -> io::Result<()> {
         return Ok(());
     }
     if let Some(list_args) = ui::cli::parse_list_mode_args(&args) {
-        if !list_args.include_hidden && list_args.tree_depth.is_none() {
-            if let Some(path) = list_args.path {
+        if !list_args.include_hidden && list_args.tree_depth.is_none()
+            && let Some(path) = list_args.path {
                 let target = PathBuf::from(path);
                 if target.is_file() {
                     return App::open_path_in_view_mode(&target, true);
                 }
             }
-        }
         return ui::cli::list_current_directory(
             list_args.include_hidden,
             list_args.include_total_size,
@@ -2262,13 +2254,11 @@ fn main() -> io::Result<()> {
     }
 
     // If a single argument is provided that is a directory, list it like -l
-    if args.len() == 1 && !args[0].starts_with('-') {
-        if let Ok(target) = PathBuf::from(&args[0]).canonicalize() {
-            if target.is_dir() {
+    if args.len() == 1 && !args[0].starts_with('-')
+        && let Ok(target) = PathBuf::from(&args[0]).canonicalize()
+            && target.is_dir() {
                 return ui::cli::list_current_directory(false, false, None, Some(&args[0]));
             }
-        }
-    }
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();

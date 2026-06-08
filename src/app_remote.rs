@@ -9,17 +9,18 @@ use std::{
 
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
-    event::{DisableMouseCapture, EnableMouseCapture},
+    event::EnableMouseCapture,
     execute,
     terminal::{
-        disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType, EnterAlternateScreen,
-        LeaveAlternateScreen,
+        enable_raw_mode, Clear as TermClear, ClearType, EnterAlternateScreen,
     },
 };
 use ratatui::style::Color;
 
 use crate::{App, AppMode, PathFilterMode, RemoteEntry, SshHost, SshMount};
 use crate::ui;
+use crate::util::command::CommandBuilder;
+use crate::util::tui::suspend_tui;
 
 impl App {
 
@@ -47,16 +48,14 @@ impl App {
             let key = raw_key.to_lowercase();
             let val = raw_val.to_string();
             if key == "host" || key == "match" {
-                if let Some(h) = current.take() {
-                    if !h.alias.contains('*') && !h.alias.contains('?') {
+                if let Some(h) = current.take()
+                    && !h.alias.contains('*') && !h.alias.contains('?') {
                         hosts.push(h);
                     }
-                }
-                if key == "host" {
-                    if let Some(alias) = val.split_whitespace().find(|s| !s.contains('*') && !s.contains('?')).map(|s| s.to_string()) {
+                if key == "host"
+                    && let Some(alias) = val.split_whitespace().find(|s| !s.contains('*') && !s.contains('?')).map(|s| s.to_string()) {
                         current = Some(SshHost { hostname: alias.clone(), alias, user: None, port: None, identity_file: None });
                     }
-                }
             } else if let Some(ref mut h) = current {
                 match key.as_str() {
                     "hostname" => h.hostname = val,
@@ -67,11 +66,10 @@ impl App {
                 }
             }
         }
-        if let Some(h) = current {
-            if !h.alias.contains('*') && !h.alias.contains('?') {
+        if let Some(h) = current
+            && !h.alias.contains('*') && !h.alias.contains('?') {
                 hosts.push(h);
             }
-        }
         hosts
     }
 
@@ -258,7 +256,7 @@ impl App {
             Ok(())
         } else {
             let _ = fs::remove_dir(&mount_dir);
-            Err(io::Error::new(io::ErrorKind::Other, "rclone mount failed"))
+            Err(io::Error::other("rclone mount failed"))
         }
     }
 
@@ -339,7 +337,7 @@ impl App {
             Ok(())
         } else {
             let _ = fs::remove_dir(&mount_dir);
-            Err(io::Error::new(io::ErrorKind::Other, "sshfs mount failed"))
+            Err(io::Error::other("sshfs mount failed"))
         }
     }
 
@@ -367,15 +365,8 @@ impl App {
             }
         }
         while let Some(mount) = self.ssh_mounts.pop() {
-            let path_str = mount.mount_path.to_string_lossy().to_string();
-            // Try fusermount -u, then fusermount3 -u, then lazy -z variants, then umount
-            let ok = Command::new("fusermount").args(["-u", &path_str]).status().map(|s| s.success()).unwrap_or(false)
-                || Command::new("fusermount3").args(["-u", &path_str]).status().map(|s| s.success()).unwrap_or(false)
-                || Command::new("fusermount").args(["-uz", &path_str]).status().map(|s| s.success()).unwrap_or(false)
-                || Command::new("fusermount3").args(["-uz", &path_str]).status().map(|s| s.success()).unwrap_or(false)
-                || Command::new("umount").args([&path_str]).status().map(|s| s.success()).unwrap_or(false)
-                || Command::new("umount").args(["-l", &path_str]).status().map(|s| s.success()).unwrap_or(false);
-            let _ = ok; // best-effort; proceed regardless
+            // Best-effort unmount via fusermount/umount fallback variants; proceed regardless.
+            let _ = CommandBuilder::unmount_archive(&mount.mount_path);
             let _ = fs::remove_dir(&mount.mount_path);
         }
     }
@@ -391,20 +382,13 @@ impl App {
             self.refresh_entries_or_status();
         }
 
-        let path_str = mount.mount_path.to_string_lossy().to_string();
-        let _ = Command::new("fusermount").args(["-u", &path_str]).status();
-        let _ = Command::new("fusermount3").args(["-u", &path_str]).status();
-        let _ = Command::new("fusermount").args(["-uz", &path_str]).status();
-        let _ = Command::new("fusermount3").args(["-uz", &path_str]).status();
-        let _ = Command::new("umount").args([&path_str]).status();
-        let _ = Command::new("umount").args(["-l", &path_str]).status();
+        let _ = CommandBuilder::unmount_archive(&mount.mount_path);
         let _ = fs::remove_dir(&mount.mount_path);
         true
     }
 
     pub(crate) fn open_ssh_shell_session(&mut self, host: &SshHost) -> io::Result<()> {
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
         execute!(io::stdout(), Show)?;
 
         // Match normal terminal behavior exactly: rely on OpenSSH host alias resolution

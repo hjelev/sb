@@ -424,11 +424,7 @@ impl App {
 
                 let visible_rows = content.height as usize;
                 let selected_line = self.integration_selected + 1;
-                let int_scroll = if selected_line + 1 <= visible_rows {
-                    0usize
-                } else {
-                    selected_line + 1 - visible_rows
-                };
+                let int_scroll = (selected_line + 1).saturating_sub(visible_rows);
                 let line_idx = int_scroll + row.saturating_sub(content.y) as usize;
                 if line_idx >= 1 && line_idx <= integrations_len {
                     self.integration_selected = line_idx - 1;
@@ -914,8 +910,8 @@ impl App {
     pub(crate) fn handle_mouse_event(&mut self, mouse: MouseEvent, area: Rect) -> Option<KeyEvent> {
         match mouse.kind {
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
-                if self.is_dual_panel_mode() {
-                    if let Some((left_frame, right_frame)) = self.dual_panel_frame_areas(area) {
+                if self.is_dual_panel_mode()
+                    && let Some((left_frame, right_frame)) = self.dual_panel_frame_areas(area) {
                         let in_left = mouse.column >= left_frame.x
                             && mouse.column < left_frame.x + left_frame.width
                             && mouse.row >= left_frame.y
@@ -930,7 +926,6 @@ impl App {
                             self.active_panel = DualPanelSide::Right;
                         }
                     }
-                }
                 self.handle_mouse_scroll(matches!(mouse.kind, MouseEventKind::ScrollUp));
             }
             MouseEventKind::Down(MouseButton::Right) => {
@@ -964,8 +959,8 @@ impl App {
                         }
                     }
 
-                    if let Some(sb_area) = self.right_table_scrollbar_area(area) {
-                        if mouse.column >= sb_area.x
+                    if let Some(sb_area) = self.right_table_scrollbar_area(area)
+                        && mouse.column >= sb_area.x
                             && mouse.column < sb_area.x + sb_area.width
                             && mouse.row >= sb_area.y
                             && mouse.row < sb_area.y + sb_area.height
@@ -987,11 +982,10 @@ impl App {
                                 return None;
                             }
                         }
-                    }
                 }
 
-                if let Some(sb_area) = self.main_table_scrollbar_area(area) {
-                    if mouse.column >= sb_area.x
+                if let Some(sb_area) = self.main_table_scrollbar_area(area)
+                    && mouse.column >= sb_area.x
                         && mouse.column < sb_area.x + sb_area.width
                         && mouse.row >= sb_area.y
                         && mouse.row < sb_area.y + sb_area.height
@@ -1013,7 +1007,6 @@ impl App {
                             return None;
                         }
                     }
-                }
                 self.file_list_scroll_dragging = false;
                 self.right.list_scroll_dragging = false;
                 if self.handle_preview_pane_tab_click(mouse.column, mouse.row, area) {

@@ -420,11 +420,7 @@ pub fn render_integrations_overlay(
     let total_rows = lines.len();
     let max_scroll = total_rows.saturating_sub(visible_rows);
     let selected_line = integration_selected + 1;
-    let int_scroll = if selected_line + 1 <= visible_rows {
-        0usize
-    } else {
-        selected_line + 1 - visible_rows
-    }
+    let int_scroll = (selected_line + 1).saturating_sub(visible_rows)
     .min(max_scroll);
     let can_draw_scrollbar = int_chunks[0].width > 2 && total_rows > visible_rows;
 

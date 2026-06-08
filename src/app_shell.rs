@@ -8,17 +8,21 @@ use std::{
 
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
-    event::{DisableMouseCapture, EnableMouseCapture},
+    event::EnableMouseCapture,
     execute,
     terminal::{
-        disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType, EnterAlternateScreen,
-        LeaveAlternateScreen,
+        enable_raw_mode, Clear as TermClear, ClearType, EnterAlternateScreen,
     },
 };
 
+use crate::util::tui::{resume_tui, suspend_tui};
 use crate::{App, DualPanelSide};
 
 impl App {
+    /// The user's login shell from `$SHELL`, falling back to `/bin/sh`.
+    fn login_shell() -> String {
+        env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
+    }
 
     pub(crate) fn shell_single_quote(value: &str) -> String {
         format!("'{}'", value.replace('\'', "'\"'\"'"))
@@ -26,7 +30,7 @@ impl App {
 
     pub(crate) fn open_split_shell_with_less(&mut self) -> io::Result<()> {
         if !self.integration_active("tmux") {
-            self.set_status("tmux not found in PATH");
+            self.status_tool_not_found("tmux");
             return Ok(());
         }
 
@@ -41,7 +45,7 @@ impl App {
             return Ok(());
         }
 
-        let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+        let shell = Self::login_shell();
         let current_dir = self.current_dir.to_string_lossy().into_owned();
         let selected_file = selected_path.to_string_lossy().into_owned();
         let stamp = SystemTime::now()
@@ -50,8 +54,7 @@ impl App {
             .unwrap_or(0);
         let session_name = format!("sbrs_i_{}_{}", std::process::id(), stamp % 1_000_000_000);
 
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
         execute!(io::stdout(), Show)?;
 
         let tmux_result = (|| -> io::Result<()> {
@@ -112,7 +115,7 @@ impl App {
 
     pub(crate) fn open_split_shell_with_editor(&mut self) -> io::Result<()> {
         if !self.integration_active("tmux") {
-            self.set_status("tmux not found in PATH");
+            self.status_tool_not_found("tmux");
             return Ok(());
         }
 
@@ -127,7 +130,7 @@ impl App {
             return Ok(());
         }
 
-        let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+        let shell = Self::login_shell();
         let editor = env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
         let current_dir = self.current_dir.to_string_lossy().into_owned();
         let selected_file = selected_path.to_string_lossy().into_owned();
@@ -137,8 +140,7 @@ impl App {
             .unwrap_or(0);
         let session_name = format!("sbrs_E_{}_{}", std::process::id(), stamp % 1_000_000_000);
 
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
         execute!(io::stdout(), Show)?;
 
         let tmux_result = (|| -> io::Result<()> {
@@ -205,11 +207,10 @@ impl App {
             return Ok(());
         }
 
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
 
         println!("$ {}", trimmed);
-        let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+        let shell = Self::login_shell();
         let mut cmd = Command::new(&shell);
         // Non-interactive mode avoids shell job-control side effects that can
         // suspend sbrs when returning from the command runner.
@@ -245,9 +246,8 @@ impl App {
     }
 
     pub(crate) fn drop_to_shell(&mut self) -> io::Result<()> {
-        let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        let shell = Self::login_shell();
+        suspend_tui()?;
         execute!(io::stdout(), Show)?;
         let _ = Command::new(&shell)
             .current_dir(&self.current_dir)
@@ -420,7 +420,7 @@ impl App {
 
     pub(crate) fn run_delta_compare(&mut self) -> io::Result<()> {
         if !self.integration_active("delta") {
-            self.set_status("delta not found in PATH");
+            self.status_tool_not_found("delta");
             return Ok(());
         }
 
@@ -451,16 +451,14 @@ impl App {
             return Ok(());
         }
 
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
         let _ = Command::new("delta")
             .arg("--side-by-side")
             .arg("--paging=always")
             .arg(&marked_path)
             .arg(&cursor_path)
             .status();
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-        enable_raw_mode()?;
+        resume_tui()?;
 
         let left = marked_path
             .file_name()

@@ -49,11 +49,10 @@ impl App {
                 let path = entry.path();
                 if path.is_dir() {
                     stack.push(path);
-                } else if path.is_file() {
-                    if let Ok(rel) = path.strip_prefix(root) {
+                } else if path.is_file()
+                    && let Ok(rel) = path.strip_prefix(root) {
                         out.push(rel.to_path_buf());
                     }
-                }
 
                 if out.len() >= max_items {
                     break;
@@ -91,11 +90,10 @@ impl App {
                 if c_idx == 0 || matches!(cand_chars[c_idx - 1], '/' | '_' | '-' | ' ') {
                     score += 8;
                 }
-                if let Some(prev) = last_match {
-                    if c_idx == prev + 1 {
+                if let Some(prev) = last_match
+                    && c_idx == prev + 1 {
                         score += 12;
                     }
-                }
                 last_match = Some(c_idx);
                 matched_char_indices.push(c_idx);
                 q_idx += 1;
@@ -127,12 +125,11 @@ impl App {
         ranges.sort_by_key(|(start, _)| *start);
         let mut merged: Vec<(usize, usize)> = Vec::with_capacity(ranges.len());
         for (start, end) in ranges {
-            if let Some((_, last_end)) = merged.last_mut() {
-                if start <= *last_end {
+            if let Some((_, last_end)) = merged.last_mut()
+                && start <= *last_end {
                     *last_end = (*last_end).max(end);
                     continue;
                 }
-            }
             merged.push((start, end));
         }
         merged
@@ -556,7 +553,7 @@ impl App {
         if let Some((pattern, case_insensitive)) = parsed_regex.as_ref() {
             self.internal_search_regex_mode = true;
 
-            let regex = RegexBuilder::new(&pattern)
+            let regex = RegexBuilder::new(pattern)
                 .case_insensitive(*case_insensitive)
                 .build();
 

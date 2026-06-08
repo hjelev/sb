@@ -11,13 +11,10 @@ use std::{
 
 use crossterm::{
     cursor::{Hide, Show},
-    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
-    terminal::{
-        disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
-    },
 };
 
+use crate::util::tui::{resume_tui, suspend_tui};
 use crate::{util, App, AppMode, CopyProgressMsg, DualPanelSide};
 
 impl App {
@@ -161,59 +158,16 @@ impl App {
             .collect::<Vec<_>>()
             .join("\n");
 
-        for backend in ["wl-copy", "xclip", "xsel", "pbcopy"] {
-            if !self.integration_active(backend) {
-                continue;
-            }
-
-            let mut cmd = match backend {
-                "wl-copy" => Command::new("wl-copy"),
-                "xclip" => {
-                    let mut cmd = Command::new("xclip");
-                    cmd.args(["-selection", "clipboard"]);
-                    cmd
-                }
-                "xsel" => {
-                    let mut cmd = Command::new("xsel");
-                    cmd.args(["--clipboard", "--input"]);
-                    cmd
-                }
-                "pbcopy" => Command::new("pbcopy"),
-                _ => continue,
-            };
-
-            let mut child = match cmd
-                .stdin(Stdio::piped())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-            {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
-
-            let write_ok = child
-                .stdin
-                .take()
-                .map(|mut stdin| stdin.write_all(payload.as_bytes()).is_ok())
-                .unwrap_or(false);
-            if !write_ok {
-                let _ = child.kill();
-                let _ = child.wait();
-                continue;
-            }
-
-            if child.wait().map(|s| s.success()).unwrap_or(false) {
-                self.set_status(format!(
-                    "copied {} full path(s) to system clipboard via {}",
-                    targets.len(),
-                    backend
-                ));
-                return;
+        match self.write_system_clipboard_text(&payload) {
+            Some(backend) => self.set_status(format!(
+                "copied {} full path(s) to system clipboard via {}",
+                targets.len(),
+                backend
+            )),
+            None => {
+                self.set_status("no clipboard backend available (wl-copy/xclip/xsel/pbcopy)")
             }
         }
-
-        self.set_status("no clipboard backend available (wl-copy/xclip/xsel/pbcopy)");
     }
 
     pub(crate) fn read_system_clipboard_text(&self) -> Option<(String, &'static str)> {
@@ -254,11 +208,10 @@ impl App {
                 _ => continue,
             };
 
-            if let Ok(out) = output {
-                if out.status.success() {
+            if let Ok(out) = output
+                && out.status.success() {
                     return Some((String::from_utf8_lossy(&out.stdout).into_owned(), backend));
                 }
-            }
         }
 
         None
@@ -327,19 +280,17 @@ impl App {
             return Ok(());
         }
 
-        disable_raw_mode()?;
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+        suspend_tui()?;
         execute!(io::stdout(), Show)?;
 
-        let edit_result = (|| -> io::Result<String> {
+        let edit_result = {
             let _ = Command::new(env::var("EDITOR").unwrap_or_else(|_| "nano".to_string()))
                 .arg(&tmp)
                 .status();
             fs::read_to_string(&tmp)
-        })();
+        };
 
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-        enable_raw_mode()?;
+        resume_tui()?;
         execute!(io::stdout(), Hide)?;
 
         let _ = fs::remove_file(&tmp);
@@ -516,8 +467,8 @@ impl App {
         if let Some(result) = done_result {
             match result {
                 Ok(()) => {
-                    if self.paste_move_mode {
-                        if let Some(src) = self.copy_current_src.take() {
+                    if self.paste_move_mode
+                        && let Some(src) = self.copy_current_src.take() {
                             let delete_res = if src.is_dir() {
                                 fs::remove_dir_all(&src)
                             } else {
@@ -538,7 +489,6 @@ impl App {
                                 return;
                             }
                         }
-                    }
                     self.paste_ok_items += 1;
                     self.copy_done_bytes = self
                         .copy_done_before_job
@@ -591,8 +541,8 @@ impl App {
                 return;
             }
 
-            if self.paste_move_mode {
-                if fs::rename(&src, &dest).is_ok() {
+            if self.paste_move_mode
+                && fs::rename(&src, &dest).is_ok() {
                     self.paste_ok_items += 1;
                     let _ = self.refresh_entries();
                     if self.is_dual_panel_mode() {
@@ -600,7 +550,6 @@ impl App {
                     }
                     continue;
                 }
-            }
 
             self.start_copy_job(src, dest, name);
             return;
