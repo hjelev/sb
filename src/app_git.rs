@@ -3,7 +3,6 @@ use std::{
     path::PathBuf,
     process::{Command, Stdio},
     sync::mpsc,
-    thread,
     time::{Duration, Instant},
 };
 use crossterm::{
@@ -16,6 +15,7 @@ use crossterm::{
 };
 
 use crate::{App, AppMode, GitInfoCache};
+use crate::util::background::spawn_worker;
 use crate::util::command::CommandBuilder;
 use crate::util::tui::{suspend_tui, resume_tui};
 
@@ -66,13 +66,11 @@ impl App {
         }
 
         let path = self.current_dir.clone();
-        let (tx, rx) = mpsc::channel();
-        self.git_info_rx = Some(rx);
         self.git_last_check_at = Some(Instant::now());
-        thread::spawn(move || {
+        self.git_info_rx = Some(spawn_worker(move |tx| {
             let info = App::get_git_info(&path);
             let _ = tx.send((path, info));
-        });
+        }));
     }
 
     pub(crate) fn cached_git_info_for_current_dir(&self) -> Option<(&str, bool, Option<(&str, u64)>)> {

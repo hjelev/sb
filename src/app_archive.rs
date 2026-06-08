@@ -2,11 +2,10 @@ use std::{
     fs, io,
     path::PathBuf,
     process::{Command, Stdio},
-    sync::mpsc,
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use crate::util::background::drain_channel;
+use crate::util::background::{drain_channel, spawn_worker};
 
 use crossterm::{
     execute,
@@ -547,15 +546,13 @@ impl App {
 
         let cwd = self.current_dir.clone();
         let archive_path = cwd.join(&archive_name);
-        let (tx, rx) = mpsc::channel();
-        self.archive_rx = Some(rx);
         self.archive_total_bytes = 0;
         self.archive_done_bytes = 0;
         self.archive_started_at = Some(Instant::now());
         self.archive_name = archive_name.clone();
         self.update_archive_status();
 
-        thread::spawn(move || {
+        self.archive_rx = Some(spawn_worker(move |tx| {
             let total_bytes = targets
                 .iter()
                 .filter_map(|p| Self::compute_total_bytes(p).ok())
@@ -599,7 +596,7 @@ impl App {
                     let _ = tx.send(ArchiveProgressMsg::Finished(Err(e.to_string())));
                 }
             }
-        });
+        }));
     }
 
     pub(crate) fn pump_archive_progress(&mut self) {
