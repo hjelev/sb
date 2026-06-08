@@ -2,7 +2,6 @@ use std::{
     env, fs,
     path::PathBuf,
     sync::mpsc,
-    thread,
 };
 
 use regex::{Regex, RegexBuilder};
@@ -12,6 +11,7 @@ use crate::{
     InternalSearchPattern, InternalSearchResult, InternalSearchScope, PathFilterMode,
     PathInputFilter,
 };
+use crate::util::background::spawn_worker;
 
 impl App {
     pub(crate) fn build_path_filter_regex(filter: &PathInputFilter) -> Result<Regex, String> {
@@ -484,9 +484,7 @@ impl App {
             InternalSearchPattern::Literal(query.to_string())
         };
 
-        let (tx, rx) = mpsc::channel();
-        self.internal_search_content_rx = Some(rx);
-        thread::spawn(move || {
+        self.internal_search_content_rx = Some(spawn_worker(move |tx| {
             let (results, limit_note) =
                 App::run_internal_search_content_query(current_dir, candidates, pattern, limits);
             let _ = tx.send(InternalSearchContentMsg::Finished {
@@ -494,7 +492,7 @@ impl App {
                 results,
                 limit_note,
             });
-        });
+        }));
     }
 
     pub(crate) fn pump_internal_search_content_progress(&mut self) {
@@ -610,9 +608,7 @@ impl App {
         self.internal_search_candidates_pending = true;
 
         let root = self.current_dir.clone();
-        let (tx, rx) = mpsc::channel();
-        self.internal_search_candidates_rx = Some(rx);
-        thread::spawn(move || {
+        self.internal_search_candidates_rx = Some(spawn_worker(move |tx| {
             let candidates = App::collect_internal_search_candidates(&root, INTERNAL_SEARCH_MAX_ITEMS);
             let truncated = candidates.len() >= INTERNAL_SEARCH_MAX_ITEMS;
             let _ = tx.send(InternalSearchCandidatesMsg::Finished {
@@ -620,7 +616,7 @@ impl App {
                 candidates,
                 truncated,
             });
-        });
+        }));
     }
 
     pub(crate) fn pump_internal_search_candidates_progress(&mut self) {

@@ -320,16 +320,29 @@ fn selector_edge_spans(is_selected: bool, spec: &crate::ui::theme::ThemeSpec) ->
     }
 }
 
+/// Shared chrome for the tab-anchored overlays (integrations, sort): where the
+/// overlay is anchored, which tab opened it, and the active theme / font mode.
+#[derive(Clone, Copy)]
+pub struct OverlayChrome {
+    pub anchor: Rect,
+    pub panel_tab: u8,
+    pub theme_id: ThemeId,
+    pub nerd_font: bool,
+}
+
 pub fn render_integrations_overlay(
     f: &mut Frame,
     area: Rect,
-    tab_overlay_anchor: Rect,
-    panel_tab: u8,
-    theme_id: ThemeId,
+    chrome: OverlayChrome,
     integrations: &[IntegrationRow],
     integration_selected: usize,
-    nerd_font: bool,
 ) {
+    let OverlayChrome {
+        anchor: tab_overlay_anchor,
+        panel_tab,
+        theme_id,
+        nerd_font,
+    } = chrome;
     let spec = theme_spec(theme_id);
     let int_w = (area.width * 5 / 6).max(70).min(tab_overlay_anchor.width);
     let int_content_w = int_w.saturating_sub(2) as usize;
@@ -733,14 +746,17 @@ pub fn render_bookmarks_overlay(
 
 pub fn render_sort_overlay(
     f: &mut Frame,
-    tab_overlay_anchor: Rect,
-    panel_tab: u8,
-    theme_id: ThemeId,
+    chrome: OverlayChrome,
     options: &[SortMode],
     sort_menu_selected: usize,
     current_sort_mode: SortMode,
-    nerd_font_active: bool,
 ) {
+    let OverlayChrome {
+        anchor: tab_overlay_anchor,
+        panel_tab,
+        theme_id,
+        nerd_font: nerd_font_active,
+    } = chrome;
     let spec = theme_spec(theme_id);
     let sort_w = tab_overlay_anchor.width;
     let sort_content_w = sort_w.saturating_sub(2) as usize;

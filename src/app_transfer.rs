@@ -5,7 +5,6 @@ use std::{
     path::PathBuf,
     process::{Command, Stdio},
     sync::mpsc::{self, Sender},
-    thread,
     time::Instant,
 };
 
@@ -14,6 +13,7 @@ use crossterm::{
     execute,
 };
 
+use crate::util::background::spawn_worker;
 use crate::util::tui::{resume_tui, suspend_tui};
 use crate::{util, App, AppMode, CopyProgressMsg, DualPanelSide};
 
@@ -50,15 +50,13 @@ impl App {
         self.paste_total_items = sources.len();
         self.paste_ok_items = 0;
         self.paste_failed_items = 0;
-        let (tx_total, rx_total) = mpsc::channel();
-        self.copy_total_rx = Some(rx_total);
-        thread::spawn(move || {
+        self.copy_total_rx = Some(spawn_worker(move |tx_total| {
             let total = sources
                 .iter()
                 .filter_map(|src| App::compute_total_bytes(src).ok())
                 .fold(0u64, |acc, v| acc.saturating_add(v));
             let _ = tx_total.send(total);
-        });
+        }));
         self.copy_total_bytes = 0;
         self.copy_done_bytes = 0;
         self.copy_done_before_job = 0;
@@ -417,8 +415,6 @@ impl App {
     }
 
     pub(crate) fn start_copy_job(&mut self, src: PathBuf, dest: PathBuf, display_name: String) {
-        let (tx, rx) = mpsc::channel();
-        self.copy_rx = Some(rx);
         self.copy_done_before_job = self.copy_done_bytes;
         self.copy_job_total_bytes = 0;
         self.copy_item_name = display_name;
@@ -426,14 +422,14 @@ impl App {
         self.copy_from_remote = self.is_path_inside_remote_mount(&src);
         self.update_copy_status();
 
-        thread::spawn(move || {
+        self.copy_rx = Some(spawn_worker(move |tx| {
             let total = Self::compute_total_bytes(&src).unwrap_or(0);
             let _ = tx.send(CopyProgressMsg::TotalBytes(total));
             let mut copied = 0u64;
             let result = Self::copy_path_with_progress(&src, &dest, &tx, &mut copied)
                 .map_err(|e| e.to_string());
             let _ = tx.send(CopyProgressMsg::Finished(result));
-        });
+        }));
     }
 
     pub(crate) fn pump_copy_progress(&mut self) {

@@ -5,8 +5,6 @@ use std::{
     io,
     path::PathBuf,
     process::Command,
-    sync::mpsc,
-    thread,
 };
 
 use crossterm::{
@@ -18,7 +16,7 @@ use crossterm::{
     },
 };
 
-use crate::util::background::drain_channel;
+use crate::util::background::{drain_channel, spawn_worker};
 use crate::util::tui::suspend_tui;
 use crate::{App, AppMode, DualPanelSide, NotesLoadMsg};
 
@@ -112,13 +110,10 @@ impl App {
         let scan_id = self.notes_scan_id;
         let dir = self.current_dir.clone();
         self.notes_by_name.clear();
-        let (tx, rx) = mpsc::channel();
-        self.notes_rx = Some(rx);
-
-        thread::spawn(move || {
+        self.notes_rx = Some(spawn_worker(move |tx| {
             let notes = App::load_notes_map_for_dir(&dir);
             let _ = tx.send(NotesLoadMsg::Finished(scan_id, dir, notes));
-        });
+        }));
     }
 
     pub(crate) fn pump_notes_progress(&mut self) {
