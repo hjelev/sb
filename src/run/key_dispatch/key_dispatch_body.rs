@@ -1650,24 +1650,49 @@ pub(crate) fn handle_app_key_event_body(
             }
             KeyCode::Enter | KeyCode::Right => {
                 let idx = app.bookmark_selected;
-                if let Ok(path_str) = env::var(format!("SB_BOOKMARK_{}", idx)) {
-                    let path = PathBuf::from(&path_str);
-                    if path.is_dir() {
-                        app.try_enter_dir_on_active_panel(path);
+                let bookmarks = App::load_bookmarks();
+                let is_set = bookmarks.get(idx).map(|(_, p)| p.is_some()).unwrap_or(false);
+                if is_set {
+                    if let Some((_, Some(path))) = bookmarks.get(idx) {
+                        app.try_enter_dir_on_active_panel(path.clone());
                     }
+                    app.mode = AppMode::Browsing;
+                } else {
+                    let current = app.active_panel_dir().to_string_lossy().to_string();
+                    app.bookmark_edit_idx = idx;
+                    app.begin_input_edit(AppMode::BookmarkEditing, current);
                 }
-                app.mode = AppMode::Browsing;
             }
             KeyCode::Char(c @ '0'..='9') => {
                 let idx = (c as u8 - b'0') as usize;
-                if let Ok(path_str) = env::var(format!("SB_BOOKMARK_{}", idx)) {
-                    let path = PathBuf::from(&path_str);
-                    if path.is_dir() {
-                        app.try_enter_dir_on_active_panel(path);
-                    }
+                let bookmarks = App::load_bookmarks();
+                if let Some((_, Some(path))) = bookmarks.get(idx) {
+                    app.try_enter_dir_on_active_panel(path.clone());
                 }
                 app.mode = AppMode::Browsing;
             }
+            _ => {}
+        },
+        AppMode::BookmarkEditing => match key.code {
+            KeyCode::Enter => {
+                let path = app.input_buffer.trim().to_string();
+                if !path.is_empty() {
+                    let idx = app.bookmark_edit_idx;
+                    let mut cfg = crate::util::config::SbPersistConfig::load();
+                    cfg.bookmarks.insert(idx as u8, path);
+                    let _ = cfg.save();
+                }
+                app.clear_input_edit();
+                app.mode = AppMode::Bookmarks;
+            }
+            KeyCode::Esc => { app.clear_input_edit(); app.mode = AppMode::Bookmarks; }
+            KeyCode::Backspace => app.input_backspace(),
+            KeyCode::Delete => app.input_delete(),
+            KeyCode::Left => app.input_move_left(),
+            KeyCode::Right => app.input_move_right(),
+            KeyCode::Home => app.input_move_home(),
+            KeyCode::End => app.input_move_end(),
+            KeyCode::Char(c) => app.input_insert_char(c),
             _ => {}
         },
         AppMode::ConfirmDelete => {

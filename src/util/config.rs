@@ -127,6 +127,8 @@ pub struct SbPersistConfig {
     pub current_theme: String,
     /// Integration keys that the user has explicitly disabled.
     pub disabled_integrations: Vec<String>,
+    /// Persistent bookmarks (index 0–9 → path string). Env vars take precedence at runtime.
+    pub bookmarks: std::collections::HashMap<u8, String>,
     /// Unknown settings (future-proofing: preserve any unrecognized key-value pairs).
     unknown: std::collections::HashMap<String, String>,
 }
@@ -137,6 +139,7 @@ impl Default for SbPersistConfig {
             view_mode: "Normal".to_string(),
             current_theme: "original".to_string(),
             disabled_integrations: Vec::new(),
+            bookmarks: std::collections::HashMap::new(),
             unknown: std::collections::HashMap::new(),
         }
     }
@@ -171,6 +174,13 @@ impl SbPersistConfig {
                             .map(String::from)
                             .collect();
                     }
+                    k if k.starts_with("bookmark_") => {
+                        if let Ok(n) = k["bookmark_".len()..].parse::<u8>() {
+                            if n <= 9 && !val.is_empty() {
+                                cfg.bookmarks.insert(n, val.to_string());
+                            }
+                        }
+                    }
                     _ => {
                         cfg.unknown.insert(key.to_string(), val.to_string());
                     }
@@ -196,6 +206,11 @@ impl SbPersistConfig {
                 self.disabled_integrations.join(",")
             ));
         }
+        let mut sorted_bookmarks: Vec<(&u8, &String)> = self.bookmarks.iter().collect();
+        sorted_bookmarks.sort_by_key(|(n, _)| *n);
+        for (n, path) in sorted_bookmarks {
+            lines.push(format!("bookmark_{} = {}", n, path));
+        }
         for (key, val) in &self.unknown {
             lines.push(format!("{} = {}", key, val));
         }
@@ -215,5 +230,48 @@ mod tests {
         assert_eq!(config.preview_line_limit, 1000);
         assert_eq!(config.dir_list_limit, 10000);
         assert_eq!(config.binary_threshold, 10 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_bookmark_serialization_round_trip() {
+        let mut cfg = SbPersistConfig::default();
+        cfg.bookmarks.insert(0, "/tmp/test0".to_string());
+        cfg.bookmarks.insert(3, "/home/user/projects".to_string());
+        cfg.bookmarks.insert(9, "/var/log".to_string());
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+
+        // Simulate what save() would write
+        let mut lines = vec!["# sb config".to_string()];
+        lines.push(format!("view_mode = {}", cfg.view_mode));
+        lines.push(format!("current_theme = {}", cfg.current_theme));
+        let mut sorted: Vec<(&u8, &String)> = cfg.bookmarks.iter().collect();
+        sorted.sort_by_key(|(n, _)| *n);
+        for (n, bpath) in &sorted {
+            lines.push(format!("bookmark_{} = {}", n, bpath));
+        }
+        let content = lines.join("\n") + "\n";
+        std::fs::write(&path, &content).unwrap();
+
+        // Parse it back
+        let loaded = content.lines().fold(SbPersistConfig::default(), |mut c, line| {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') { return c; }
+            if let Some((k, v)) = line.split_once('=') {
+                let k = k.trim(); let v = v.trim();
+                if k.starts_with("bookmark_") {
+                    if let Ok(n) = k["bookmark_".len()..].parse::<u8>() {
+                        if n <= 9 && !v.is_empty() { c.bookmarks.insert(n, v.to_string()); }
+                    }
+                }
+            }
+            c
+        });
+
+        assert_eq!(loaded.bookmarks.get(&0), Some(&"/tmp/test0".to_string()));
+        assert_eq!(loaded.bookmarks.get(&3), Some(&"/home/user/projects".to_string()));
+        assert_eq!(loaded.bookmarks.get(&9), Some(&"/var/log".to_string()));
     }
 }

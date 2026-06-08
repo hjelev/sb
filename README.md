@@ -131,7 +131,7 @@ cargo install shell-buddy
 ### From Homebrew
 
 ```bash
-brew install hjelev/tap/shell-buddy
+brew install hjelev/tap/sb
 ```
 
 ### From Source

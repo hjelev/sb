@@ -140,6 +140,7 @@ struct App {
     show_icons: bool,
     integration_selected: usize,
     bookmark_selected: usize,
+    bookmark_edit_idx: usize,
     integration_overrides: HashMap<String, bool>,
     integration_rows_cache: Vec<IntegrationRow>,
     integration_install_key: Option<String>,
@@ -355,6 +356,7 @@ impl App {
             show_icons: env::var("TERMINAL_ICONS").map(|v| v != "0").unwrap_or(true),
             integration_selected: 0,
             bookmark_selected: 0,
+            bookmark_edit_idx: 0,
             integration_overrides: HashMap::new(),
             integration_rows_cache: Vec::new(),
             integration_install_key: None,
@@ -2199,9 +2201,11 @@ IFS= read -rsn1 _
     }
 
     fn load_bookmarks() -> Vec<(usize, Option<PathBuf>)> {
+        let cfg = crate::util::config::SbPersistConfig::load();
         (0..=9).map(|i| {
             let path = env::var(format!("SB_BOOKMARK_{}", i))
                 .ok()
+                .or_else(|| cfg.bookmarks.get(&(i as u8)).cloned())
                 .map(PathBuf::from)
                 .filter(|p| p.is_dir());
             (i, path)

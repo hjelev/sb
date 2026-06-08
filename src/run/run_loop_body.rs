@@ -140,6 +140,7 @@ pub(crate) fn run_tui_body(
                 | AppMode::GitCommitMessage
                 | AppMode::GitTagInput
                 | AppMode::InternalSearch
+                | AppMode::BookmarkEditing
         );
         if text_input_cursor {
             execute!(terminal.backend_mut(), SetCursorStyle::BlinkingBar)?;
@@ -2444,7 +2445,7 @@ pub(crate) fn run_tui_body(
                         ),
                     confirm_area,
                 );
-            } else if app.mode == AppMode::Bookmarks {
+            } else if app.mode == AppMode::Bookmarks || app.mode == AppMode::BookmarkEditing {
                 let bookmarks = App::load_bookmarks();
                 if !bookmarks.is_empty() && app.bookmark_selected >= bookmarks.len() {
                     app.bookmark_selected = bookmarks.len() - 1;
@@ -2458,6 +2459,32 @@ pub(crate) fn run_tui_body(
                     app.bookmark_selected,
                     app.nerd_font_active,
                 );
+                if app.mode == AppMode::BookmarkEditing {
+                    let area = f.size();
+                    let rename_area = Rect::new(area.width / 4, area.height / 2 - 1, area.width / 2, 3);
+                    f.render_widget(Clear, rename_area);
+                    let title = format!(" Set Bookmark {} (Enter=Save, Esc=Cancel) ", app.bookmark_edit_idx);
+                    app.clamp_input_cursor();
+                    let avail_w = (rename_area.width as usize).saturating_sub(2);
+                    let cursor = app.input_cursor;
+                    let scroll = if avail_w > 0 && cursor >= avail_w { cursor + 1 - avail_w } else { 0 };
+                    let visible_text: String = app.input_buffer.chars().skip(scroll).collect();
+                    f.render_widget(
+                        Paragraph::new(visible_text).block(
+                            Block::default()
+                                .borders(Borders::ALL)
+                                .border_type(BorderType::Rounded)
+                                .title(title.as_str())
+                                .title_style(Style::default().fg(active_theme.text_normal)),
+                        ),
+                        rename_area,
+                    );
+                    let cursor_x = rename_area.x + 1 + (cursor - scroll) as u16;
+                    f.set_cursor(
+                        cursor_x.min(rename_area.x + rename_area.width.saturating_sub(1)),
+                        rename_area.y + 1,
+                    );
+                }
             } else if app.mode == AppMode::Integrations {
                 let area = f.size();
                 if !app.integration_rows_cache.is_empty()
