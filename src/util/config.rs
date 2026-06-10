@@ -58,7 +58,7 @@ impl AppConfig {
             show_icons: env::var("TERMINAL_ICONS")
                 .map(|v| v != "0")
                 .unwrap_or(true),
-            editor: env::var("EDITOR").unwrap_or_else(|_| "nano".to_string()),
+            editor: crate::util::command::editor_command(),
             preview_line_limit: 1000,
             dir_list_limit: 10000,
             binary_threshold: 10 * 1024 * 1024,

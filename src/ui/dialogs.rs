@@ -420,10 +420,7 @@ where
         };
 
         for path in to_delete.iter().skip(offset).take(visible_rows) {
-            let name = path
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| path.to_string_lossy().into_owned());
+            let name = crate::util::classify::display_name(path.as_path());
             let path_is_symlink = path
                 .symlink_metadata()
                 .map(|m| m.file_type().is_symlink())

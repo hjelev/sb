@@ -1,6 +1,6 @@
 use super::*;
 use crate::ui::theme;
-use crate::util::tui::{resume_tui, suspend_tui};
+use crate::util::tui::{resume_tui, resume_tui_cleared, suspend_tui};
 
 pub(crate) fn handle_app_key_event_body(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
@@ -387,7 +387,7 @@ pub(crate) fn handle_app_key_event_body(
                 app.mode = AppMode::Browsing;
                 suspend_tui()?;
                 execute!(io::stdout(), Show)?;
-                let _ = Command::new(env::var("EDITOR").unwrap_or_else(|_| "nano".to_string()))
+                let _ = Command::new(crate::util::command::editor_command())
                     .arg(&config_path)
                     .status();
                 enable_raw_mode()?;
@@ -676,8 +676,7 @@ fn handle_browsing_key(
                         .current_dir(&work_dir)
                         .status();
                 }
-                execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-                execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+                resume_tui_cleared()?;
                 enable_raw_mode()?;
                 terminal.clear()?;
             } else {
@@ -1185,19 +1184,9 @@ fn handle_browsing_key(
                 }
                 else if App::is_mermaid_file(&selected_path) && app.integration_active("mmdflux") {
                     suspend_tui()?;
-                    if let Ok(mut child) = Command::new("mmdflux")
-                        .arg(&selected_path)
-                        .stdout(Stdio::piped())
-                        .spawn()
-                    {
-                        if let Some(mmd_out) = child.stdout.take() {
-                            let _ = Command::new("less")
-                                .args(["-R"])
-                                .stdin(mmd_out)
-                                .status();
-                        }
-                        let _ = child.wait();
-                    }
+                    let mut cmd = Command::new("mmdflux");
+                    cmd.arg(&selected_path);
+                    let _ = crate::util::command::pipe_to_pager(cmd);
                     resume_tui()?;
                     terminal.clear()?;
                 }
@@ -1274,24 +1263,9 @@ fn handle_browsing_key(
                 else if App::is_pdf_file(&selected_path) && app.integration_active("pdftotext") {
                     suspend_tui()?;
 
-                    let mut shown = false;
-                    if let Ok(mut child) = Command::new("pdftotext")
-                        .args(["-layout", "-nopgbrk"])
-                        .arg(&selected_path)
-                        .arg("-")
-                        .stdout(Stdio::piped())
-                        .spawn()
-                    {
-                        if let Some(pdf_text) = child.stdout.take() {
-                            shown = Command::new("less")
-                                .args(["-R"])
-                                .stdin(pdf_text)
-                                .status()
-                                .map(|s| s.success())
-                                .unwrap_or(false);
-                        }
-                        let _ = child.wait();
-                    }
+                    let mut cmd = Command::new("pdftotext");
+                    cmd.args(["-layout", "-nopgbrk"]).arg(&selected_path).arg("-");
+                    let shown = crate::util::command::pipe_to_pager(cmd);
 
                     if !shown {
                         let _ = Command::new("less")
@@ -1313,18 +1287,9 @@ fn handle_browsing_key(
                 else { 
                     disable_raw_mode()?; execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
                     if App::is_binary_file(&selected_path) && app.integration_active("hexyl") {
-                        use std::process::Stdio;
-                        let hexyl = Command::new("hexyl")
-                            .arg(&selected_path)
-                            .stdout(Stdio::piped())
-                            .spawn();
-                        if let Ok(child) = hexyl
-                            && let Some(out) = child.stdout {
-                                let _ = Command::new("less")
-                                    .args(["-R"])
-                                    .stdin(out)
-                                    .status();
-                            }
+                        let mut cmd = Command::new("hexyl");
+                        cmd.arg(&selected_path);
+                        let _ = crate::util::command::pipe_to_pager(cmd);
                     } else if app.integration_active("bat") {
                         let bat_cmd = App::bat_tool().unwrap_or_else(|| "bat".to_string());
                         let _ = Command::new(bat_cmd)
@@ -1465,7 +1430,7 @@ fn handle_browsing_key(
                     if !path.is_dir() && App::is_binary_file(&path) && app.integration_active("hexedit") {
                         let _ = Command::new("hexedit").arg(&path).status();
                     } else {
-                        let _ = Command::new(env::var("EDITOR").unwrap_or_else(|_| "nano".to_string())).arg(&path).status();
+                        let _ = Command::new(crate::util::command::editor_command()).arg(&path).status();
                     }
                     enable_raw_mode()?; execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
                     execute!(io::stdout(), Hide)?;

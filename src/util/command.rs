@@ -13,6 +13,38 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
+/// Spawn `cmd` with its stdout piped into `less -R`, returning whether the pager
+/// exited successfully. The spawned child is reaped after the pager closes.
+///
+/// Centralizes the repeated "spawn preview tool → pipe into `less -R`" blocks
+/// (mermaid/`mmdflux`, `pdftotext`, `hexyl`, …). Callers that don't care about
+/// success use `let _ = pipe_to_pager(cmd);`.
+pub fn pipe_to_pager(mut cmd: Command) -> bool {
+    let Ok(mut child) = cmd.stdout(Stdio::piped()).spawn() else {
+        return false;
+    };
+    let mut shown = false;
+    if let Some(out) = child.stdout.take() {
+        shown = Command::new("less")
+            .args(["-R"])
+            .stdin(out)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+    }
+    let _ = child.wait();
+    shown
+}
+
+/// The user's preferred terminal editor program.
+///
+/// Reads `$EDITOR`, falling back to `nano`. Centralizes the
+/// `env::var("EDITOR").unwrap_or_else(|_| "nano".to_string())` pattern that was
+/// duplicated across the editor/notes/transfer launch sites.
+pub fn editor_command() -> String {
+    std::env::var("EDITOR").unwrap_or_else(|_| "nano".to_string())
+}
+
 /// Builder for executing external commands with consistent error handling.
 pub struct CommandBuilder;
 

@@ -11,10 +11,10 @@ use std::{
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use crossterm::{
     cursor::MoveTo,
-    event::{self, EnableMouseCapture, Event, KeyCode},
+    event::{self, Event, KeyCode},
     execute,
     style::{Color as CtColor, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
-    terminal::{disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType, EnterAlternateScreen},
+    terminal::{disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType},
 };
 use image::{imageops::FilterType, GenericImageView, ImageFormat, ImageReader};
 use ratatui::{
@@ -23,7 +23,7 @@ use ratatui::{
     text::{Line, Span},
 };
 
-use crate::util::tui::{resume_tui, suspend_tui};
+use crate::util::tui::{resume_tui, resume_tui_cleared, suspend_tui};
 use crate::{integration::probe::TerminalImageProtocol, App};
 
 /// Box-filter average of one halfblock pixel cell.
@@ -172,8 +172,7 @@ impl App {
 
         let fallback_result = Self::render_halfblock_fullscreen_slideshow(&images, start_idx);
 
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+        resume_tui_cleared()?;
         enable_raw_mode()?;
         Self::drain_pending_terminal_events();
 
@@ -648,8 +647,7 @@ impl App {
 
         let native_result = Self::render_native_fullscreen_slideshow(&images, start_idx, protocol);
 
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+        resume_tui_cleared()?;
         enable_raw_mode()?;
         Self::drain_pending_terminal_events();
 

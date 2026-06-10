@@ -7,15 +7,24 @@ use std::{
 };
 use crossterm::{
     cursor::{Hide, Show},
-    event::{self, EnableMouseCapture, Event, KeyCode},
+    event::{self, Event, KeyCode},
     execute,
-    terminal::{
-        disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType, EnterAlternateScreen,
-    },
+    terminal::{disable_raw_mode, enable_raw_mode},
 };
 
-use crate::util::tui::{resume_tui, suspend_tui};
+use crate::util::tui::{resume_tui, resume_tui_cleared, suspend_tui};
 use crate::{App, ArchiveKind, ZIP_BASED_EXTENSIONS};
+
+/// Tar-family suffixes (including compressed variants) recognized as archives.
+const TAR_EXTENSIONS: &[&str] = &[
+    ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz", ".tbz2", ".tar.xz", ".txz", ".tar.zst",
+    ".tzst",
+];
+
+/// Returns true if a (lowercased) file name ends with a tar-family suffix.
+fn is_tar_like(lower_name: &str) -> bool {
+    TAR_EXTENSIONS.iter().any(|ext| lower_name.ends_with(ext))
+}
 
 impl App {
     pub(crate) fn is_supported_archive(path: &PathBuf) -> bool {
@@ -25,16 +34,7 @@ impl App {
             .map(|s| s.to_ascii_lowercase())
             .unwrap_or_default();
 
-        let tar_like = lower_name.ends_with(".tar")
-            || lower_name.ends_with(".tar.gz")
-            || lower_name.ends_with(".tgz")
-            || lower_name.ends_with(".tar.bz2")
-            || lower_name.ends_with(".tbz")
-            || lower_name.ends_with(".tbz2")
-            || lower_name.ends_with(".tar.xz")
-            || lower_name.ends_with(".txz")
-            || lower_name.ends_with(".tar.zst")
-            || lower_name.ends_with(".tzst");
+        let tar_like = is_tar_like(&lower_name);
 
         let seven_zip = lower_name.ends_with(".7z");
         let rar = lower_name.ends_with(".rar");
@@ -73,17 +73,7 @@ impl App {
             return Some(ArchiveKind::Zip);
         }
 
-        if lower_name.ends_with(".tar")
-            || lower_name.ends_with(".tar.gz")
-            || lower_name.ends_with(".tgz")
-            || lower_name.ends_with(".tar.bz2")
-            || lower_name.ends_with(".tbz")
-            || lower_name.ends_with(".tbz2")
-            || lower_name.ends_with(".tar.xz")
-            || lower_name.ends_with(".txz")
-            || lower_name.ends_with(".tar.zst")
-            || lower_name.ends_with(".tzst")
-        {
+        if is_tar_like(&lower_name) {
             return Some(ArchiveKind::Tar);
         }
         if lower_name.ends_with(".7z") {
@@ -310,8 +300,7 @@ impl App {
 
         suspend_tui()?;
         let result = Self::age_encrypt_file_interactive(input, &protected_path);
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-        execute!(io::stdout(), TermClear(ClearType::All), crossterm::cursor::MoveTo(0, 0))?;
+        resume_tui_cleared()?;
         enable_raw_mode()?;
 
         match result {
@@ -340,8 +329,7 @@ impl App {
 
         suspend_tui()?;
         let result = Self::age_decrypt_file_interactive(input, &plain_path);
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-        execute!(io::stdout(), TermClear(ClearType::All), crossterm::cursor::MoveTo(0, 0))?;
+        resume_tui_cleared()?;
         enable_raw_mode()?;
 
         match result {
@@ -382,21 +370,9 @@ impl App {
                     .map(|s| s.success())
                     .unwrap_or(false);
             } else if Self::is_mermaid_file(&tmp_path) && self.integration_active("mmdflux") {
-                if let Ok(mut child) = Command::new("mmdflux")
-                    .arg(&tmp_path)
-                    .stdout(Stdio::piped())
-                    .spawn()
-                {
-                    if let Some(mmd_out) = child.stdout.take() {
-                        shown = Command::new("less")
-                            .args(["-R"])
-                            .stdin(mmd_out)
-                            .status()
-                            .map(|s| s.success())
-                            .unwrap_or(false);
-                    }
-                    let _ = child.wait();
-                }
+                let mut cmd = Command::new("mmdflux");
+                cmd.arg(&tmp_path);
+                shown = crate::util::command::pipe_to_pager(cmd);
             } else if Self::is_html_file(&tmp_path) && self.integration_active("links") {
                 shown = Command::new("links")
                     .arg(&tmp_path)
@@ -453,37 +429,13 @@ impl App {
             } else if Self::is_supported_archive(&tmp_path) {
                 shown = self.preview_archive_contents(&tmp_path);
             } else if Self::is_pdf_file(&tmp_path) && self.integration_active("pdftotext") {
-                if let Ok(mut child) = Command::new("pdftotext")
-                    .args(["-layout", "-nopgbrk"])
-                    .arg(&tmp_path)
-                    .arg("-")
-                    .stdout(Stdio::piped())
-                    .spawn()
-                {
-                    if let Some(pdf_text) = child.stdout.take() {
-                        shown = Command::new("less")
-                            .args(["-R"])
-                            .stdin(pdf_text)
-                            .status()
-                            .map(|s| s.success())
-                            .unwrap_or(false);
-                    }
-                    let _ = child.wait();
-                }
+                let mut cmd = Command::new("pdftotext");
+                cmd.args(["-layout", "-nopgbrk"]).arg(&tmp_path).arg("-");
+                shown = crate::util::command::pipe_to_pager(cmd);
             } else if Self::is_binary_file(&tmp_path) && self.integration_active("hexyl") {
-                let hexyl = Command::new("hexyl")
-                    .arg(&tmp_path)
-                    .stdout(Stdio::piped())
-                    .spawn();
-                if let Ok(child) = hexyl
-                    && let Some(out) = child.stdout {
-                        shown = Command::new("less")
-                            .args(["-R"])
-                            .stdin(out)
-                            .status()
-                            .map(|s| s.success())
-                            .unwrap_or(false);
-                    }
+                let mut cmd = Command::new("hexyl");
+                cmd.arg(&tmp_path);
+                shown = crate::util::command::pipe_to_pager(cmd);
             } else if self.integration_active("bat") {
                 let bat_cmd = Self::bat_tool().unwrap_or_else(|| "bat".to_string());
                 shown = Command::new(bat_cmd)
@@ -501,8 +453,7 @@ impl App {
             }
         }
 
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-        execute!(io::stdout(), TermClear(ClearType::All), crossterm::cursor::MoveTo(0, 0))?;
+        resume_tui_cleared()?;
         enable_raw_mode()?;
         let _ = fs::remove_file(&tmp_path);
         let _ = fs::remove_dir_all(&tmp_dir);
@@ -532,7 +483,7 @@ impl App {
             return Ok(false);
         }
 
-        let editor = env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
+        let editor = crate::util::command::editor_command();
         let _ = Command::new(editor)
             .arg(&tmp_path)
             .status();
