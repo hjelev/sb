@@ -516,7 +516,7 @@ fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> TableLayout {
     let selection_style = if app.is_dual_panel_mode() {
         match app.active_panel {
             crate::DualPanelSide::Left => Style::default().bg(active_theme.bg_selected),
-            crate::DualPanelSide::Right => Style::default().bg(Color::Rgb(38, 38, 45)),
+            crate::DualPanelSide::Right => Style::default().bg(active_theme.bg_inactive_panel),
         }
     } else {
         Style::default().bg(active_theme.bg_selected)
@@ -550,7 +550,7 @@ fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> TableLayout {
     };
     let use_main_pill = true;
     let left_pill_color = if app.is_dual_panel_mode() && app.active_panel == crate::DualPanelSide::Right {
-        Color::Rgb(38, 38, 45)
+        active_theme.bg_inactive_panel
     } else {
         active_theme.bg_selected
     };
@@ -965,7 +965,7 @@ fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &RenderCtx, t
     let tree_style = Style::default().fg(Color::Rgb(140, 140, 140));
     let right_selection_style = if app.is_dual_panel_mode() {
         match app.active_panel {
-            crate::DualPanelSide::Left => Style::default().bg(Color::Rgb(38, 38, 45)),
+            crate::DualPanelSide::Left => Style::default().bg(ctx.theme.bg_inactive_panel),
             crate::DualPanelSide::Right => Style::default().bg(ctx.theme.bg_selected),
         }
     } else {
@@ -1291,7 +1291,7 @@ fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &RenderCtx, t
             let right_pill_color = if app.active_panel == crate::DualPanelSide::Right {
                 active_theme.bg_selected
             } else {
-                Color::Rgb(38, 38, 45)
+                active_theme.bg_inactive_panel
             };
 
             let right_rows: Vec<Row> = app
@@ -1526,11 +1526,11 @@ fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &RenderCtx, t
             let selected_total_is_shown = lower_msg.starts_with("selected:");
             let is_error = crate::ui::status::is_error_message(&status_text);
             let msg_style = if selected_total_is_shown {
-                Style::default().fg(Color::Rgb(150, 220, 150))
+                Style::default().fg(active_theme.git_added)
             } else if app.copy_rx.is_some() || app.archive_rx.is_some() {
-                Style::default().fg(Color::Rgb(120, 200, 255))
+                Style::default().fg(active_theme.git_modified)
             } else if is_error {
-                Style::default().fg(Color::Rgb(255, 120, 120))
+                Style::default().fg(active_theme.git_deleted)
             } else {
                 Style::default().fg(active_theme.text_normal)
             };
@@ -1653,7 +1653,7 @@ fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
         if app.internal_search_candidates_pending {
             lines.push(Line::from(Span::styled(
                 "Indexing files asynchronously...",
-                Style::default().fg(Color::Rgb(120, 200, 255)),
+                Style::default().fg(active_theme.overlay_section),
             )));
         } else if app.internal_search_candidates_truncated {
             lines.push(Line::from(Span::styled(
@@ -1703,7 +1703,7 @@ fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             if app.internal_search_content_pending {
                 lines.push(Line::from(Span::styled(
                     " Scanning content asynchronously...",
-                    Style::default().fg(Color::Rgb(120, 200, 255)),
+                    Style::default().fg(active_theme.overlay_section),
                 )));
             }
             if let Some(note) = &app.internal_search_content_limit_note {
@@ -2840,11 +2840,11 @@ fn render_footer(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             let msg_area = Rect::new(chunks[1].x, chunks[1].y, chunks[1].width, 1);
             let is_error = crate::ui::status::is_error_message(&status_text);
             let msg_style = if selected_total_is_shown {
-                Style::default().fg(Color::Rgb(150, 220, 150))
+                Style::default().fg(active_theme.git_added)
             } else if app.copy_rx.is_some() || app.archive_rx.is_some() {
-                Style::default().fg(Color::Rgb(120, 200, 255))
+                Style::default().fg(active_theme.git_modified)
             } else if is_error {
-                Style::default().fg(Color::Rgb(255, 120, 120))
+                Style::default().fg(active_theme.git_deleted)
             } else {
                 Style::default().fg(active_theme.text_normal)
             };

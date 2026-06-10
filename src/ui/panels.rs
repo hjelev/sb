@@ -152,6 +152,7 @@ fn render_scrollbar_track(
     visible_rows: usize,
     scroll_offset: usize,
     max_scroll: usize,
+    spec: &crate::ui::theme::ThemeSpec,
 ) {
     let track_h = sb_area.height as usize;
     if track_h == 0 || total_rows == 0 {
@@ -170,9 +171,9 @@ fn render_scrollbar_track(
     for row in 0..track_h {
         let in_thumb = row >= thumb_y && row < thumb_y + thumb_h;
         let (ch, color) = if in_thumb {
-            ("┃", Color::Rgb(120, 240, 220))
+            ("┃", spec.accent_primary)
         } else {
-            ("│", Color::Rgb(80, 200, 180))
+            ("│", spec.divider)
         };
         sb_lines.push(Line::from(Span::styled(ch, Style::default().fg(color))));
     }
@@ -363,11 +364,11 @@ pub fn render_integrations_overlay(
             " ✕ ".to_string()
         };
         let status_style = if row.required || (is_enabled && row.available) {
-            Style::default().fg(Color::Rgb(100, 220, 120))
+            Style::default().fg(spec.success)
         } else if is_enabled && row.partially_supported {
-            Style::default().fg(Color::Rgb(245, 200, 90))
+            Style::default().fg(spec.warning)
         } else {
-            Style::default().fg(Color::Rgb(220, 80, 80))
+            Style::default().fg(spec.error)
         };
         let base_style = if is_selected {
             Style::default().bg(spec.bg_selected).fg(spec.text_normal)
@@ -383,13 +384,13 @@ pub fn render_integrations_overlay(
         let state_span = Span::styled(
             state_text.clone(),
             if row.required {
-                base_style.fg(Color::Rgb(200, 200, 200))
+                base_style.fg(spec.text_normal)
             } else if !row.available && !row.partially_supported {
-                base_style.fg(Color::Rgb(220, 80, 80))
+                base_style.fg(spec.error)
             } else if is_enabled && row.partially_supported {
-                base_style.fg(Color::Rgb(245, 200, 90))
+                base_style.fg(spec.warning)
             } else if is_enabled {
-                base_style.fg(Color::Rgb(255, 220, 140))
+                base_style.fg(spec.key_label)
             } else {
                 base_style.fg(spec.text_dim)
             },
@@ -448,7 +449,7 @@ pub fn render_integrations_overlay(
             1,
             int_chunks[0].height,
         );
-        render_scrollbar_track(f, sb_area, total_rows, visible_rows, int_scroll, max_scroll);
+        render_scrollbar_track(f, sb_area, total_rows, visible_rows, int_scroll, max_scroll, spec);
     }
     f.render_widget(
         Paragraph::new(shortcut_footer_lines(&[
@@ -470,12 +471,13 @@ pub fn render_help_overlay(
     help_scroll_offset: u16,
     nerd_font: bool,
 ) -> (u16, u16) {
+    let spec = theme_spec(theme_id);
     let help_w = tab_overlay_anchor.width;
     let inner_w = help_w.saturating_sub(4) as usize;
     let shortcut_w = inner_w.clamp(10, 18);
-    let section_style = Style::default().fg(Color::Rgb(120, 200, 255)).add_modifier(Modifier::BOLD);
-    let shortcut_style = Style::default().fg(Color::Rgb(255, 220, 140)).add_modifier(Modifier::BOLD);
-    let desc_style = Style::default().fg(Color::Rgb(200, 200, 200));
+    let section_style = Style::default().fg(spec.overlay_section).add_modifier(Modifier::BOLD);
+    let shortcut_style = Style::default().fg(spec.key_label).add_modifier(Modifier::BOLD);
+    let desc_style = Style::default().fg(spec.text_normal);
 
     let config_path = {
         let base = std::env::var("XDG_CONFIG_HOME")
@@ -491,8 +493,8 @@ pub fn render_help_overlay(
         base.join("sb").join("config")
     };
 
-    let title_style = Style::default().fg(Color::Rgb(255, 255, 255)).add_modifier(Modifier::BOLD);
-    let subtitle_style = Style::default().fg(theme_spec(theme_id).text_dim);
+    let title_style = Style::default().fg(spec.text_normal).add_modifier(Modifier::BOLD);
+    let subtitle_style = Style::default().fg(spec.text_dim);
 
     let mut lines: Vec<Line> = vec![
         Line::from(Span::styled(
@@ -507,9 +509,9 @@ pub fn render_help_overlay(
         Line::from(vec![
             Span::styled(
                 format!("{:<width$}", "Shortcut", width = shortcut_w),
-                Style::default().fg(Color::Rgb(190, 190, 190)).add_modifier(Modifier::BOLD),
+                Style::default().fg(spec.text_dim).add_modifier(Modifier::BOLD),
             ),
-            Span::styled("Description", Style::default().fg(Color::Rgb(190, 190, 190)).add_modifier(Modifier::BOLD)),
+            Span::styled("Description", Style::default().fg(spec.text_dim).add_modifier(Modifier::BOLD)),
         ]),
     ];
 
@@ -649,7 +651,7 @@ pub fn render_help_overlay(
         );
         render_scrollbar_track(
             f, sb_area, total_lines, visible_lines,
-            clamped_offset as usize, max_scroll,
+            clamped_offset as usize, max_scroll, spec,
         );
     }
     f.render_widget(
@@ -690,11 +692,11 @@ pub fn render_bookmarks_overlay(
         let (label, style) = match path {
             Some(p) => (
                 format!(" [{}]  {}", i, p.display()),
-                Style::default().fg(Color::Rgb(100, 220, 120)).patch(base_style),
+                Style::default().fg(spec.success).patch(base_style),
             ),
             None => (
                 format!(" [{}]  (not set)", i),
-                Style::default().fg(Color::Rgb(80, 80, 80)).patch(base_style),
+                Style::default().fg(spec.text_dim).patch(base_style),
             ),
         };
 
