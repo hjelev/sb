@@ -112,7 +112,7 @@ pub fn integration_support_and_detail(key: &str) -> (bool, bool, String) {
     match key {
         "$EDITOR" => {
             let editor_var = env::var("EDITOR").unwrap_or_else(|_| "(not set)".to_string());
-            let editor_cmd = env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
+            let editor_cmd = crate::util::command::editor_command();
             let (ok, path) = integration_probe(&editor_cmd);
             if ok {
                 (true, false, path)

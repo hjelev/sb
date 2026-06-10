@@ -2597,10 +2597,7 @@ fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             if idx >= max_list_rows {
                 break;
             }
-            let name = path
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| path.to_string_lossy().into_owned());
+            let name = crate::util::classify::display_name(path.as_path());
             msg_lines.push(format!(" - {}", name));
         }
         if to_extract.len() > max_list_rows {

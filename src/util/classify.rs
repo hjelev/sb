@@ -34,6 +34,16 @@ pub fn path_file_name(path: &Path) -> Option<String> {
     path.file_name().map(|n| n.to_string_lossy().into_owned())
 }
 
+/// Returns a path's final component as a (lossy) `String`, falling back to the
+/// whole path when it has no final component (e.g. `/`).
+///
+/// Replaces the repeated
+/// `path.file_name().map(|n| n.to_string_lossy().into_owned())
+///      .unwrap_or_else(|| path.to_string_lossy().into_owned())`.
+pub fn display_name(path: &Path) -> String {
+    path_file_name(path).unwrap_or_else(|| path.to_string_lossy().into_owned())
+}
+
 /// Returns true if `path` itself is a symbolic link.
 ///
 /// Uses `symlink_metadata()` so the link is inspected rather than its target;
@@ -65,6 +75,13 @@ mod tests {
             Some("c.txt".to_string())
         );
         assert_eq!(path_file_name(&PathBuf::from("/")), None);
+    }
+
+    #[test]
+    fn test_display_name() {
+        assert_eq!(display_name(&PathBuf::from("/a/b/c.txt")), "c.txt");
+        // No final component → falls back to the whole path.
+        assert_eq!(display_name(&PathBuf::from("/")), "/");
     }
 
     #[test]

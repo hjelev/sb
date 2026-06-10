@@ -7,17 +7,17 @@ use std::{
 };
 use crossterm::{
     cursor::MoveTo,
-    event::{self, Event, KeyCode, EnableMouseCapture},
+    event::{self, Event, KeyCode},
     execute,
     terminal::{
-        disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType, EnterAlternateScreen,
+        disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType,
     },
 };
 
 use crate::{App, AppMode, GitInfoCache};
 use crate::util::background::spawn_worker;
 use crate::util::command::CommandBuilder;
-use crate::util::tui::{suspend_tui, resume_tui};
+use crate::util::tui::{resume_tui, resume_tui_cleared, suspend_tui};
 
 impl App {
     pub(crate) fn pump_git_info(&mut self) {
@@ -317,8 +317,7 @@ impl App {
             disable_raw_mode()?;
         }
 
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+        resume_tui_cleared()?;
         enable_raw_mode()?;
 
         if let Some(step) = failed_step {
