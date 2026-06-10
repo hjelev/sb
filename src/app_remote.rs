@@ -8,19 +8,16 @@ use std::{
 };
 
 use crossterm::{
-    cursor::{Hide, MoveTo, Show},
-    event::EnableMouseCapture,
+    cursor::{Hide, Show},
     execute,
-    terminal::{
-        enable_raw_mode, Clear as TermClear, ClearType, EnterAlternateScreen,
-    },
+    terminal::enable_raw_mode,
 };
 use ratatui::style::Color;
 
 use crate::{App, AppMode, PathFilterMode, RemoteEntry, SshHost, SshMount};
 use crate::ui;
 use crate::util::command::CommandBuilder;
-use crate::util::tui::suspend_tui;
+use crate::util::tui::{resume_tui_cleared, suspend_tui};
 
 impl App {
 
@@ -398,8 +395,7 @@ impl App {
 
         let status = cmd.status();
 
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+        resume_tui_cleared()?;
         enable_raw_mode()?;
         execute!(io::stdout(), Hide)?;
 

@@ -31,7 +31,7 @@ use std::{
     fs,
     io,
     path::PathBuf,
-    process::{Command, Stdio},
+    process::Command,
     sync::mpsc::{self, Receiver},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -279,22 +279,15 @@ impl App {
             }
             // Fall back to hexyl with less paging if hexedit is not available
             if Self::integration_probe("hexyl").0 {
-                if let Ok(mut child) = Command::new("hexyl")
-                    .arg(path)
-                    .stdout(Stdio::piped())
-                    .spawn()
-                {
-                    if let Some(hex_out) = child.stdout.take() {
-                        let _ = Command::new("less").args(["-R"]).stdin(hex_out).status();
-                    }
-                    let _ = child.wait();
-                }
+                let mut cmd = Command::new("hexyl");
+                cmd.arg(path);
+                let _ = crate::util::command::pipe_to_pager(cmd);
                 return Ok(());
             }
         }
 
         // For text files or if no binary editors available, use regular editor
-        let editor = env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
+        let editor = crate::util::command::editor_command();
         let _ = Command::new(editor).arg(path).status()?;
         Ok(())
     }

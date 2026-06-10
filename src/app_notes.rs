@@ -302,7 +302,7 @@ impl App {
                 return Ok(());
             }
 
-        let editor = env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
+        let editor = crate::util::command::editor_command();
         suspend_tui()?;
         execute!(io::stdout(), Show)?;
         let _ = Command::new(editor).arg(&todo_path).status();

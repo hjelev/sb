@@ -40,10 +40,7 @@ impl App {
             .iter()
             .position(|m| m.archive_path == archive_path && m.mount_path.is_dir())
         {
-            let archive_name = archive_path
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_else(|| archive_path.to_string_lossy().into_owned());
+            let archive_name = crate::util::classify::display_name(&archive_path);
             let mount_path = self.archive_mounts[existing_idx].mount_path.clone();
             self.archive_mounts[existing_idx].return_dir = self.active_panel_dir();
             self.archive_mounts[existing_idx].archive_name = archive_name;
@@ -59,10 +56,7 @@ impl App {
 
         match Command::new(tool).arg(&archive_path).arg(&mount_path).status() {
             Ok(status) if status.success() => {
-                let archive_name = archive_path
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| archive_path.to_string_lossy().into_owned());
+                let archive_name = crate::util::classify::display_name(&archive_path);
                 let return_dir = self.active_panel_dir();
                 self.archive_mounts.push(ArchiveMount {
                     archive_path,
@@ -82,10 +76,7 @@ impl App {
     }
 
     pub(crate) fn preview_archive_contents(&mut self, archive_path: &PathBuf) -> bool {
-        let archive_name = archive_path
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| archive_path.to_string_lossy().into_owned());
+        let archive_name = crate::util::classify::display_name(archive_path);
 
         let mut cmd = match Self::archive_kind(archive_path) {
             Some(ArchiveKind::Zip)
@@ -485,14 +476,7 @@ impl App {
             (done.min(display_total) as f64 * 100.0) / display_total as f64
         };
 
-        let bar_len = 20usize;
-        let filled = ((percent / 100.0) * bar_len as f64).round() as usize;
-        let filled = filled.min(bar_len);
-        let bar = format!(
-            "{}{}",
-            "#".repeat(filled),
-            "-".repeat(bar_len.saturating_sub(filled))
-        );
+        let bar = crate::util::format::progress_bar(percent, 20);
 
         let elapsed = self
             .archive_started_at

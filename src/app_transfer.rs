@@ -1,5 +1,4 @@
 use std::{
-    env,
     fs,
     io::{self, Read, Write},
     path::PathBuf,
@@ -282,7 +281,7 @@ impl App {
         execute!(io::stdout(), Show)?;
 
         let edit_result = {
-            let _ = Command::new(env::var("EDITOR").unwrap_or_else(|_| "nano".to_string()))
+            let _ = Command::new(crate::util::command::editor_command())
                 .arg(&tmp)
                 .status();
             fs::read_to_string(&tmp)
@@ -382,13 +381,7 @@ impl App {
         } else {
             0
         };
-        let bar_width = 14usize;
-        let filled = ((percent / 100.0) * bar_width as f64).round() as usize;
-        let bar = format!(
-            "{}{}",
-            "#".repeat(filled.min(bar_width)),
-            "-".repeat(bar_width.saturating_sub(filled.min(bar_width)))
-        );
+        let bar = crate::util::format::progress_bar(percent, 14);
         let total_label = if total == 0 && self.copy_total_rx.is_some() {
             "?".to_string()
         } else {
