@@ -215,6 +215,9 @@ pub(crate) fn parse_skin(text: &str, fallback_name: &str) -> ThemeSpec {
                             spec.error = c;
                         }
                         "archive" => spec.text_archive = c,
+                        "git_added" => spec.git_added = c,
+                        "git_modified" => spec.git_modified = c,
+                        "git_deleted" => spec.git_deleted = c,
                         _ => {}
                     }
                 }

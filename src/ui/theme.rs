@@ -69,6 +69,18 @@ pub(crate) struct ThemeSpec {
     pub(crate) marked_bg: Color,
     /// Preferred icon color set (light/dark/auto).
     pub(crate) icon_theme_mode: IconThemeMode,
+    /// Git added / new-file indicator.
+    pub(crate) git_added: Color,
+    /// Git modified / renamed-file indicator.
+    pub(crate) git_modified: Color,
+    /// Git deleted / removed-file indicator.
+    pub(crate) git_deleted: Color,
+    /// Inactive-panel row background in dual-panel mode.
+    pub(crate) bg_inactive_panel: Color,
+    /// Keyboard shortcut key labels in overlay panels (e.g. "↑↓", "Enter").
+    pub(crate) key_label: Color,
+    /// Section / heading text in overlay panels (help, integrations, sort).
+    pub(crate) overlay_section: Color,
 }
 
 /// The built-in themes. These seed the runtime [`registry`]; their `id` fields
@@ -98,6 +110,12 @@ pub(crate) const THEMES: [ThemeSpec; 4] = [
         marked_fg: Color::Rgb(245, 200, 90),
         marked_bg: Palette::BG_MARKED,
         icon_theme_mode: IconThemeMode::Auto,
+        git_added: Color::Rgb(150, 220, 150),
+        git_modified: Color::Rgb(120, 200, 255),
+        git_deleted: Color::Rgb(255, 120, 120),
+        bg_inactive_panel: Color::Rgb(38, 38, 45),
+        key_label: Color::Rgb(255, 220, 120),
+        overlay_section: Color::Rgb(120, 200, 255),
     },
     ThemeSpec {
         id: ThemeId(1),
@@ -123,6 +141,12 @@ pub(crate) const THEMES: [ThemeSpec; 4] = [
         marked_fg: Color::Rgb(235, 203, 139),
         marked_bg: Color::Rgb(67, 76, 94),
         icon_theme_mode: IconThemeMode::Dark,
+        git_added: Color::Rgb(163, 190, 140),
+        git_modified: Color::Rgb(129, 161, 193),
+        git_deleted: Color::Rgb(191, 97, 106),
+        bg_inactive_panel: Color::Rgb(36, 41, 52),
+        key_label: Color::Rgb(235, 203, 139),
+        overlay_section: Color::Rgb(129, 161, 193),
     },
     ThemeSpec {
         id: ThemeId(2),
@@ -148,6 +172,12 @@ pub(crate) const THEMES: [ThemeSpec; 4] = [
         marked_fg: Color::Rgb(181, 137, 0),
         marked_bg: Color::Rgb(7, 54, 66),
         icon_theme_mode: IconThemeMode::Light,
+        git_added: Color::Rgb(133, 153, 0),
+        git_modified: Color::Rgb(38, 139, 210),
+        git_deleted: Color::Rgb(220, 50, 47),
+        bg_inactive_panel: Color::Rgb(0, 28, 36),
+        key_label: Color::Rgb(181, 137, 0),
+        overlay_section: Color::Rgb(38, 139, 210),
     },
     ThemeSpec {
         id: ThemeId(3),
@@ -173,6 +203,12 @@ pub(crate) const THEMES: [ThemeSpec; 4] = [
         marked_fg: Color::Rgb(250, 189, 47),
         marked_bg: Color::Rgb(60, 56, 54),
         icon_theme_mode: IconThemeMode::Dark,
+        git_added: Color::Rgb(184, 187, 38),
+        git_modified: Color::Rgb(131, 165, 152),
+        git_deleted: Color::Rgb(251, 73, 52),
+        bg_inactive_panel: Color::Rgb(29, 28, 28),
+        key_label: Color::Rgb(250, 189, 47),
+        overlay_section: Color::Rgb(131, 165, 152),
     },
 ];
 

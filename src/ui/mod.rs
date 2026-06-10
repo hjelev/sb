@@ -1,4 +1,5 @@
 pub mod ansi;
+pub mod list_metrics;
 pub mod cli;
 pub mod dialogs;
 pub mod icons;
