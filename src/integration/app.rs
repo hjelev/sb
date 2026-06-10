@@ -5,16 +5,9 @@ use std::{
     process::Command,
 };
 
-use crossterm::{
-    cursor::MoveTo,
-    event::EnableMouseCapture,
-    execute,
-    terminal::{
-        enable_raw_mode, Clear as TermClear, ClearType, EnterAlternateScreen,
-    },
-};
+use crossterm::terminal::enable_raw_mode;
 
-use crate::util::tui::suspend_tui;
+use crate::util::tui::{resume_tui_cleared, suspend_tui};
 use crate::{integration, App, AppMode, ArchiveKind};
 
 use super::{catalog, probe, rows::IntegrationRow};
@@ -123,8 +116,7 @@ impl App {
         let mut line = String::new();
         let _ = io::stdin().read_line(&mut line);
 
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+        resume_tui_cleared()?;
         enable_raw_mode()?;
         Ok(())
     }
@@ -213,8 +205,7 @@ impl App {
         let mut line = String::new();
         let _ = io::stdin().read_line(&mut line);
 
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+        resume_tui_cleared()?;
         enable_raw_mode()?;
 
         match failed_step {

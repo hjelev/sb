@@ -334,10 +334,7 @@ impl App {
             });
 
             for entry_path in names {
-                let file_name = entry_path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| entry_path.to_string_lossy().into_owned());
+                let file_name = crate::util::classify::display_name(entry_path.as_path());
                 let is_symlink = entry_path
                     .symlink_metadata()
                     .map(|m| m.file_type().is_symlink())

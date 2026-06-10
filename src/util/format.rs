@@ -16,6 +16,16 @@ pub fn format_eta(total_seconds: u64) -> String {
     }
 }
 
+/// Renders a textual progress bar of `width` characters: `#` for the filled
+/// portion (`percent`% of `width`, rounded and clamped) and `-` for the rest.
+///
+/// Centralizes the identical bar-building used by the copy and archive progress
+/// status lines.
+pub fn progress_bar(percent: f64, width: usize) -> String {
+    let filled = (((percent / 100.0) * width as f64).round() as usize).min(width);
+    format!("{}{}", "#".repeat(filled), "-".repeat(width.saturating_sub(filled)))
+}
+
 pub fn format_size(bytes: u64) -> String {
     let units = ["B", "K", "M", "G", "T"];
     let mut size = bytes as f64;
@@ -30,5 +40,19 @@ pub fn format_size(bytes: u64) -> String {
         format!("{:.0}{}", size, units[unit_idx])
     } else {
         format!("{:.1}{}", size, units[unit_idx])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_progress_bar() {
+        assert_eq!(progress_bar(0.0, 4), "----");
+        assert_eq!(progress_bar(50.0, 4), "##--");
+        assert_eq!(progress_bar(100.0, 4), "####");
+        // Over 100% is clamped to the bar width.
+        assert_eq!(progress_bar(150.0, 4), "####");
     }
 }

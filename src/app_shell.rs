@@ -7,15 +7,12 @@ use std::{
 };
 
 use crossterm::{
-    cursor::{Hide, MoveTo, Show},
-    event::EnableMouseCapture,
+    cursor::{Hide, Show},
     execute,
-    terminal::{
-        enable_raw_mode, Clear as TermClear, ClearType, EnterAlternateScreen,
-    },
+    terminal::enable_raw_mode,
 };
 
-use crate::util::tui::{resume_tui, suspend_tui};
+use crate::util::tui::{resume_tui, resume_tui_cleared, suspend_tui};
 use crate::{App, DualPanelSide};
 
 impl App {
@@ -100,8 +97,7 @@ impl App {
             Ok(())
         })();
 
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+        resume_tui_cleared()?;
         enable_raw_mode()?;
         execute!(io::stdout(), Hide)?;
 
@@ -131,7 +127,7 @@ impl App {
         }
 
         let shell = Self::login_shell();
-        let editor = env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
+        let editor = crate::util::command::editor_command();
         let current_dir = self.current_dir.to_string_lossy().into_owned();
         let selected_file = selected_path.to_string_lossy().into_owned();
         let stamp = SystemTime::now()
@@ -187,8 +183,7 @@ impl App {
             Ok(())
         })();
 
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+        resume_tui_cleared()?;
         enable_raw_mode()?;
         execute!(io::stdout(), Hide)?;
 
@@ -236,8 +231,7 @@ impl App {
         let mut line = String::new();
         let _ = io::stdin().read_line(&mut line);
 
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+        resume_tui_cleared()?;
         enable_raw_mode()?;
 
         self.set_status(format!("ran command: {}", trimmed));
@@ -252,8 +246,7 @@ impl App {
         let _ = Command::new(&shell)
             .current_dir(&self.current_dir)
             .status();
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
-        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+        resume_tui_cleared()?;
         enable_raw_mode()?;
         execute!(io::stdout(), Hide)?;
         self.set_status("returned from shell");
@@ -284,16 +277,9 @@ impl App {
 
         if Self::is_mermaid_file(path) && Self::integration_probe("mmdflux").0 {
             if use_pager {
-                if let Ok(mut child) = Command::new("mmdflux")
-                    .arg(path)
-                    .stdout(Stdio::piped())
-                    .spawn()
-                {
-                    if let Some(mmd_out) = child.stdout.take() {
-                        let _ = Command::new("less").args(["-R"]).stdin(mmd_out).status();
-                    }
-                    let _ = child.wait();
-                }
+                let mut cmd = Command::new("mmdflux");
+                cmd.arg(path);
+                let _ = crate::util::command::pipe_to_pager(cmd);
             } else {
                 let _ = Command::new("mmdflux").arg(path).status();
             }
@@ -337,24 +323,9 @@ impl App {
 
         if Self::is_pdf_file(path) && Self::integration_probe("pdftotext").0 {
             if use_pager {
-                let mut shown = false;
-                if let Ok(mut child) = Command::new("pdftotext")
-                    .args(["-layout", "-nopgbrk"])
-                    .arg(path)
-                    .arg("-")
-                    .stdout(Stdio::piped())
-                    .spawn()
-                {
-                    if let Some(pdf_text) = child.stdout.take() {
-                        shown = Command::new("less")
-                            .args(["-R"])
-                            .stdin(pdf_text)
-                            .status()
-                            .map(|s| s.success())
-                            .unwrap_or(false);
-                    }
-                    let _ = child.wait();
-                }
+                let mut cmd = Command::new("pdftotext");
+                cmd.args(["-layout", "-nopgbrk"]).arg(path).arg("-");
+                let shown = crate::util::command::pipe_to_pager(cmd);
                 if !shown {
                     let _ = Command::new("less")
                         .args(["-R", path.to_str().unwrap_or_default()])
@@ -460,14 +431,8 @@ impl App {
             .status();
         resume_tui()?;
 
-        let left = marked_path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| marked_path.to_string_lossy().into_owned());
-        let right = cursor_path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| cursor_path.to_string_lossy().into_owned());
+        let left = crate::util::classify::display_name(marked_path.as_path());
+        let right = crate::util::classify::display_name(cursor_path.as_path());
         self.set_status(format!("delta compared: {} vs {}", left, right));
         Ok(())
     }
@@ -484,10 +449,7 @@ impl App {
         };
 
         let path = entry.path();
-        let display_name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| path.to_string_lossy().into_owned());
+        let display_name = crate::util::classify::display_name(path.as_path());
 
         #[cfg(target_os = "macos")]
         let opened = if Self::integration_probe("open").0 {
