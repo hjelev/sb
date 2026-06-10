@@ -2386,7 +2386,7 @@ fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
                 from_env,
                 app.confirm_delete_bookmark_button_focus,
                 app.nerd_font_active,
-                active_theme,
+                &active_theme,
             );
         }
     } else if app.mode == AppMode::Integrations {
