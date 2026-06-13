@@ -16,13 +16,16 @@
 
 <details>
   <summary>Show screenshots</summary>
-  <img src="images/screenshot-1.png" alt="lyrtui screenshot 2" width="926"/>
   <img src="images/screenshot-2.png" alt="lyrtui screenshot 3" width="926"/>
   <img src="images/screenshot-3.png" alt="lyrtui screenshot 4" width="926"/>
   <img src="images/screenshot-4.png" alt="lyrtui screenshot 5" width="926"/>
   <img src="images/screenshot-5.png" alt="lyrtui screenshot 6" width="926"/>
   <img src="images/screenshot-6.png" alt="lyrtui screenshot 7" width="926"/>
   <img src="images/screenshot-7.png" alt="lyrtui screenshot 8" width="926"/>
+  <img src="images/screenshot-8.png" alt="lyrtui screenshot 8" width="926"/>
+  <img src="images/screenshot-9.png" alt="lyrtui screenshot 8" width="926"/>
+  <img src="images/screenshot-10.png" alt="lyrtui screenshot 8" width="926"/>
+  <img src="images/screenshot-11.png" alt="lyrtui screenshot 8" width="926"/>
 </details>
 
 A terminal file manager (TUI) written in Rust using `ratatui` + `crossterm`.
