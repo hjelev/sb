@@ -17,10 +17,6 @@ impl App {
         catalog::integration_catalog()
     }
 
-    pub(crate) fn integration_count(&self) -> usize {
-        1 + Self::integration_catalog().len()
-    }
-
     pub(crate) fn integration_brew_package(key: &str) -> Option<&'static str> {
         catalog::integration_brew_package(key)
     }
@@ -299,7 +295,28 @@ impl App {
     }
 
     pub(crate) fn refresh_integration_rows_cache(&mut self) {
-        self.integration_rows_cache = self.integration_rows();
+        let mut rows = self.integration_rows();
+        let query = self.integration_search_query.trim().to_lowercase();
+        if !query.is_empty() {
+            rows.retain(|row| {
+                row.key != "__all_optional__"
+                    && (row.label.to_lowercase().contains(&query)
+                        || row.category.to_lowercase().contains(&query)
+                        || row.description.to_lowercase().contains(&query))
+            });
+        }
+        self.integration_rows_cache = rows;
+        let len = self.integration_rows_cache.len();
+        if len == 0 {
+            self.integration_selected = 0;
+        } else if self.integration_selected >= len {
+            self.integration_selected = len - 1;
+        }
+    }
+
+    pub(crate) fn reset_integration_search(&mut self) {
+        self.integration_search_active = false;
+        self.integration_search_query.clear();
     }
 
     pub(crate) fn seven_zip_tool() -> Option<String> {
