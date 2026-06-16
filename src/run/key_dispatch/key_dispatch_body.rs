@@ -398,36 +398,68 @@ pub(crate) fn handle_app_key_event_body(
             _ => {}
         }
         AppMode::Integrations => {
+            // While the search bar is focused, printable keys edit the filter.
+            if app.integration_search_active {
+                match key.code {
+                    KeyCode::Esc => {
+                        app.reset_integration_search();
+                        app.refresh_integration_rows_cache();
+                        return Ok(KeyDispatchOutcome::ContinueLoop);
+                    }
+                    KeyCode::Backspace => {
+                        app.integration_search_query.pop();
+                        app.integration_selected = 0;
+                        app.refresh_integration_rows_cache();
+                        return Ok(KeyDispatchOutcome::ContinueLoop);
+                    }
+                    KeyCode::Char(c)
+                        if !key.modifiers.contains(KeyModifiers::CONTROL)
+                            && !key.modifiers.contains(KeyModifiers::ALT) =>
+                    {
+                        app.integration_search_query.push(c);
+                        app.integration_selected = 0;
+                        app.refresh_integration_rows_cache();
+                        return Ok(KeyDispatchOutcome::ContinueLoop);
+                    }
+                    _ => {}
+                }
+            }
             match key.code {
                 KeyCode::Esc | KeyCode::Char('I') | KeyCode::Char('q') => {
+                    app.reset_integration_search();
                     app.mode = AppMode::Browsing;
                 }
+                KeyCode::Char('/') => {
+                    app.integration_search_active = true;
+                }
                 KeyCode::BackTab => {
+                    app.reset_integration_search();
+                    app.refresh_integration_rows_cache();
                     app.begin_sort_menu();
                 }
                 KeyCode::Up => {
                     app.integration_selected = app.integration_selected.saturating_sub(1);
                 }
                 KeyCode::Down => {
-                    let max_idx = app.integration_count().saturating_sub(1);
+                    let max_idx = app.integration_rows_cache.len().saturating_sub(1);
                     app.integration_selected = (app.integration_selected + 1).min(max_idx);
                 }
                 KeyCode::Char(' ') => {
-                    if app.integration_selected == 0 {
-                        let all_on = app.all_optional_integrations_enabled();
-                        app.set_all_optional_integrations(!all_on);
-                    } else {
-                        let catalog = App::integration_catalog();
-                        if let Some(spec) = catalog.get(app.integration_selected - 1) {
+                    let row = app.integration_rows_cache.get(app.integration_selected).cloned();
+                    if let Some(row) = row {
+                        if row.key == "__all_optional__" {
+                            let all_on = app.all_optional_integrations_enabled();
+                            app.set_all_optional_integrations(!all_on);
+                        } else {
                             let (available, partially_supported, _) =
-                                App::integration_support_and_detail(spec.key);
+                                App::integration_support_and_detail(&row.key);
                             if !available && !partially_supported {
-                                app.set_status(format!("{} is missing and cannot be toggled", spec.key));
+                                app.set_status(format!("{} is missing and cannot be toggled", row.key));
                                 app.refresh_integration_rows_cache();
                                 return Ok(KeyDispatchOutcome::ContinueLoop);
                             }
-                            let current = app.integration_enabled(spec.key);
-                            app.set_integration_enabled(spec.key, !current);
+                            let current = app.integration_enabled(&row.key);
+                            app.set_integration_enabled(&row.key, !current);
                         }
                     }
                     app.refresh_integration_rows_cache();
@@ -436,6 +468,8 @@ pub(crate) fn handle_app_key_event_body(
                     app.begin_integration_install_prompt_for_selected();
                 }
                 KeyCode::Tab => {
+                    app.reset_integration_search();
+                    app.refresh_integration_rows_cache();
                     app.panel_tab = 6;
                     app.theme_selected = theme::themes()
                         .iter()
@@ -454,6 +488,7 @@ pub(crate) fn handle_app_key_event_body(
                 KeyCode::BackTab => {
                     app.panel_tab = 5;
                     app.integration_selected = 0;
+                    app.reset_integration_search();
                     app.refresh_integration_rows_cache();
                     app.mode = AppMode::Integrations;
                 }
@@ -487,6 +522,7 @@ pub(crate) fn handle_app_key_event_body(
                 KeyCode::Tab => {
                     app.panel_tab = 5;
                     app.integration_selected = 0;
+                    app.reset_integration_search();
                     app.refresh_integration_rows_cache();
                     app.mode = AppMode::Integrations;
                 }
@@ -903,6 +939,7 @@ fn handle_browsing_key(
         KeyCode::Char('b') => { app.panel_tab = 2; app.mode = AppMode::Bookmarks; }
         KeyCode::Char('I') => {
             app.integration_selected = 0;
+            app.reset_integration_search();
             app.refresh_integration_rows_cache();
             app.panel_tab = 5;
             app.mode = AppMode::Integrations;
