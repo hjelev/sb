@@ -278,13 +278,6 @@ impl App {
             }
         }
 
-        if failed_step.is_none() && !amend {
-            println!("$ git pull --rebase");
-            if !run_step(&["pull", "--rebase"], &self.current_dir)? {
-                failed_step = Some("git pull --rebase failed (resolve conflicts manually)".to_string());
-            }
-        }
-
         if failed_step.is_none() {
             if amend {
                 println!("$ git push origin HEAD -f");
@@ -295,7 +288,17 @@ impl App {
             } else {
                 println!("$ git push origin HEAD");
                 if !run_step(&["push", "origin", "HEAD"], &self.current_dir)? {
-                    failed_step = Some("git push failed".to_string());
+                    println!("git push failed, pulling with --rebase and retrying...");
+                    println!("$ git pull --rebase");
+                    if !run_step(&["pull", "--rebase"], &self.current_dir)? {
+                        failed_step =
+                            Some("git pull --rebase failed (resolve conflicts manually)".to_string());
+                    } else {
+                        println!("$ git push origin HEAD");
+                        if !run_step(&["push", "origin", "HEAD"], &self.current_dir)? {
+                            failed_step = Some("git push failed".to_string());
+                        }
+                    }
                 }
             }
         }
