@@ -77,6 +77,7 @@ impl App {
             }
             5 => {
                 self.integration_selected = 0;
+                self.reset_integration_search();
                 self.refresh_integration_rows_cache();
                 self.panel_tab = 5;
                 self.mode = AppMode::Integrations;
@@ -560,7 +561,7 @@ impl App {
                 }
             }
             AppMode::Integrations => {
-                let max_idx = self.integration_count().saturating_sub(1);
+                let max_idx = self.integration_rows_cache.len().saturating_sub(1);
                 if scroll_up {
                     self.integration_selected = self.integration_selected.saturating_sub(1);
                 } else {

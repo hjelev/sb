@@ -337,6 +337,9 @@ pub fn render_integrations_overlay(
     chrome: OverlayChrome,
     integrations: &[IntegrationRow],
     integration_selected: usize,
+    search_active: bool,
+    search_query: &str,
+    show_icons: bool,
 ) {
     let OverlayChrome {
         anchor: tab_overlay_anchor,
@@ -349,7 +352,19 @@ pub fn render_integrations_overlay(
     let int_content_w = int_w.saturating_sub(2) as usize;
     let int_row_inner_w = int_content_w.saturating_sub(2);
 
-    let mut lines: Vec<Line> = vec![Line::from("")];
+    // The first line is either a blank spacer or the live search bar. Keeping it as
+    // a single leading line preserves the row indexing used by mouse click handling.
+    let first_line = if search_active {
+        let query_icon = if show_icons && nerd_font { "\u{f002}" } else { "/" };
+        Line::from(vec![
+            Span::styled(format!("  {}  ", query_icon), Style::default().fg(spec.key_label)),
+            Span::styled(search_query.to_string(), Style::default().fg(spec.text_normal)),
+            Span::styled("▏", Style::default().fg(spec.key_label)),
+        ])
+    } else {
+        Line::from("")
+    };
+    let mut lines: Vec<Line> = vec![first_line];
     for (i, row) in integrations.iter().enumerate() {
         let is_selected = i == integration_selected;
         let is_enabled = matches!(
@@ -456,6 +471,7 @@ pub fn render_integrations_overlay(
             ("↑↓", "navigate"),
             ("Space", "toggle"),
             ("Enter", "install missing"),
+            ("/", "search"),
             ("Tab", "switch tabs"),
             ("Esc", "close"),
         ], theme_id, nerd_font)),

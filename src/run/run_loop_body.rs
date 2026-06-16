@@ -2408,6 +2408,9 @@ fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             },
             &app.integration_rows_cache,
             app.integration_selected,
+            app.integration_search_active,
+            &app.integration_search_query,
+            app.show_icons,
         );
     } else if app.mode == AppMode::Themes {
         ui::panels::render_themes_overlay(
