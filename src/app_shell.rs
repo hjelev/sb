@@ -25,11 +25,23 @@ impl App {
         format!("'{}'", value.replace('\'', "'\"'\"'"))
     }
 
-    pub(crate) fn open_split_shell_with_less(&mut self) -> io::Result<()> {
-        if !self.integration_active("tmux") {
-            self.status_tool_not_found("tmux");
-            return Ok(());
+    /// Pick the terminal multiplexer to drive split shells: tmux is preferred,
+    /// zellij is the fallback when tmux isn't available.
+    fn split_shell_multiplexer(&self) -> Option<&'static str> {
+        if self.integration_active("tmux") {
+            Some("tmux")
+        } else if self.integration_active("zellij") {
+            Some("zellij")
+        } else {
+            None
         }
+    }
+
+    pub(crate) fn open_split_shell_with_less(&mut self) -> io::Result<()> {
+        let Some(mux) = self.split_shell_multiplexer() else {
+            self.status_tool_not_found("tmux/zellij");
+            return Ok(());
+        };
 
         let Some(entry) = self.entries.get(self.selected_index) else {
             self.set_status("no selected item");
@@ -50,70 +62,16 @@ impl App {
             .map(|d| d.as_nanos())
             .unwrap_or(0);
         let session_name = format!("sbrs_i_{}_{}", std::process::id(), stamp % 1_000_000_000);
+        let right_cmd = format!("less -R -- {}", Self::shell_single_quote(&selected_file));
 
-        suspend_tui()?;
-        execute!(io::stdout(), Show)?;
-
-        let tmux_result = (|| -> io::Result<()> {
-            let left_cmd = format!(
-                "{} -i; tmux kill-session -t {} >/dev/null 2>&1",
-                Self::shell_single_quote(&shell),
-                Self::shell_single_quote(&session_name)
-            );
-            let right_cmd = format!(
-                "less -R -- {}",
-                Self::shell_single_quote(&selected_file)
-            );
-            let target_window = format!("{}:0", session_name);
-            let target_left = format!("{}:0.0", session_name);
-
-            let create_status = Command::new("tmux")
-                .args(["new-session", "-d", "-s", &session_name, "-c", &current_dir, &left_cmd])
-                .status()?;
-            if !create_status.success() {
-                return Err(io::Error::other("tmux new-session failed"));
-            }
-
-            let split_status = Command::new("tmux")
-                .args(["split-window", "-h", "-p", "30", "-t", &target_window, "-c", &current_dir, &right_cmd])
-                .status()?;
-            if !split_status.success() {
-                let _ = Command::new("tmux").args(["kill-session", "-t", &session_name]).status();
-                return Err(io::Error::other("tmux split-window failed"));
-            }
-
-            let _ = Command::new("tmux")
-                .args(["select-pane", "-t", &target_left])
-                .status();
-
-            let _ = Command::new("tmux")
-                .args(["attach-session", "-t", &session_name])
-                .status();
-
-            let _ = Command::new("tmux")
-                .args(["kill-session", "-t", &session_name])
-                .status();
-
-            Ok(())
-        })();
-
-        resume_tui_cleared()?;
-        enable_raw_mode()?;
-        execute!(io::stdout(), Hide)?;
-
-        match tmux_result {
-            Ok(()) => self.set_status("returned from split shell"),
-            Err(e) => self.set_status(format!("split shell failed: {}", e)),
-        }
-        self.refresh_entries_or_status();
-        Ok(())
+        self.exec_split(mux, &session_name, &shell, &current_dir, &right_cmd)
     }
 
     pub(crate) fn open_split_shell_with_editor(&mut self) -> io::Result<()> {
-        if !self.integration_active("tmux") {
-            self.status_tool_not_found("tmux");
+        let Some(mux) = self.split_shell_multiplexer() else {
+            self.status_tool_not_found("tmux/zellij");
             return Ok(());
-        }
+        };
 
         let Some(entry) = self.entries.get(self.selected_index) else {
             self.set_status("no selected item");
@@ -135,64 +93,143 @@ impl App {
             .map(|d| d.as_nanos())
             .unwrap_or(0);
         let session_name = format!("sbrs_E_{}_{}", std::process::id(), stamp % 1_000_000_000);
+        let right_cmd = format!("{} -- {}", editor, Self::shell_single_quote(&selected_file));
 
+        self.exec_split(mux, &session_name, &shell, &current_dir, &right_cmd)
+    }
+
+    /// Suspend the TUI, drive the chosen multiplexer to show a shell on the
+    /// left and `right_cmd` on the right, then resume the TUI.
+    fn exec_split(
+        &mut self,
+        mux: &str,
+        session_name: &str,
+        shell: &str,
+        current_dir: &str,
+        right_cmd: &str,
+    ) -> io::Result<()> {
         suspend_tui()?;
         execute!(io::stdout(), Show)?;
 
-        let tmux_result = (|| -> io::Result<()> {
-            let left_cmd = format!(
-                "{} -i; tmux kill-session -t {} >/dev/null 2>&1",
-                Self::shell_single_quote(&shell),
-                Self::shell_single_quote(&session_name)
-            );
-            let right_cmd = format!(
-                "{} -- {}",
-                editor,
-                Self::shell_single_quote(&selected_file)
-            );
-            let target_window = format!("{}:0", session_name);
-            let target_left = format!("{}:0.0", session_name);
-
-            let create_status = Command::new("tmux")
-                .args(["new-session", "-d", "-s", &session_name, "-c", &current_dir, &left_cmd])
-                .status()?;
-            if !create_status.success() {
-                return Err(io::Error::other("tmux new-session failed"));
-            }
-
-            let split_status = Command::new("tmux")
-                .args(["split-window", "-h", "-p", "30", "-t", &target_window, "-c", &current_dir, &right_cmd])
-                .status()?;
-            if !split_status.success() {
-                let _ = Command::new("tmux").args(["kill-session", "-t", &session_name]).status();
-                return Err(io::Error::other("tmux split-window failed"));
-            }
-
-            let _ = Command::new("tmux")
-                .args(["select-pane", "-t", &target_left])
-                .status();
-
-            let _ = Command::new("tmux")
-                .args(["attach-session", "-t", &session_name])
-                .status();
-
-            let _ = Command::new("tmux")
-                .args(["kill-session", "-t", &session_name])
-                .status();
-
-            Ok(())
-        })();
+        let result = match mux {
+            "zellij" => Self::run_zellij_split(session_name, shell, current_dir, right_cmd),
+            _ => Self::run_tmux_split(session_name, shell, current_dir, right_cmd),
+        };
 
         resume_tui_cleared()?;
         enable_raw_mode()?;
         execute!(io::stdout(), Hide)?;
 
-        match tmux_result {
+        match result {
             Ok(()) => self.set_status("returned from split shell"),
             Err(e) => self.set_status(format!("split shell failed: {}", e)),
         }
         self.refresh_entries_or_status();
         Ok(())
+    }
+
+    fn run_tmux_split(
+        session_name: &str,
+        shell: &str,
+        current_dir: &str,
+        right_cmd: &str,
+    ) -> io::Result<()> {
+        let left_cmd = format!(
+            "{} -i; tmux kill-session -t {} >/dev/null 2>&1",
+            Self::shell_single_quote(shell),
+            Self::shell_single_quote(session_name)
+        );
+        let target_window = format!("{}:0", session_name);
+        let target_left = format!("{}:0.0", session_name);
+
+        let create_status = Command::new("tmux")
+            .args(["new-session", "-d", "-s", session_name, "-c", current_dir, &left_cmd])
+            .status()?;
+        if !create_status.success() {
+            return Err(io::Error::other("tmux new-session failed"));
+        }
+
+        let split_status = Command::new("tmux")
+            .args(["split-window", "-h", "-p", "30", "-t", &target_window, "-c", current_dir, right_cmd])
+            .status()?;
+        if !split_status.success() {
+            let _ = Command::new("tmux").args(["kill-session", "-t", session_name]).status();
+            return Err(io::Error::other("tmux split-window failed"));
+        }
+
+        let _ = Command::new("tmux")
+            .args(["select-pane", "-t", &target_left])
+            .status();
+
+        let _ = Command::new("tmux")
+            .args(["attach-session", "-t", session_name])
+            .status();
+
+        let _ = Command::new("tmux")
+            .args(["kill-session", "-t", session_name])
+            .status();
+
+        Ok(())
+    }
+
+    fn run_zellij_split(
+        session_name: &str,
+        shell: &str,
+        current_dir: &str,
+        right_cmd: &str,
+    ) -> io::Result<()> {
+        // zellij has no scriptable session/split API like tmux, so describe the
+        // split as a temporary KDL layout. Both panes close on exit so quitting
+        // the viewer/editor and exiting the shell returns to sbrs.
+        let layout = format!(
+            "layout {{\n    \
+                 pane split_direction=\"vertical\" {{\n        \
+                     pane {{\n            \
+                         command \"{shell}\"\n            \
+                         args \"-i\"\n            \
+                         cwd \"{cwd}\"\n            \
+                         close_on_exit true\n        \
+                     }}\n        \
+                     pane size=\"30%\" {{\n            \
+                         command \"{shell}\"\n            \
+                         args \"-c\" \"{right}\"\n            \
+                         cwd \"{cwd}\"\n            \
+                         close_on_exit true\n        \
+                     }}\n    \
+                 }}\n    \
+                 pane size=2 borderless=true {{\n        \
+                     plugin location=\"zellij:status-bar\"\n    \
+                 }}\n}}\n",
+            shell = Self::kdl_escape(shell),
+            cwd = Self::kdl_escape(current_dir),
+            right = Self::kdl_escape(right_cmd),
+        );
+
+        let layout_path = env::temp_dir().join(format!("{}.kdl", session_name));
+        std::fs::write(&layout_path, layout)?;
+
+        // `--session NAME --layout FILE` would try to add a tab to an existing
+        // session; `--new-session-with-layout` always starts a fresh session.
+        let status = Command::new("zellij")
+            .args(["--session", session_name, "--new-session-with-layout"])
+            .arg(&layout_path)
+            .status();
+
+        let _ = Command::new("zellij")
+            .args(["delete-session", session_name, "--force"])
+            .status();
+        let _ = std::fs::remove_file(&layout_path);
+
+        match status {
+            Ok(s) if s.success() => Ok(()),
+            Ok(_) => Err(io::Error::other("zellij exited with failure")),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Escape a string for embedding inside a KDL double-quoted value.
+    fn kdl_escape(value: &str) -> String {
+        value.replace('\\', "\\\\").replace('"', "\\\"")
     }
 
     pub(crate) fn run_shell_command_and_wait_key(&mut self, command: &str) -> io::Result<()> {
