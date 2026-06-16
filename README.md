@@ -39,7 +39,7 @@ A terminal file manager (TUI) written in Rust using `ratatui` + `crossterm`.
 - **Integration manager with one-key install** — see which optional tools are missing and install them via Homebrew without leaving the TUI (`I`)
 - **Age encryption** — protect or decrypt `.age` files in-place with a single keypress (`p`)
 - **Per-file notes** — attach notes to any file, stored in a hidden `.sb` file per directory (`Ctrl+n`)
-- **tmux-aware splits** — `i` opens a shell + preview pane; `E` opens a shell + editor pane
+- **tmux-aware splits** — `i` opens a shell + preview pane; `E` opens a shell + editor pane (falls back to `zellij` when tmux isn't installed)
 - **Clipboard edit** — `Ctrl+e` opens the current clipboard contents in `$EDITOR` for quick manipulation
 - **CLI list/tree modes** — `sb -l`, `sb -t`, `sb -l2` produce TUI-consistent column output; `sb <file>` skips the TUI and opens with the best available viewer
 
@@ -175,7 +175,7 @@ Use the installer there if you want the fastest setup without building from sour
 - `p`: protect/unprotect file with `age` (`.age`)
 - `F2` or `r`: rename (or bulk rename with `vidir` when multiple are marked)
 - `e` or `F4`: open in `$EDITOR` (or `hexedit` for binary if available)
-- `E`: split tmux session with shell on the left and `$EDITOR` on the right (`Ctrl+e` is clipboard edit)
+- `E`: split tmux (or zellij) session with shell on the left and `$EDITOR` on the right (`Ctrl+e` is clipboard edit)
 - `n`: new file or folder (folder starts with `/`)
 - `Ctrl+n`: add/edit note for selected item(s)
 - `t`: open `~/.todo` in `$EDITOR` (creates it if missing)
@@ -276,7 +276,7 @@ Optional integrations (auto-detected, toggle in `I` panel):
 
 - VCS: `git`
 - Viewers/previews: `bat`, `glow`, `mmdflux`, `jnv`, `csvlens`, `hexyl`, `chafa`, `viu`, `sox`, `pdftotext`, `asciinema`, `links`
-- Diff/edit helpers: `delta`, `hexedit`, `vidir`, `tmux`
+- Diff/edit helpers: `delta`, `hexedit`, `vidir`, `tmux`, `zellij`
 - Archives: `zip`/`unzip`, `tar`, `7z` family (`7z`/`7zz`/`7zr`), `rar`/`unrar`, `fuse-zip`, `archivemount`
 - Security: `age`
 - Remote mounts: `sshfs`, `rclone`
