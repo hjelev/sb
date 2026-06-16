@@ -412,8 +412,12 @@ pub(crate) fn handle_app_key_event_body(
                         app.refresh_integration_rows_cache();
                         return Ok(KeyDispatchOutcome::ContinueLoop);
                     }
+                    // Space toggles the selected integration even while the
+                    // search bar is focused; integration names never contain
+                    // spaces, so this is safe to fall through to the handler below.
                     KeyCode::Char(c)
-                        if !key.modifiers.contains(KeyModifiers::CONTROL)
+                        if c != ' '
+                            && !key.modifiers.contains(KeyModifiers::CONTROL)
                             && !key.modifiers.contains(KeyModifiers::ALT) =>
                     {
                         app.integration_search_query.push(c);
