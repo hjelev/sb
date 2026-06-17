@@ -158,6 +158,7 @@ impl SortMode {
 pub(crate) enum AppMode {
     Browsing,
     PathEditing,
+    FolderFilter,
     DbPreview,
     CommandInput,
     GitCommitMessage,
