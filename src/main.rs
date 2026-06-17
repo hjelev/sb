@@ -75,6 +75,7 @@ struct PanelState {
     table_state: TableState,
     sort_mode: SortMode,
     show_hidden: bool,
+    folder_filter: Option<PathInputFilter>,
     list_scroll_dragging: bool,
     list_scroll_grab_offset: u16,
     list_last_click: Option<(PathBuf, usize, Instant)>,
@@ -103,6 +104,7 @@ struct App {
     paste_move_mode: bool,
     paste_target_dir: Option<PathBuf>,
     path_input_filter: Option<PathInputFilter>,
+    folder_filter_visible: bool,
     input_buffer: String,
     input_cursor: usize,
     status_message: String,
@@ -314,6 +316,7 @@ impl App {
             paste_move_mode: false,
             paste_target_dir: None,
             path_input_filter: None,
+            folder_filter_visible: false,
             input_buffer: String::new(),
             input_cursor: 0,
             status_message: String::new(),
@@ -464,6 +467,7 @@ impl App {
                 table_state: TableState::default(),
                 sort_mode: SortMode::NameAsc,
                 show_hidden: false,
+                folder_filter: None,
                 list_scroll_dragging: false,
                 list_scroll_grab_offset: 0,
                 list_last_click: None,
@@ -539,6 +543,7 @@ impl App {
         self.current_dir = target;
         if changed_dir {
             self.path_input_filter = None;
+            self.folder_filter_visible = false;
         }
         if !self.refresh_entries_or_status() {
             self.current_dir = previous_dir;
@@ -575,12 +580,89 @@ impl App {
 
     fn try_enter_dir_on_active_panel(&mut self, target: PathBuf) {
         if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
+            // Changing directory clears any active folder filter on the right panel.
+            if target != self.right.dir {
+                self.right.folder_filter = None;
+                self.folder_filter_visible = false;
+            }
             self.right.dir = target;
             if self.refresh_right_panel_entries().is_err() {
                 self.set_status("refresh failed");
             }
         } else {
             self.try_enter_dir(target);
+        }
+    }
+
+    /// Whether the folder-filter box currently applies to the left/main panel.
+    fn folder_filter_on_left(&self) -> bool {
+        self.folder_filter_visible
+            && !(self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right)
+    }
+
+    /// Whether the folder-filter box currently applies to the right panel.
+    fn folder_filter_on_right(&self) -> bool {
+        self.folder_filter_visible
+            && self.is_dual_panel_mode()
+            && self.active_panel == DualPanelSide::Right
+    }
+
+    /// Open the folder-filter box on the active panel, seeding it with the
+    /// current filter pattern (if any) so it can be edited in place.
+    fn begin_folder_filter(&mut self) {
+        let current = if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
+            self.right.folder_filter.as_ref().map(|f| f.pattern.clone())
+        } else {
+            self.path_input_filter.as_ref().map(|f| f.pattern.clone())
+        }
+        .unwrap_or_default();
+        self.folder_filter_visible = true;
+        self.begin_input_edit(AppMode::FolderFilter, current);
+    }
+
+    /// Re-derive and apply the folder filter from the current input buffer to
+    /// the active panel, refreshing its listing live.
+    fn apply_folder_filter_live(&mut self) {
+        let pattern = self.input_buffer.trim().to_string();
+        let new_filter = if pattern.is_empty() {
+            None
+        } else {
+            let candidate = PathInputFilter {
+                mode: PathFilterMode::Contains,
+                pattern,
+            };
+            match Self::build_path_filter_regex(&candidate) {
+                Ok(_) => Some(candidate),
+                Err(err) => {
+                    self.set_status(format!("invalid filter regex: {}", err));
+                    None
+                }
+            }
+        };
+        if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
+            self.right.folder_filter = new_filter;
+            if self.refresh_right_panel_entries().is_err() {
+                self.set_status("refresh failed");
+            }
+        } else {
+            self.path_input_filter = new_filter;
+            self.refresh_entries_or_status();
+        }
+    }
+
+    /// Hide the folder-filter box and clear the filter on the active panel.
+    fn clear_folder_filter(&mut self) {
+        self.folder_filter_visible = false;
+        self.clear_input_edit();
+        self.mode = AppMode::Browsing;
+        if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
+            if self.right.folder_filter.take().is_some()
+                && self.refresh_right_panel_entries().is_err()
+            {
+                self.set_status("refresh failed");
+            }
+        } else if self.path_input_filter.take().is_some() {
+            self.refresh_entries_or_status();
         }
     }
 

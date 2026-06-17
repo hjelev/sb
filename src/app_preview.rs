@@ -30,6 +30,18 @@ impl App {
             }
             ViewMode::Preview => {
                 self.clear_preview_state();
+                // The folder filter (/) is not available in dual panel mode, so
+                // dismiss any open filter box and drop its filter on the left panel.
+                if self.folder_filter_visible {
+                    self.folder_filter_visible = false;
+                    if self.mode == crate::AppMode::FolderFilter {
+                        self.mode = crate::AppMode::Browsing;
+                    }
+                    self.clear_input_edit();
+                    if self.path_input_filter.take().is_some() {
+                        let _ = self.refresh_entries();
+                    }
+                }
                 self.view_mode = ViewMode::DualPanel;
                 self.right.dir = self.current_dir.clone();
                 self.right.selected_index = 0;
@@ -120,6 +132,26 @@ impl App {
             self.right.tree_row_prefixes = vec![String::new(); direct_entries.len()];
             direct_entries
         };
+        let mut entries = entries;
+        if let Some(filter) = self.right.folder_filter.as_ref() {
+            let filter_regex = Self::build_path_filter_regex(filter)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+            let keep: Vec<bool> = entries
+                .iter()
+                .map(|entry| {
+                    let name = crate::util::classify::entry_name(entry);
+                    Self::entry_name_matches_path_filter(&name, &filter_regex)
+                })
+                .collect();
+            let mut iter = keep.iter();
+            entries.retain(|_| *iter.next().unwrap_or(&true));
+            if self.right.tree_row_prefixes.len() == keep.len() {
+                let mut iter = keep.iter();
+                self.right
+                    .tree_row_prefixes
+                    .retain(|_| *iter.next().unwrap_or(&true));
+            }
+        }
         let config = EntryRenderConfig {
             nerd_font_active: self.nerd_font_active,
             show_icons: self.show_icons,
