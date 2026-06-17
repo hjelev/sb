@@ -413,6 +413,48 @@ fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user: &str, host
 
 }
 
+/// Render the single-line folder-filter input box at the top of a panel's body
+/// area. Returns the body area shrunk by the consumed row so the listing can be
+/// laid out below it. When `focused`, positions the terminal cursor in the box.
+fn render_folder_filter_box(
+    f: &mut Frame,
+    app: &App,
+    body_area: Rect,
+    theme: crate::ui::theme::ThemeSpec,
+    focused: bool,
+) -> Rect {
+    if body_area.height <= 1 || body_area.width == 0 {
+        return body_area;
+    }
+    let box_area = Rect::new(body_area.x, body_area.y, body_area.width, 1);
+    // Nerd Font: magnifying-glass glyph; otherwise a plain "/" to match the key.
+    let prefix = if app.nerd_font_active { " \u{f0349} " } else { " / " };
+    let prefix_style = Style::default()
+        .fg(theme.accent_primary)
+        .add_modifier(Modifier::BOLD);
+    let text_style = Style::default().fg(theme.warning);
+    let line = Line::from(vec![
+        Span::styled(prefix, prefix_style),
+        Span::styled(app.input_buffer.as_str(), text_style),
+    ]);
+    f.render_widget(
+        Paragraph::new(line).style(Style::default().bg(theme.bg_panel)),
+        box_area,
+    );
+    if focused {
+        let prefix_w = UnicodeWidthStr::width(prefix) as u16;
+        let cursor_x = box_area.x + prefix_w + app.input_cursor as u16;
+        let max_x = box_area.x + box_area.width.saturating_sub(1);
+        f.set_cursor(cursor_x.min(max_x), box_area.y);
+    }
+    Rect::new(
+        body_area.x,
+        body_area.y + 1,
+        body_area.width,
+        body_area.height - 1,
+    )
+}
+
 fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> TableLayout {
     let active_theme = ctx.theme;
     let chunks = [ctx.main, ctx.footer];
@@ -760,6 +802,17 @@ fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> TableLayout {
         )
     } else {
         content_area
+    };
+    let table_area = if app.folder_filter_on_left() {
+        render_folder_filter_box(
+            f,
+            app,
+            table_area,
+            active_theme,
+            app.mode == AppMode::FolderFilter,
+        )
+    } else {
+        table_area
     };
     let needs_scroll = app.entries.len() > table_area.height as usize;
     let can_draw_scrollbar = app.mode_shows_main_scrollbar() && table_area.width > 2 && needs_scroll;
@@ -1247,6 +1300,17 @@ fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &RenderCtx, t
                 preview_area.width.saturating_sub(2),
                 preview_area.height.saturating_sub(2),
             );
+            let right_body_area = if app.folder_filter_on_right() {
+                render_folder_filter_box(
+                    f,
+                    app,
+                    right_body_area,
+                    active_theme,
+                    app.mode == AppMode::FolderFilter,
+                )
+            } else {
+                right_body_area
+            };
 
             let right_term_w = right_body_area.width.max(1);
             let right_show_date = right_term_w >= 50;
@@ -2914,6 +2978,7 @@ pub(crate) fn run_tui_body(
         let text_input_cursor = matches!(
             app.mode,
             AppMode::PathEditing
+                | AppMode::FolderFilter
                 | AppMode::DownloadInput
                 | AppMode::DownloadNaming
                 | AppMode::Renaming

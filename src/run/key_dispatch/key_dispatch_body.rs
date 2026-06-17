@@ -31,6 +31,29 @@ pub(crate) fn handle_app_key_event_body(
             KeyCode::Char(c) => app.input_insert_char(c),
             _ => {}
         },
+        AppMode::FolderFilter => match key.code {
+            KeyCode::Esc => app.clear_folder_filter(),
+            // Leave the box focused but keep it visible + filter applied, so the
+            // filtered list can be navigated. Up at the top row re-enters the box.
+            KeyCode::Down | KeyCode::Enter => app.mode = AppMode::Browsing,
+            KeyCode::Backspace => {
+                app.input_backspace();
+                app.apply_folder_filter_live();
+            }
+            KeyCode::Delete => {
+                app.input_delete();
+                app.apply_folder_filter_live();
+            }
+            KeyCode::Left => app.input_move_left(),
+            KeyCode::Right => app.input_move_right(),
+            KeyCode::Home => app.input_move_home(),
+            KeyCode::End => app.input_move_end(),
+            KeyCode::Char(c) => {
+                app.input_insert_char(c);
+                app.apply_folder_filter_live();
+            }
+            _ => {}
+        },
         AppMode::DbPreview => match key.code {
             KeyCode::Esc | KeyCode::Char('q') => {
                 app.mode = AppMode::Browsing;
@@ -664,7 +687,18 @@ fn handle_browsing_key(
     deferred_key: &mut Option<KeyEvent>,
 ) -> io::Result<KeyDispatchOutcome> {
     match key.code {
+        KeyCode::Esc if app.folder_filter_visible => {
+            app.clear_folder_filter();
+            return Ok(KeyDispatchOutcome::ContinueLoop);
+        }
         KeyCode::Char('q') | KeyCode::Esc => return Ok(KeyDispatchOutcome::Quit),
+        KeyCode::Char('/') => {
+            if app.is_dual_panel_mode() {
+                app.set_status("folder filter is not available in dual panel mode");
+            } else {
+                app.begin_folder_filter();
+            }
+        }
         KeyCode::Char('`') => {
             app.toggle_preview_mode();
         }
@@ -1031,6 +1065,20 @@ fn handle_browsing_key(
             }
         }
         KeyCode::Up | KeyCode::Down => {
+            // With the folder-filter box open and focus on the list, pressing Up
+            // at the top row returns keyboard focus to the box.
+            if key.code == KeyCode::Up && app.folder_filter_visible {
+                let at_top = if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
+                    app.right.selected_index == 0
+                } else {
+                    app.selected_index == 0
+                };
+                if at_top {
+                    app.mode = AppMode::FolderFilter;
+                    app.input_cursor = app.input_buffer.chars().count();
+                    return Ok(KeyDispatchOutcome::ContinueLoop);
+                }
+            }
             if app.preview_focus_is_preview() {
                 if key.code == KeyCode::Up {
                     app.preview_scroll_up(1);
