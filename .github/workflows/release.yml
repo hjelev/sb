@@ -341,16 +341,13 @@ jobs:
             filename=$(echo "$release" | jq '.artifacts[] | select(endswith(".rb"))' --raw-output)
             name=$(echo "$filename" | sed "s/\.rb$//")
             version=$(echo "$release" | jq .app_version --raw-output)
-            new_filename="sb.rb"
-            mv "Formula/${filename}" "Formula/${new_filename}"
-            sed -i 's/class ShellBuddy/class Sb/g' "Formula/${new_filename}"
 
             export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
             brew update
             # We avoid reformatting user-provided data such as the app description and homepage.
-            brew style --except-cops FormulaAudit/Homepage,FormulaAudit/Desc,FormulaAuditStrict --fix "Formula/${new_filename}" || true
+            brew style --except-cops FormulaAudit/Homepage,FormulaAudit/Desc,FormulaAuditStrict --fix "Formula/${filename}" || true
 
-            git add "Formula/${new_filename}"
+            git add "Formula/${filename}"
             git commit -m "${name} ${version}"
           done
           git push
