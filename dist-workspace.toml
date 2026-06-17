@@ -22,4 +22,6 @@ tap = "hjelev/homebrew-tap"
 # Name of the generated Homebrew formula (binary is `sb`, package is `shell-buddy`)
 formula = "sb"
 # Publish jobs to run in CI
-publish-jobs = ["homebrew"]
+publish-jobs = ["homebrew", "./publish-crates-io"]
+# Don't run the release CI on pull requests, only on tag pushes
+pr-run-mode = "skip"
