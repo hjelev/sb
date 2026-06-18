@@ -6,7 +6,7 @@ use crate::ui::theme::{theme_spec, IconThemeMode, ThemeId};
 use devicons::{icon_for_file, File as DevFile, Theme};
 use ratatui::prelude::*;
 use crate::ui::icons::named_file_icon;
-use crate::{ui, App};
+use crate::{ui, App, FilenameColorMode};
 
 #[derive(Clone)]
 pub(crate) struct EntryRenderCache {
@@ -28,6 +28,7 @@ pub(crate) struct EntryRenderConfig {
     pub(crate) nerd_font_active: bool,
     pub(crate) show_icons: bool,
     pub(crate) theme_id: ThemeId,
+    pub(crate) filename_color_mode: FilenameColorMode,
 }
 
 impl App {
@@ -164,11 +165,30 @@ impl App {
 
         let theme = theme_spec(config.theme_id);
         let is_archive = !is_dir && !is_symlink && Self::is_archive_name(&path);
+        let is_age = !is_dir && Self::is_age_protected_file(&path);
+        // Whether the entry is executable (Unix permission bits). Computed here so
+        // the filename-color mode below can preserve this status color.
+        let is_exec = {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                !is_dir
+                    && !is_symlink
+                    && meta
+                        .as_ref()
+                        .map(|m| m.permissions().mode() & 0o111 != 0)
+                        .unwrap_or(false)
+            }
+            #[cfg(not(unix))]
+            {
+                false
+            }
+        };
         let mut name_style = if is_dir {
             Style::default()
                 .fg(theme.icon_default_dir)
                 .add_modifier(Modifier::BOLD)
-        } else if Self::is_age_protected_file(&path) {
+        } else if is_age {
             Style::default().fg(Palette::WARNING_ALT)
         } else if is_archive {
             Style::default().fg(theme.text_archive)
@@ -180,18 +200,8 @@ impl App {
             Style::default().fg(file_color)
         };
 
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if !is_dir
-                && !is_symlink
-                && meta
-                    .as_ref()
-                    .map(|m| m.permissions().mode() & 0o111 != 0)
-                    .unwrap_or(false)
-            {
-                name_style = Style::default().fg(theme.text_executable);
-            }
+        if is_exec {
+            name_style = Style::default().fg(theme.text_executable);
         }
 
         // Symlinks take their own color; broken (stale) links are flagged.
@@ -201,6 +211,24 @@ impl App {
             } else {
                 Style::default().fg(theme.text_stalelink)
             };
+        }
+
+        // Apply the filename-color mode (folders are never affected; only the
+        // name color changes — icon colors are left untouched). "White" forces
+        // all file names to the theme's normal text color; "Less" does the same
+        // but keeps status colors (executable, symlink, archive, age) intact.
+        if !is_dir {
+            match config.filename_color_mode {
+                FilenameColorMode::Full => {}
+                FilenameColorMode::Less => {
+                    if !(is_archive || is_symlink || is_exec || is_age) {
+                        name_style = name_style.fg(theme.text_normal);
+                    }
+                }
+                FilenameColorMode::White => {
+                    name_style = name_style.fg(theme.text_normal);
+                }
+            }
         }
 
         if is_hidden {

@@ -12,7 +12,7 @@ use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType};
 use ratatui::prelude::*;
 use crate::ui;
-use crate::{PreviewBuildOptions, PreviewContentMsg, PreviewLineKind};
+use crate::{FilenameColorMode, PreviewBuildOptions, PreviewContentMsg, PreviewIconSpan, PreviewLineKind};
 
 impl App {
     pub(crate) fn cycle_view_mode(&mut self) {
@@ -156,6 +156,7 @@ impl App {
             nerd_font_active: self.nerd_font_active,
             show_icons: self.show_icons,
             theme_id: self.active_theme,
+            filename_color_mode: self.filename_color_mode,
         };
         let uid_cache = App::build_uid_cache(&entries);
         let gid_cache = App::build_gid_cache(&entries);
@@ -265,6 +266,7 @@ impl App {
             show_icons: self.show_icons,
             nerd_font_active: self.nerd_font_active,
             theme_id: self.active_theme,
+            filename_color_mode: self.filename_color_mode,
         };
         self.preview_rx = Some(spawn_worker(move |tx| {
             let msg = App::build_preview_content(request_id, path, opts);
@@ -343,6 +345,7 @@ impl App {
             show_icons,
             nerd_font_active,
             theme_id,
+            filename_color_mode,
         } = opts;
         if path.is_dir() {
             let mut entries = Vec::new();
@@ -417,6 +420,24 @@ impl App {
                     )
                 };
 
+                // Honor the filename-color mode for regular files: the icon keeps
+                // its color while the name uses the theme's normal text color.
+                // Folders, symlinks, and executables keep their status colors.
+                let mut icon = None;
+                if !is_dir
+                    && !is_symlink
+                    && !is_executable
+                    && !matches!(filename_color_mode, FilenameColorMode::Full)
+                {
+                    if show_icons && !icon_glyph.is_empty() {
+                        icon = Some(PreviewIconSpan {
+                            len: icon_prefix.len(),
+                            fg: icon_style.fg,
+                        });
+                    }
+                    style = style.fg(spec.text_normal);
+                }
+
                 if is_hidden {
                     style = style.add_modifier(Modifier::DIM);
                 }
@@ -425,6 +446,7 @@ impl App {
                     fg: style.fg,
                     bold: style.add_modifier.contains(Modifier::BOLD),
                     dim: style.add_modifier.contains(Modifier::DIM),
+                    icon,
                 });
             }
 
