@@ -661,12 +661,16 @@ fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> TableLayout {
             let row_fill = Style::default().bg(left_pill_color);
             if pill_mode {
                 if pill_selected {
-                    spans.push(Span::styled(
-                        "",
-                        Style::default()
-                            .fg(left_pill_color)
-                            .bg(active_theme.bg_panel),
-                    ));
+                    if app.nerd_font_active {
+                        spans.push(Span::styled(
+                            "",
+                            Style::default()
+                                .fg(left_pill_color)
+                                .bg(active_theme.bg_panel),
+                        ));
+                    } else {
+                        spans.push(Span::styled(" ", Style::default().bg(left_pill_color)));
+                    }
                 } else {
                     spans.push(Span::raw(" "));
                 }
@@ -722,12 +726,16 @@ fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> TableLayout {
                     ));
                 }
                 if pill_selected {
-                    spans.push(Span::styled(
-                        "",
-                        Style::default()
-                            .fg(left_pill_color)
-                            .bg(active_theme.bg_panel),
-                    ));
+                    if app.nerd_font_active {
+                        spans.push(Span::styled(
+                            "",
+                            Style::default()
+                                .fg(left_pill_color)
+                                .bg(active_theme.bg_panel),
+                        ));
+                    } else {
+                        spans.push(Span::styled(" ", Style::default().bg(left_pill_color)));
+                    }
                 } else {
                     spans.push(Span::raw(" "));
                 }
@@ -894,12 +902,16 @@ fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> TableLayout {
                             Paragraph::new(Line::from({
                                 let mut spans = vec![];
                                 if pill_selected {
-                                    spans.push(Span::styled(
-                                        "",
-                                        Style::default()
-                                            .fg(left_pill_color)
-                                            .bg(active_theme.bg_panel),
-                                    ));
+                                    if app.nerd_font_active {
+                                        spans.push(Span::styled(
+                                            "",
+                                            Style::default()
+                                                .fg(left_pill_color)
+                                                .bg(active_theme.bg_panel),
+                                        ));
+                                    } else {
+                                        spans.push(Span::styled(" ", Style::default().bg(left_pill_color)));
+                                    }
                                 }
                                 if !marker.is_empty() {
                                     if pill_selected {
@@ -955,12 +967,16 @@ fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> TableLayout {
                                             Style::default().bg(left_pill_color),
                                         ));
                                     }
-                                    spans.push(Span::styled(
-                                        "",
-                                        Style::default()
-                                            .fg(left_pill_color)
-                                            .bg(active_theme.bg_panel),
-                                    ));
+                                    if app.nerd_font_active {
+                                        spans.push(Span::styled(
+                                            "",
+                                            Style::default()
+                                                .fg(left_pill_color)
+                                                .bg(active_theme.bg_panel),
+                                        ));
+                                    } else {
+                                        spans.push(Span::styled(" ", Style::default().bg(left_pill_color)));
+                                    }
                                 }
                                 spans
                             })),
@@ -983,15 +999,17 @@ fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> TableLayout {
                         1,
                         1,
                     );
-                    f.render_widget(
-                        Paragraph::new(Span::styled(
+                    let cap_span = if app.nerd_font_active {
+                        Span::styled(
                             "",
                             Style::default()
                                 .fg(left_pill_color)
                                 .bg(active_theme.bg_panel),
-                        )),
-                        cap_area,
-                    );
+                        )
+                    } else {
+                        Span::styled(" ", Style::default().bg(left_pill_color))
+                    };
+                    f.render_widget(Paragraph::new(cap_span), cap_area);
                 }
             }
         }
@@ -1388,10 +1406,14 @@ fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &RenderCtx, t
                     let right_row_fill = Style::default().bg(right_pill_color);
                     let mut spans = Vec::new();
                     if right_is_selected {
-                        spans.push(Span::styled(
-                            "",
-                            Style::default().fg(right_pill_color).bg(active_theme.bg_panel),
-                        ));
+                        if app.nerd_font_active {
+                            spans.push(Span::styled(
+                                "",
+                                Style::default().fg(right_pill_color).bg(active_theme.bg_panel),
+                            ));
+                        } else {
+                            spans.push(Span::styled(" ", Style::default().bg(right_pill_color)));
+                        }
                     } else {
                         spans.push(Span::raw(" "));
                     }
@@ -1446,10 +1468,14 @@ fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &RenderCtx, t
                         ));
                     }
                     if right_is_selected {
-                        spans.push(Span::styled(
-                            "",
-                            Style::default().fg(right_pill_color).bg(active_theme.bg_panel),
-                        ));
+                        if app.nerd_font_active {
+                            spans.push(Span::styled(
+                                "",
+                                Style::default().fg(right_pill_color).bg(active_theme.bg_panel),
+                            ));
+                        } else {
+                            spans.push(Span::styled(" ", Style::default().bg(right_pill_color)));
+                        }
                     } else {
                         spans.push(Span::raw(" "));
                     }
@@ -1509,15 +1535,17 @@ fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &RenderCtx, t
                             1,
                             1,
                         );
-                        f.render_widget(
-                            Paragraph::new(Span::styled(
+                        let cap_span = if app.nerd_font_active {
+                            Span::styled(
                                 "",
                                 Style::default()
                                     .fg(right_pill_color)
                                     .bg(active_theme.bg_panel),
-                            )),
-                            cap_area,
-                        );
+                            )
+                        } else {
+                            Span::styled(" ", Style::default().bg(right_pill_color))
+                        };
+                        f.render_widget(Paragraph::new(cap_span), cap_area);
                     }
                 }
             }
@@ -1818,20 +1846,27 @@ fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
                 let is_selected = absolute_idx == selected;
                 let row_inner_w = body_content_w.saturating_sub(2);
                 let (left_cap, right_cap) = if is_selected {
-                    (
-                        Span::styled(
-                            "",
-                            Style::default()
-                                .fg(active_theme.bg_selected)
-                                .bg(active_theme.bg_panel),
-                        ),
-                        Span::styled(
-                            "",
-                            Style::default()
-                                .fg(active_theme.bg_selected)
-                                .bg(active_theme.bg_panel),
-                        ),
-                    )
+                    if app.nerd_font_active {
+                        (
+                            Span::styled(
+                                "",
+                                Style::default()
+                                    .fg(active_theme.bg_selected)
+                                    .bg(active_theme.bg_panel),
+                            ),
+                            Span::styled(
+                                "",
+                                Style::default()
+                                    .fg(active_theme.bg_selected)
+                                    .bg(active_theme.bg_panel),
+                            ),
+                        )
+                    } else {
+                        (
+                            Span::styled(" ", Style::default().bg(active_theme.bg_selected)),
+                            Span::styled(" ", Style::default().bg(active_theme.bg_selected)),
+                        )
+                    }
                 } else {
                     (
                         Span::styled(" ", Style::default().bg(active_theme.bg_panel)),
@@ -2592,20 +2627,27 @@ fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
                     Style::default().fg(Color::Rgb(200, 200, 200))
                 };
                 let (left_cap, right_cap) = if is_selected {
-                    (
-                        Span::styled(
-                            "",
-                            Style::default()
-                                .fg(active_theme.bg_selected)
-                                .bg(active_theme.bg_panel),
-                        ),
-                        Span::styled(
-                            "",
-                            Style::default()
-                                .fg(active_theme.bg_selected)
-                                .bg(active_theme.bg_panel),
-                        ),
-                    )
+                    if app.nerd_font_active {
+                        (
+                            Span::styled(
+                                "",
+                                Style::default()
+                                    .fg(active_theme.bg_selected)
+                                    .bg(active_theme.bg_panel),
+                            ),
+                            Span::styled(
+                                "",
+                                Style::default()
+                                    .fg(active_theme.bg_selected)
+                                    .bg(active_theme.bg_panel),
+                            ),
+                        )
+                    } else {
+                        (
+                            Span::styled(" ", Style::default().bg(active_theme.bg_selected)),
+                            Span::styled(" ", Style::default().bg(active_theme.bg_selected)),
+                        )
+                    }
                 } else {
                     (
                         Span::styled(" ", Style::default().bg(active_theme.bg_panel)),

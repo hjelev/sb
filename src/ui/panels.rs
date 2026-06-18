@@ -302,18 +302,25 @@ pub fn shortcut_footer_lines(
     vec![Line::from(""), shortcut_footer_line(entries, theme_id, nerd_font)]
 }
 
-fn selector_edge_spans(is_selected: bool, spec: &crate::ui::theme::ThemeSpec) -> (Span<'static>, Span<'static>) {
+fn selector_edge_spans(is_selected: bool, spec: &crate::ui::theme::ThemeSpec, nerd_font: bool) -> (Span<'static>, Span<'static>) {
     if is_selected {
-        (
-            Span::styled(
-                "",
-                Style::default().fg(spec.bg_selected).bg(spec.bg_panel),
-            ),
-            Span::styled(
-                "",
-                Style::default().fg(spec.bg_selected).bg(spec.bg_panel),
-            ),
-        )
+        if nerd_font {
+            (
+                Span::styled(
+                    "",
+                    Style::default().fg(spec.bg_selected).bg(spec.bg_panel),
+                ),
+                Span::styled(
+                    "",
+                    Style::default().fg(spec.bg_selected).bg(spec.bg_panel),
+                ),
+            )
+        } else {
+            (
+                Span::styled(" ", Style::default().bg(spec.bg_selected)),
+                Span::styled(" ", Style::default().bg(spec.bg_selected)),
+            )
+        }
     } else {
         (
             Span::styled(" ", Style::default().bg(spec.bg_panel)),
@@ -413,7 +420,7 @@ pub fn render_integrations_overlay(
         );
         let category_span = Span::styled(category_text.clone(), base_style);
         let purpose_span = Span::styled(purpose_text.clone(), base_style);
-        let (left_cap, right_cap) = selector_edge_spans(is_selected, spec);
+        let (left_cap, right_cap) = selector_edge_spans(is_selected, spec, nerd_font);
         let mut spans = vec![
             left_cap,
             Span::styled(status_text.clone(), base_style.patch(status_style)),
@@ -850,7 +857,7 @@ pub fn render_bookmarks_overlay(
         } else {
             label
         };
-        let (left_cap, right_cap) = selector_edge_spans(is_selected, spec);
+        let (left_cap, right_cap) = selector_edge_spans(is_selected, spec, nerd_font);
         lines.push(Line::from(vec![
             left_cap,
             Span::styled(padded_label, style),
@@ -940,7 +947,7 @@ pub fn render_sort_overlay(
         } else {
             Style::default().fg(spec.text_normal)
         };
-        let (left_cap, right_cap) = selector_edge_spans(is_selected, spec);
+        let (left_cap, right_cap) = selector_edge_spans(is_selected, spec, nerd_font_active);
         lines.push(Line::from(vec![
             left_cap,
             Span::styled(row_text, style),
@@ -1014,7 +1021,7 @@ pub fn render_themes_overlay(
         " ".repeat(nerd_pad),
         if nerd_font { "[x]" } else { "[ ]" }
     );
-    let (nerd_left_cap, nerd_right_cap) = selector_edge_spans(nerd_focus, current);
+    let (nerd_left_cap, nerd_right_cap) = selector_edge_spans(nerd_focus, current, nerd_font);
     let mut nerd_row = vec![nerd_left_cap, Span::styled(nerd_text.clone(), nerd_base_style)];
     if nerd_focus {
         let used_w = UnicodeWidthStr::width(nerd_text.as_str());
@@ -1040,7 +1047,7 @@ pub fn render_themes_overlay(
         " ".repeat(color_pad),
         color_mode.label()
     );
-    let (color_left_cap, color_right_cap) = selector_edge_spans(color_focus, current);
+    let (color_left_cap, color_right_cap) = selector_edge_spans(color_focus, current, nerd_font);
     let mut color_row = vec![color_left_cap, Span::styled(color_text.clone(), color_base_style)];
     if color_focus {
         let used_w = UnicodeWidthStr::width(color_text.as_str());
@@ -1084,7 +1091,7 @@ pub fn render_themes_overlay(
         } else {
             Style::default()
         };
-        let (left_cap, right_cap) = selector_edge_spans(is_selected, current);
+        let (left_cap, right_cap) = selector_edge_spans(is_selected, current, nerd_font);
         let mut row = vec![
             left_cap,
             Span::styled(row_text, base_style),
