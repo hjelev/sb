@@ -139,6 +139,7 @@ struct App {
     archive_started_at: Option<Instant>,
     archive_name: String,
     nerd_font_active: bool,
+    filename_color_mode: FilenameColorMode,
     os_icon: Option<(&'static str, ratatui::style::Color)>,
     no_color: bool,
     show_icons: bool,
@@ -191,6 +192,12 @@ struct App {
     panel_tab: u8,
     active_theme: ui::theme::ThemeId,
     theme_selected: usize,
+    /// True when the Themes panel's "Nerd Fonts" toggle row is the selected row
+    /// (rather than one of the theme rows).
+    theme_panel_nerd_selected: bool,
+    /// True when the Themes panel's "Filename colors" toggle row is the selected
+    /// row (rather than the Nerd Fonts row or one of the theme rows).
+    theme_panel_color_selected: bool,
     internal_search_candidates: Vec<PathBuf>,
     internal_search_results: Vec<InternalSearchResult>,
     internal_search_selected: usize,
@@ -351,6 +358,7 @@ impl App {
             archive_started_at: None,
             archive_name: String::new(),
             nerd_font_active: env::var("NERD_FONT_ACTIVE").map(|v| v == "1").unwrap_or(false),
+            filename_color_mode: FilenameColorMode::Full,
             os_icon: ui::icons::os_nerd_icon().map(|(g, _)| {
                 (g, ui::theme::theme_spec(ui::theme::ThemeId::original()).icon_os)
             }),
@@ -405,6 +413,8 @@ impl App {
             panel_tab: 0,
             active_theme: ui::theme::ThemeId::original(),
             theme_selected: 0,
+            theme_panel_nerd_selected: false,
+            theme_panel_color_selected: false,
             internal_search_candidates: Vec::new(),
             internal_search_results: Vec::new(),
             internal_search_selected: 0,
@@ -494,6 +504,15 @@ impl App {
             }
             _ => {}
         }
+        // Persisted Nerd Font choice overrides the NERD_FONT_ACTIVE env var.
+        // Applied before set_active_theme so the render-cache rebuild uses the
+        // correct glyph mode.
+        if let Some(nf) = persist.nerd_font {
+            app.nerd_font_active = nf;
+        }
+        // Persisted filename-color mode; applied before set_active_theme so the
+        // first render-cache build uses it.
+        app.filename_color_mode = persist.filename_color_mode;
         app.set_active_theme(ui::theme::theme_by_name(&persist.current_theme));
         for key in &persist.disabled_integrations {
             app.integration_overrides.insert(key.clone(), false);
@@ -1028,6 +1047,7 @@ impl App {
             nerd_font_active: self.nerd_font_active,
             show_icons: self.show_icons,
             theme_id: self.active_theme,
+            filename_color_mode: self.filename_color_mode,
         };
         let uid_cache = App::build_uid_cache(&self.entries);
         let gid_cache = App::build_gid_cache(&self.entries);

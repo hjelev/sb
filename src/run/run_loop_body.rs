@@ -2484,6 +2484,9 @@ fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             app.active_theme,
             app.theme_selected,
             app.nerd_font_active,
+            app.theme_panel_nerd_selected,
+            app.filename_color_mode,
+            app.theme_panel_color_selected,
         );
     } else if app.mode == AppMode::SortMenu {
         let options = App::sort_mode_options();
