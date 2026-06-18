@@ -26,6 +26,12 @@ use ratatui::{
 use crate::util::tui::{resume_tui, resume_tui_cleared, suspend_tui};
 use crate::{integration::probe::TerminalImageProtocol, App};
 
+/// Kitty Graphics Protocol image IDs for the app's two independent, concurrently
+/// visible native-protocol overlays. Distinct IDs let each be cleared with
+/// `clear_kitty_pane_image` without deleting the other's placement.
+pub(crate) const KITTY_IMAGE_ID_PREVIEW: u32 = 1;
+pub(crate) const KITTY_IMAGE_ID_HELP_LOGO: u32 = 2;
+
 /// Box-filter average of one halfblock pixel cell.
 /// `cell_x` and `cell_y` are in scaled-render-pixel coordinates
 /// (render_w × render_h).  Returns the averaged Color::Rgb.
@@ -462,14 +468,12 @@ impl App {
         Some(buf.into_inner())
     }
 
-    /// Emit a Kitty Graphics Protocol image directly into the preview pane area.
-    /// Positions the cursor at (`pane_x`, `pane_y`) and transmits the image sized
-    /// to `cols` × `rows` terminal cells.
-    pub(crate) fn clear_kitty_pane_images() -> io::Result<()> {
+    /// Delete a single Kitty Graphics Protocol image placement by its `image_id`,
+    /// leaving any other concurrently-displayed Kitty images (e.g. the preview
+    /// pane image vs. the help-screen logo) untouched.
+    pub(crate) fn clear_kitty_pane_image(image_id: u32) -> io::Result<()> {
         let mut out = io::stdout();
-        // Remove all visible Kitty image placements before drawing the next preview.
-        // This prevents old frames from lingering when aspect-fit bounds change.
-        write!(out, "\x1b_Ga=d,d=A\x1b\\")?;
+        write!(out, "\x1b_Ga=d,d=i,i={}\x1b\\", image_id)?;
         out.flush()
     }
 
@@ -499,6 +503,7 @@ impl App {
         pane_y: u16,
         cols: u16,
         rows: u16,
+        image_id: u32,
     ) -> io::Result<()> {
         use crossterm::cursor::MoveTo;
         use crossterm::execute;
@@ -515,8 +520,8 @@ impl App {
             if offset == 0 {
                 write!(
                     out,
-                    "\x1b_Ga=T,f=100,s={},v={},c={},r={},m={};{}\x1b\\",
-                    img_w, img_h, cols, rows, more,
+                    "\x1b_Ga=T,f=100,i={},s={},v={},c={},r={},m={};{}\x1b\\",
+                    image_id, img_w, img_h, cols, rows, more,
                     std::str::from_utf8(chunk).unwrap_or("")
                 )?;
             } else {
