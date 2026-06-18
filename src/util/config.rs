@@ -7,6 +7,8 @@
 
 use std::env;
 
+use crate::FilenameColorMode;
+
 /// Application-wide configuration parsed from environment and defaults.
 ///
 /// This struct should be created once at startup and stored in the `App` struct.
@@ -125,6 +127,11 @@ pub struct SbPersistConfig {
     pub view_mode: String,
     /// The active UI theme to restore on next launch.
     pub current_theme: String,
+    /// Nerd Font glyph mode. `None` means unset (fall back to the
+    /// `NERD_FONT_ACTIVE` env var); `Some` overrides the env var.
+    pub nerd_font: Option<bool>,
+    /// How file (not folder) names are colored in the list.
+    pub(crate) filename_color_mode: FilenameColorMode,
     /// Integration keys that the user has explicitly disabled.
     pub disabled_integrations: Vec<String>,
     /// Persistent bookmarks (index 0–9 → path string). Env vars take precedence at runtime.
@@ -138,6 +145,8 @@ impl Default for SbPersistConfig {
         Self {
             view_mode: "Normal".to_string(),
             current_theme: "original".to_string(),
+            nerd_font: None,
+            filename_color_mode: FilenameColorMode::Full,
             disabled_integrations: Vec::new(),
             bookmarks: std::collections::HashMap::new(),
             unknown: std::collections::HashMap::new(),
@@ -166,6 +175,16 @@ impl SbPersistConfig {
                 match key {
                     "view_mode" => cfg.view_mode = val.to_string(),
                     "current_theme" => cfg.current_theme = val.to_string(),
+                    "nerd_font" => {
+                        cfg.nerd_font = match val.to_ascii_lowercase().as_str() {
+                            "1" | "true" => Some(true),
+                            "0" | "false" => Some(false),
+                            _ => None,
+                        };
+                    }
+                    "filename_colors" => {
+                        cfg.filename_color_mode = FilenameColorMode::from_key(val);
+                    }
                     "disabled_integrations" => {
                         cfg.disabled_integrations = val
                             .split(',')
@@ -199,6 +218,10 @@ impl SbPersistConfig {
         let mut lines = vec!["# sb config".to_string()];
         lines.push(format!("view_mode = {}", self.view_mode));
         lines.push(format!("current_theme = {}", self.current_theme));
+        if let Some(nf) = self.nerd_font {
+            lines.push(format!("nerd_font = {}", nf));
+        }
+        lines.push(format!("filename_colors = {}", self.filename_color_mode.as_key()));
         if !self.disabled_integrations.is_empty() {
             lines.push(format!(
                 "disabled_integrations = {}",
@@ -229,6 +252,22 @@ mod tests {
         assert_eq!(config.preview_line_limit, 1000);
         assert_eq!(config.dir_list_limit, 10000);
         assert_eq!(config.binary_threshold, 10 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_filename_color_mode_key_round_trip() {
+        for mode in [
+            FilenameColorMode::Full,
+            FilenameColorMode::Less,
+            FilenameColorMode::White,
+        ] {
+            assert_eq!(FilenameColorMode::from_key(mode.as_key()), mode);
+        }
+        // Unknown / legacy values fall back to Full.
+        assert_eq!(FilenameColorMode::from_key("bogus"), FilenameColorMode::Full);
+        assert_eq!(FilenameColorMode::from_key(""), FilenameColorMode::Full);
+        // Default config uses Full.
+        assert_eq!(SbPersistConfig::default().filename_color_mode, FilenameColorMode::Full);
     }
 
     #[test]

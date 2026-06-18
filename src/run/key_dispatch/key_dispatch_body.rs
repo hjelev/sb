@@ -370,6 +370,8 @@ pub(crate) fn handle_app_key_event_body(
                     .iter()
                     .position(|theme| theme.id == app.active_theme)
                     .unwrap_or(0);
+                app.theme_panel_nerd_selected = false;
+                app.theme_panel_color_selected = false;
                 app.mode = AppMode::Themes;
             }
             KeyCode::Up => {
@@ -502,6 +504,8 @@ pub(crate) fn handle_app_key_event_body(
                         .iter()
                         .position(|theme| theme.id == app.active_theme)
                         .unwrap_or(0);
+                    app.theme_panel_nerd_selected = false;
+                    app.theme_panel_color_selected = false;
                     app.mode = AppMode::Themes;
                 }
                 _ => {}
@@ -525,16 +529,37 @@ pub(crate) fn handle_app_key_event_body(
                     app.mode = AppMode::Help;
                 }
                 KeyCode::Up => {
-                    app.theme_selected = app.theme_selected.saturating_sub(1);
-                    app.apply_selected_theme();
+                    // Focus order: Nerd Fonts row → Filename colors row → theme list.
+                    if app.theme_panel_nerd_selected {
+                        // Already at the top row; nothing above.
+                    } else if app.theme_panel_color_selected {
+                        app.theme_panel_color_selected = false;
+                        app.theme_panel_nerd_selected = true;
+                    } else if app.theme_selected == 0 {
+                        app.theme_panel_color_selected = true;
+                    } else {
+                        app.theme_selected -= 1;
+                    }
                 }
                 KeyCode::Down => {
-                    let max_idx = theme::themes().len().saturating_sub(1);
-                    app.theme_selected = (app.theme_selected + 1).min(max_idx);
-                    app.apply_selected_theme();
+                    if app.theme_panel_nerd_selected {
+                        app.theme_panel_nerd_selected = false;
+                        app.theme_panel_color_selected = true;
+                    } else if app.theme_panel_color_selected {
+                        app.theme_panel_color_selected = false;
+                    } else {
+                        let max_idx = theme::themes().len().saturating_sub(1);
+                        app.theme_selected = (app.theme_selected + 1).min(max_idx);
+                    }
                 }
                 KeyCode::Enter | KeyCode::Char(' ') => {
-                    app.apply_selected_theme();
+                    if app.theme_panel_nerd_selected {
+                        app.toggle_nerd_font();
+                    } else if app.theme_panel_color_selected {
+                        app.cycle_filename_color_mode();
+                    } else {
+                        app.apply_selected_theme();
+                    }
                 }
                 _ => {}
             }
@@ -988,6 +1013,8 @@ fn handle_browsing_key(
                 .iter()
                 .position(|theme| theme.id == app.active_theme)
                 .unwrap_or(0);
+            app.theme_panel_nerd_selected = false;
+            app.theme_panel_color_selected = false;
             app.mode = AppMode::Themes;
         }
         KeyCode::Char('S') => {
