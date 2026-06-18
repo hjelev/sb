@@ -75,7 +75,7 @@ impl App {
         if self.preview_native_last_key.is_some() {
             match Self::terminal_image_protocol().0 {
                 crate::integration::probe::TerminalImageProtocol::Kitty => {
-                    let _ = Self::clear_kitty_pane_images();
+                    let _ = Self::clear_kitty_pane_image(crate::app_images::KITTY_IMAGE_ID_PREVIEW);
                 }
                 crate::integration::probe::TerminalImageProtocol::Iterm2Inline
                 | crate::integration::probe::TerminalImageProtocol::Sixel => {

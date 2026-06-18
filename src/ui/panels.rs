@@ -6,6 +6,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap},
 };
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use unicode_width::UnicodeWidthStr;
 
 const PANEL_TABS: &[(&str, u8)] = &[
@@ -479,6 +480,66 @@ pub fn render_integrations_overlay(
     );
 }
 
+const HELP_LOGO_BYTES: &[u8] = include_bytes!("../../docs/images/favicon.png");
+static HELP_LOGO_RGBA: OnceLock<Option<(Vec<u8>, u32, u32)>> = OnceLock::new();
+
+fn help_logo_rgba() -> Option<&'static (Vec<u8>, u32, u32)> {
+    HELP_LOGO_RGBA
+        .get_or_init(|| {
+            image::load_from_memory(HELP_LOGO_BYTES).ok().map(|img| {
+                let rgba = img.to_rgba8();
+                let (w, h) = (rgba.width(), rgba.height());
+                (rgba.into_raw(), w, h)
+            })
+        })
+        .as_ref()
+}
+
+/// Alpha-blend the embedded logo's RGBA pixels against `bg` (the PNG has
+/// transparent corners, so this avoids a black/white box around the glyph
+/// when composited at low resolution or via Sixel, which has no alpha channel).
+fn help_logo_rgb_blend(bg: Color) -> Option<(Vec<u8>, u32, u32)> {
+    let (rgba, w, h) = help_logo_rgba()?;
+    let (bg_r, bg_g, bg_b) = match bg {
+        Color::Rgb(r, g, b) => (r, g, b),
+        _ => (0, 0, 0),
+    };
+    let mut rgb = Vec::with_capacity(rgba.len() / 4 * 3);
+    for px in rgba.chunks_exact(4) {
+        let af = px[3] as f32 / 255.0;
+        rgb.push((px[0] as f32 * af + bg_r as f32 * (1.0 - af)).round() as u8);
+        rgb.push((px[1] as f32 * af + bg_g as f32 * (1.0 - af)).round() as u8);
+        rgb.push((px[2] as f32 * af + bg_b as f32 * (1.0 - af)).round() as u8);
+    }
+    Some((rgb, *w, *h))
+}
+
+/// Render the embedded logo as `cols`×`rows` halfblock terminal cells (fallback
+/// path for terminals without a native image protocol).
+fn help_logo_lines(cols: u16, rows: u16, bg: Color) -> Vec<Line<'static>> {
+    if cols == 0 || rows == 0 {
+        return Vec::new();
+    }
+    let Some((rgb, w, h)) = help_logo_rgb_blend(bg) else {
+        return Vec::new();
+    };
+    crate::App::halfblock_lines(&rgb, w, h, cols, rows)
+}
+
+/// Raw PNG bytes + native pixel dimensions of the embedded logo, for Kitty/iTerm2
+/// transmission (these protocols composite PNG alpha themselves, so no pre-blend
+/// is needed — unlike the halfblock/Sixel paths).
+pub(crate) fn help_logo_png_bytes_and_dims() -> Option<(&'static [u8], u32, u32)> {
+    let (_, w, h) = help_logo_rgba()?;
+    Some((HELP_LOGO_BYTES, *w, *h))
+}
+
+/// Full-resolution RGB pixels of the embedded logo, alpha-blended against `bg`,
+/// for Sixel transmission (Sixel has no alpha channel).
+pub(crate) fn help_logo_rgb_for_sixel(bg: Color) -> Option<(Vec<u8>, u32, u32)> {
+    help_logo_rgb_blend(bg)
+}
+
 pub fn render_help_overlay(
     f: &mut Frame,
     tab_overlay_anchor: Rect,
@@ -486,7 +547,7 @@ pub fn render_help_overlay(
     theme_id: ThemeId,
     help_scroll_offset: u16,
     nerd_font: bool,
-) -> (u16, u16) {
+) -> (u16, u16, Option<Rect>) {
     let spec = theme_spec(theme_id);
     let help_w = tab_overlay_anchor.width;
     let inner_w = help_w.saturating_sub(4) as usize;
@@ -512,15 +573,25 @@ pub fn render_help_overlay(
     let title_style = Style::default().fg(spec.text_normal).add_modifier(Modifier::BOLD);
     let subtitle_style = Style::default().fg(spec.text_dim);
 
+    let title_text = format!("Shell Buddy  v{}", env!("CARGO_PKG_VERSION"));
+    let subtitle_text = config_path.display().to_string();
+    let title_line = Line::from(Span::styled(title_text.clone(), title_style));
+    let subtitle_line = Line::from(Span::styled(subtitle_text.clone(), subtitle_style));
+
+    // The title/subtitle rows are always `lines[LOGO_TITLE_IDX]` /
+    // `lines[LOGO_SUBTITLE_IDX]` below — used both to embed the logo and to
+    // compute where it lands on screen for native-protocol overlay placement.
+    const LOGO_TITLE_IDX: usize = 1;
+    const LOGO_SUBTITLE_IDX: usize = 2;
+    // favicon.png is square (1:1); at 2 text rows (4 pixel rows in halfblock
+    // terms) that fits in 4 columns without letterboxing.
+    const LOGO_COLS: u16 = 4;
+    const LOGO_ROWS: u16 = 2;
+
     let mut lines: Vec<Line> = vec![
-        Line::from(Span::styled(
-            format!("Shell Buddy  v{}", env!("CARGO_PKG_VERSION")),
-            title_style,
-        )),
-        Line::from(Span::styled(
-            config_path.display().to_string(),
-            subtitle_style,
-        )),
+        Line::from(""),
+        title_line,
+        subtitle_line,
         Line::from(""),
         Line::from(vec![
             Span::styled(
@@ -652,6 +723,59 @@ pub fn render_help_overlay(
     let max_scroll = total_lines.saturating_sub(visible_lines);
     let max_offset = max_scroll as u16;
     let clamped_offset = (help_scroll_offset as usize).min(max_scroll) as u16;
+
+    // The title/subtitle rows only sit at a known, stable screen position when
+    // unscrolled (offset 0); once the list scrolls, those logical lines move
+    // off-screen and `indent_lines`' single-row-per-`Line` assumption (no wrap)
+    // must hold for the math below, so also require both rows fit unwrapped.
+    let indent_w = 1usize;
+    let needed_w = indent_w
+        + LOGO_COLS as usize
+        + 1
+        + UnicodeWidthStr::width(title_text.as_str()).max(UnicodeWidthStr::width(subtitle_text.as_str()));
+    let logo_rows_visible = clamped_offset == 0
+        && help_text_area.height as usize > LOGO_SUBTITLE_IDX
+        && needed_w <= help_text_area.width as usize;
+
+    let native_protocol = crate::App::terminal_image_protocol().0;
+    let native_supported = logo_rows_visible
+        && matches!(
+            native_protocol,
+            crate::integration::probe::TerminalImageProtocol::Kitty
+                | crate::integration::probe::TerminalImageProtocol::Iterm2Inline
+                | crate::integration::probe::TerminalImageProtocol::Sixel
+        )
+        && help_logo_rgba().is_some();
+
+    let logo_native_area = if native_supported {
+        // Leave a blank hole the width of the logo; the real pixels are drawn
+        // via the native protocol after ratatui's frame is flushed.
+        let hole = Span::raw(" ".repeat(LOGO_COLS as usize));
+        lines[LOGO_TITLE_IDX] = Line::from(vec![hole.clone(), Span::raw(" "), Span::styled(title_text.clone(), title_style)]);
+        lines[LOGO_SUBTITLE_IDX] = Line::from(vec![hole, Span::raw(" "), Span::styled(subtitle_text.clone(), subtitle_style)]);
+        Some(Rect::new(
+            help_text_area.x + indent_w as u16,
+            help_text_area.y + LOGO_TITLE_IDX as u16,
+            LOGO_COLS,
+            LOGO_ROWS,
+        ))
+    } else {
+        if logo_rows_visible {
+            let logo_lines = help_logo_lines(LOGO_COLS, LOGO_ROWS, spec.bg_panel);
+            if logo_lines.len() == 2 {
+                let mut top: Vec<Span> = logo_lines[0].spans.clone();
+                top.push(Span::raw(" "));
+                top.push(Span::styled(title_text.clone(), title_style));
+                let mut bottom: Vec<Span> = logo_lines[1].spans.clone();
+                bottom.push(Span::raw(" "));
+                bottom.push(Span::styled(subtitle_text.clone(), subtitle_style));
+                lines[LOGO_TITLE_IDX] = Line::from(top);
+                lines[LOGO_SUBTITLE_IDX] = Line::from(bottom);
+            }
+        }
+        None
+    };
+
     f.render_widget(
         Paragraph::new(indent_lines(&lines))
             .wrap(Wrap { trim: false })
@@ -680,7 +804,7 @@ pub fn render_help_overlay(
         help_footer_area,
     );
 
-    (max_offset, clamped_offset)
+    (max_offset, clamped_offset, logo_native_area)
 }
 
 pub fn render_bookmarks_overlay(

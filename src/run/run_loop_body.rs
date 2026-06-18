@@ -2138,7 +2138,7 @@ fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             popup_area,
         );
     } else if app.mode == AppMode::Help {
-        let (max_off, clamped_off) = ui::panels::render_help_overlay(
+        let (max_off, clamped_off, logo_area) = ui::panels::render_help_overlay(
             f,
             tab_overlay_anchor,
             app.panel_tab,
@@ -2148,6 +2148,7 @@ fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
         );
         app.help_max_offset = max_off;
         app.help_scroll_offset = clamped_off;
+        app.help_logo_native_area = logo_area;
     } else if matches!(app.mode, AppMode::NewFile | AppMode::NewFolder) {
         let area = f.size();
         let title = " Create ";
@@ -3073,7 +3074,7 @@ pub(crate) fn run_tui_body(
                 if app.preview_native_last_key.as_deref() != Some(draw_key.as_str()) {
                     match native_protocol {
                         crate::integration::probe::TerminalImageProtocol::Kitty => {
-                            let _ = App::clear_kitty_pane_images();
+                            let _ = App::clear_kitty_pane_image(crate::app_images::KITTY_IMAGE_ID_PREVIEW);
                             let _ = App::emit_kitty_pane(
                                 png,
                                 *iw,
@@ -3082,6 +3083,7 @@ pub(crate) fn run_tui_body(
                                 fit.y,
                                 fit.width,
                                 fit.height,
+                                crate::app_images::KITTY_IMAGE_ID_PREVIEW,
                             );
                         }
                         crate::integration::probe::TerminalImageProtocol::Iterm2Inline => {
@@ -3116,7 +3118,7 @@ pub(crate) fn run_tui_body(
                 // Switched from image -> non-image (folder/text/etc.): clear once.
                 match native_protocol {
                     crate::integration::probe::TerminalImageProtocol::Kitty => {
-                        let _ = App::clear_kitty_pane_images();
+                        let _ = App::clear_kitty_pane_image(crate::app_images::KITTY_IMAGE_ID_PREVIEW);
                     }
                     crate::integration::probe::TerminalImageProtocol::Iterm2Inline
                     | crate::integration::probe::TerminalImageProtocol::Sixel => {
@@ -3137,7 +3139,7 @@ pub(crate) fn run_tui_body(
             // Preview disabled (or no longer native pane): clear once and stop tracking.
             match native_protocol {
                 crate::integration::probe::TerminalImageProtocol::Kitty => {
-                    let _ = App::clear_kitty_pane_images();
+                    let _ = App::clear_kitty_pane_image(crate::app_images::KITTY_IMAGE_ID_PREVIEW);
                 }
                 crate::integration::probe::TerminalImageProtocol::Iterm2Inline
                 | crate::integration::probe::TerminalImageProtocol::Sixel => {
@@ -3153,6 +3155,82 @@ pub(crate) fn run_tui_body(
                 _ => {}
             }
             app.preview_native_last_key = None;
+        }
+
+        // After ratatui has drawn, overlay the native-protocol help logo when
+        // the Help overlay is open, unscrolled, and the terminal supports it.
+        if app.mode == AppMode::Help && native_pane_supported {
+            if let (Some(area), Some((png, iw, ih))) =
+                (app.help_logo_native_area, ui::panels::help_logo_png_bytes_and_dims())
+            {
+                let fit = App::fit_native_image_area(area, iw, ih);
+                let draw_key = format!("{}x{}|{}:{}:{}:{}", iw, ih, fit.x, fit.y, fit.width, fit.height);
+
+                if app.help_logo_native_last_key.as_deref() != Some(draw_key.as_str()) {
+                    match native_protocol {
+                        crate::integration::probe::TerminalImageProtocol::Kitty => {
+                            let _ = App::clear_kitty_pane_image(crate::app_images::KITTY_IMAGE_ID_HELP_LOGO);
+                            let _ = App::emit_kitty_pane(
+                                png,
+                                iw,
+                                ih,
+                                fit.x,
+                                fit.y,
+                                fit.width,
+                                fit.height,
+                                crate::app_images::KITTY_IMAGE_ID_HELP_LOGO,
+                            );
+                        }
+                        crate::integration::probe::TerminalImageProtocol::Iterm2Inline => {
+                            let _ = App::emit_iterm2_pane(png, fit.x, fit.y, fit.width, fit.height);
+                        }
+                        crate::integration::probe::TerminalImageProtocol::Sixel => {
+                            if let Some((rgb, rw, rh)) = ui::panels::help_logo_rgb_for_sixel(
+                                ui::theme::theme_spec(app.active_theme).bg_panel,
+                            ) {
+                                let _ = App::emit_sixel_pane(
+                                    &rgb, rw, rh, fit.x, fit.y, fit.width, fit.height,
+                                );
+                            }
+                        }
+                        _ => {}
+                    }
+                    app.help_logo_native_last_key = Some(draw_key);
+                }
+                app.help_logo_native_last_area = Some(area);
+            } else if app.help_logo_native_last_key.is_some() {
+                // Logo no longer drawable (scrolled away, mode changed mid-frame): clear once.
+                match native_protocol {
+                    crate::integration::probe::TerminalImageProtocol::Kitty => {
+                        let _ = App::clear_kitty_pane_image(crate::app_images::KITTY_IMAGE_ID_HELP_LOGO);
+                    }
+                    crate::integration::probe::TerminalImageProtocol::Iterm2Inline
+                    | crate::integration::probe::TerminalImageProtocol::Sixel => {
+                        if let Some(area) = app.help_logo_native_last_area {
+                            let _ = App::clear_preview_pane_area(area.x, area.y, area.width, area.height);
+                        }
+                    }
+                    _ => {}
+                }
+                app.help_logo_native_last_key = None;
+                app.help_logo_native_last_area = None;
+            }
+        } else if app.help_logo_native_last_key.is_some() {
+            // Left Help mode (or protocol unsupported): clear once and stop tracking.
+            match native_protocol {
+                crate::integration::probe::TerminalImageProtocol::Kitty => {
+                    let _ = App::clear_kitty_pane_image(crate::app_images::KITTY_IMAGE_ID_HELP_LOGO);
+                }
+                crate::integration::probe::TerminalImageProtocol::Iterm2Inline
+                | crate::integration::probe::TerminalImageProtocol::Sixel => {
+                    if let Some(area) = app.help_logo_native_last_area {
+                        let _ = App::clear_preview_pane_area(area.x, area.y, area.width, area.height);
+                    }
+                }
+                _ => {}
+            }
+            app.help_logo_native_last_key = None;
+            app.help_logo_native_last_area = None;
         }
 
         let mut next_key: Option<KeyEvent> = deferred_key.take();
