@@ -15,6 +15,57 @@ pub(crate) struct PreviewBuildOptions {
     pub(crate) show_icons: bool,
     pub(crate) nerd_font_active: bool,
     pub(crate) theme_id: crate::ui::theme::ThemeId,
+    pub(crate) filename_color_mode: FilenameColorMode,
+}
+
+/// How file (not folder) names are colored in the list. Folders are never affected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FilenameColorMode {
+    /// File names match their icon color (default, original behavior).
+    Full,
+    /// Normal file names use the theme's normal text color; status colors
+    /// (executable, symlink, archive, broken link, age-encrypted) are kept.
+    Less,
+    /// All file names use the theme's normal text color; only icons stay colored.
+    White,
+}
+
+impl FilenameColorMode {
+    /// Cycle Full → Less → White → Full.
+    pub(crate) fn next(self) -> Self {
+        match self {
+            FilenameColorMode::Full => FilenameColorMode::Less,
+            FilenameColorMode::Less => FilenameColorMode::White,
+            FilenameColorMode::White => FilenameColorMode::Full,
+        }
+    }
+
+    /// Stable key used for persistence.
+    pub(crate) fn as_key(self) -> &'static str {
+        match self {
+            FilenameColorMode::Full => "full",
+            FilenameColorMode::Less => "less",
+            FilenameColorMode::White => "white",
+        }
+    }
+
+    /// Parse a persisted key, defaulting to `Full` for unknown values.
+    pub(crate) fn from_key(s: &str) -> Self {
+        match s.to_ascii_lowercase().as_str() {
+            "less" => FilenameColorMode::Less,
+            "white" => FilenameColorMode::White,
+            _ => FilenameColorMode::Full,
+        }
+    }
+
+    /// Short label shown in the Themes panel toggle row.
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            FilenameColorMode::Full => "Full",
+            FilenameColorMode::Less => "Less",
+            FilenameColorMode::White => "White",
+        }
+    }
 }
 
 pub(crate) struct ArchiveMount {
@@ -226,6 +277,17 @@ pub(crate) enum DualPanelSide {
     Right,
 }
 
+/// An icon prefix carved off the front of a folder-preview line so it can be
+/// colored independently of the file name (icon stays colored while the name
+/// follows the filename-color mode).
+#[derive(Clone, Copy)]
+pub(crate) struct PreviewIconSpan {
+    /// Byte length of the icon prefix within the line.
+    pub(crate) len: usize,
+    /// Icon color (kept regardless of the filename-color mode).
+    pub(crate) fg: Option<Color>,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) enum PreviewLineKind {
     Plain,
@@ -233,6 +295,9 @@ pub(crate) enum PreviewLineKind {
         fg: Option<Color>,
         bold: bool,
         dim: bool,
+        /// When set, the line is split into a colored icon span plus the name
+        /// span (which uses `fg`). `None` renders the whole line with `fg`.
+        icon: Option<PreviewIconSpan>,
     },
 }
 

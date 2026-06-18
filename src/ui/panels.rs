@@ -856,11 +856,16 @@ pub fn render_themes_overlay(
     theme_id: ThemeId,
     selected: usize,
     nerd_font: bool,
+    nerd_focus: bool,
+    color_mode: crate::FilenameColorMode,
+    color_focus: bool,
 ) {
     let current = theme_spec(theme_id);
     let theme_w = tab_overlay_anchor.width;
     let theme_content_w = theme_w.saturating_sub(2) as usize;
     let theme_row_inner_w = theme_content_w.saturating_sub(2);
+    const NERD_LABEL: &str = "Nerd Fonts";
+    const COLOR_LABEL: &str = "Filename colors";
     // Width of the name column = longest theme name (display width), so the
     // checkboxes line up regardless of how long custom skin names are.
     let name_col_w = themes()
@@ -868,10 +873,73 @@ pub fn render_themes_overlay(
         .map(|t| UnicodeWidthStr::width(t.name))
         .max()
         .unwrap_or(0)
-        .max(8);
-    let mut lines: Vec<Line> = vec![Line::from("")];
+        .max(8)
+        .max(UnicodeWidthStr::width(NERD_LABEL))
+        .max(UnicodeWidthStr::width(COLOR_LABEL));
+
+    // Top toggle row: enable/disable Nerd Font glyphs (persisted to config).
+    let nerd_base_style = if nerd_focus {
+        Style::default().bg(current.bg_selected).fg(current.text_normal)
+    } else {
+        Style::default().fg(current.text_normal)
+    };
+    let nerd_pad = name_col_w.saturating_sub(UnicodeWidthStr::width(NERD_LABEL));
+    let nerd_text = format!(
+        " {}{} {}",
+        NERD_LABEL,
+        " ".repeat(nerd_pad),
+        if nerd_font { "[x]" } else { "[ ]" }
+    );
+    let (nerd_left_cap, nerd_right_cap) = selector_edge_spans(nerd_focus, current);
+    let mut nerd_row = vec![nerd_left_cap, Span::styled(nerd_text.clone(), nerd_base_style)];
+    if nerd_focus {
+        let used_w = UnicodeWidthStr::width(nerd_text.as_str());
+        if theme_row_inner_w > used_w {
+            nerd_row.push(Span::styled(
+                " ".repeat(theme_row_inner_w - used_w),
+                Style::default().bg(current.bg_selected),
+            ));
+        }
+    }
+    nerd_row.push(nerd_right_cap);
+
+    // Second toggle row: filename-color mode (Full / Less / White), persisted.
+    let color_base_style = if color_focus {
+        Style::default().bg(current.bg_selected).fg(current.text_normal)
+    } else {
+        Style::default().fg(current.text_normal)
+    };
+    let color_pad = name_col_w.saturating_sub(UnicodeWidthStr::width(COLOR_LABEL));
+    let color_text = format!(
+        " {}{} [{}]",
+        COLOR_LABEL,
+        " ".repeat(color_pad),
+        color_mode.label()
+    );
+    let (color_left_cap, color_right_cap) = selector_edge_spans(color_focus, current);
+    let mut color_row = vec![color_left_cap, Span::styled(color_text.clone(), color_base_style)];
+    if color_focus {
+        let used_w = UnicodeWidthStr::width(color_text.as_str());
+        if theme_row_inner_w > used_w {
+            color_row.push(Span::styled(
+                " ".repeat(theme_row_inner_w - used_w),
+                Style::default().bg(current.bg_selected),
+            ));
+        }
+    }
+    color_row.push(color_right_cap);
+
+    let mut lines: Vec<Line> = vec![
+        Line::from(""),
+        Line::from(nerd_row),
+        Line::from(color_row),
+        Line::from(""),
+    ];
+    // When a checkbox row holds focus, the theme list shows no cursor highlight
+    // (so the selection fully moves to the checkbox, not duplicated in the list).
+    let theme_list_focus = !nerd_focus && !color_focus;
     for (idx, theme) in themes().iter().enumerate() {
-        let is_selected = idx == selected;
+        let is_selected = theme_list_focus && idx == selected;
         let is_applied = theme.id == theme_id;
         let spec = theme_spec(theme.id);
         let base_style = if is_selected {
@@ -931,7 +999,7 @@ pub fn render_themes_overlay(
     f.render_widget(
         Paragraph::new(shortcut_footer_lines(&[
             ("↑↓", "select"),
-            ("Enter/Space", "apply"),
+            ("Enter/Space", "apply/toggle"),
             ("T", "open themes"),
             ("Esc", "close"),
         ], theme_id, nerd_font)),

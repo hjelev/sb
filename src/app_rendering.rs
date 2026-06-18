@@ -22,6 +22,7 @@ impl App {
             nerd_font_active: self.nerd_font_active,
             show_icons: self.show_icons,
             theme_id: self.active_theme,
+            filename_color_mode: self.filename_color_mode,
         };
         let uid_cache = App::build_uid_cache(&self.entries);
         let gid_cache = App::build_gid_cache(&self.entries);
@@ -43,6 +44,31 @@ impl App {
         if let Some(theme) = ui::theme::themes().get(self.theme_selected) {
             self.set_active_theme(theme.id);
         }
+    }
+
+    /// Flip Nerd Font glyph mode, re-render the file list, and persist the
+    /// choice to `~/.config/sb/config` (overriding the env var on next launch).
+    pub(crate) fn toggle_nerd_font(&mut self) {
+        self.nerd_font_active = !self.nerd_font_active;
+        self.rebuild_render_caches();
+        let mut cfg = crate::util::config::SbPersistConfig::load();
+        cfg.nerd_font = Some(self.nerd_font_active);
+        let _ = cfg.save();
+    }
+
+    /// Cycle the filename-color mode (Full → Less → White), re-render the file
+    /// list, and persist the choice to `~/.config/sb/config`.
+    pub(crate) fn cycle_filename_color_mode(&mut self) {
+        self.filename_color_mode = self.filename_color_mode.next();
+        self.rebuild_render_caches();
+        // Folder previews bake the colors into their cached lines, so drop the
+        // memoized previews and rebuild the current one (no-op unless visible).
+        self.preview_cache.clear();
+        self.preview_target_path = None;
+        self.request_preview_for_selected();
+        let mut cfg = crate::util::config::SbPersistConfig::load();
+        cfg.filename_color_mode = self.filename_color_mode;
+        let _ = cfg.save();
     }
 
     pub(crate) fn set_status(&mut self, msg: impl Into<String>) {

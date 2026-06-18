@@ -133,6 +133,7 @@ impl App {
             nerd_font_active: self.nerd_font_active,
             show_icons: self.show_icons,
             theme_id: self.active_theme,
+            filename_color_mode: self.filename_color_mode,
         };
         let uid_cache = App::build_uid_cache(&self.entries);
         let gid_cache = App::build_gid_cache(&self.entries);
