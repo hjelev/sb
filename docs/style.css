@@ -178,6 +178,7 @@ body.nav-open { overflow: hidden; }
   font-family: var(--mono); font-size: .95rem;
 }
 .hero__install-hint code { color: var(--text); }
+.hero__install-hint .copy-btn { position: static; }
 .prompt { color: var(--green); margin-right: .5rem; user-select: none; }
 
 .hero__shot {
