@@ -130,6 +130,9 @@ pub struct SbPersistConfig {
     /// Nerd Font glyph mode. `None` means unset (fall back to the
     /// `NERD_FONT_ACTIVE` env var); `Some` overrides the env var.
     pub nerd_font: Option<bool>,
+    /// When `Some(true)`, the header clock is replaced by the disk-usage pill.
+    /// `None` means unset (clock shown by default).
+    pub disable_clock: Option<bool>,
     /// How file (not folder) names are colored in the list.
     pub(crate) filename_color_mode: FilenameColorMode,
     /// Whether folder size calculation (the `s` toggle) is enabled on launch.
@@ -148,6 +151,7 @@ impl Default for SbPersistConfig {
             view_mode: "Normal".to_string(),
             current_theme: "original".to_string(),
             nerd_font: None,
+            disable_clock: None,
             filename_color_mode: FilenameColorMode::Full,
             folder_size_enabled: false,
             disabled_integrations: Vec::new(),
@@ -180,6 +184,13 @@ impl SbPersistConfig {
                     "current_theme" => cfg.current_theme = val.to_string(),
                     "nerd_font" => {
                         cfg.nerd_font = match val.to_ascii_lowercase().as_str() {
+                            "1" | "true" => Some(true),
+                            "0" | "false" => Some(false),
+                            _ => None,
+                        };
+                    }
+                    "disable_clock" => {
+                        cfg.disable_clock = match val.to_ascii_lowercase().as_str() {
                             "1" | "true" => Some(true),
                             "0" | "false" => Some(false),
                             _ => None,
@@ -229,6 +240,9 @@ impl SbPersistConfig {
         lines.push(format!("current_theme = {}", self.current_theme));
         if let Some(nf) = self.nerd_font {
             lines.push(format!("nerd_font = {}", nf));
+        }
+        if let Some(dc) = self.disable_clock {
+            lines.push(format!("disable_clock = {}", dc));
         }
         lines.push(format!("filename_colors = {}", self.filename_color_mode.as_key()));
         lines.push(format!("folder_size_enabled = {}", self.folder_size_enabled));
