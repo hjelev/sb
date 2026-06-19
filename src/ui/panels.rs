@@ -1269,7 +1269,67 @@ pub fn render_themes_overlay(
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(2)])
         .split(theme_inner);
-    f.render_widget(Paragraph::new(lines), theme_chunks[0]);
+    // Scroll so the focused row stays visible when the theme list is taller
+    // than the available height; draw a scrollbar on the right edge if it overflows.
+    let total_lines = lines.len();
+    let content_h = theme_chunks[0].height as usize;
+    let cursor_line = if nerd_focus {
+        1
+    } else if color_focus {
+        2
+    } else if clock_focus {
+        3
+    } else {
+        5 + selected
+    };
+    let max_offset = total_lines.saturating_sub(content_h);
+    let offset = if cursor_line >= content_h {
+        (cursor_line + 1 - content_h).min(max_offset)
+    } else {
+        0
+    };
+    let needs_scroll = total_lines > content_h && theme_chunks[0].width > 1;
+    // Reserve the rightmost column for the scrollbar so it doesn't overlap the row text.
+    let text_area = if needs_scroll {
+        Rect::new(
+            theme_chunks[0].x,
+            theme_chunks[0].y,
+            theme_chunks[0].width - 1,
+            theme_chunks[0].height,
+        )
+    } else {
+        theme_chunks[0]
+    };
+    f.render_widget(Paragraph::new(lines).scroll((offset as u16, 0)), text_area);
+    if needs_scroll {
+        let sb_area = Rect::new(
+            theme_chunks[0].x + theme_chunks[0].width - 1,
+            theme_chunks[0].y,
+            1,
+            theme_chunks[0].height,
+        );
+        let track_h = content_h;
+        let thumb_h = ((content_h * track_h + total_lines.saturating_sub(1)) / total_lines)
+            .max(1)
+            .min(track_h);
+        let scroll_space = track_h.saturating_sub(thumb_h);
+        let thumb_y = if max_offset == 0 {
+            0
+        } else {
+            (offset * scroll_space + (max_offset / 2)) / max_offset
+        };
+        let mut sb_lines: Vec<Line> = Vec::with_capacity(track_h);
+        for row in 0..track_h {
+            let in_thumb = row >= thumb_y && row < thumb_y + thumb_h;
+            let (ch, color) = if in_thumb {
+                ("┃", current.divider)
+            } else {
+                ("│", current.border)
+            };
+            sb_lines.push(Line::from(Span::styled(ch, Style::default().fg(color))));
+        }
+        f.render_widget(Paragraph::new(sb_lines), sb_area);
+    }
     let footer_entries: &[(&'static str, &'static str)] = &[
         ("↑↓", "select"),
         ("Enter/Space", "apply/toggle"),
