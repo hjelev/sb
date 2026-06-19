@@ -301,6 +301,17 @@ pub(crate) enum PreviewLineKind {
     },
 }
 
+/// Components for rendering the header-right disk summary. `disk_segment` is
+/// drawn as a horizontal progress bar (background filled by `used_fraction`).
+pub(crate) struct DiskHeaderInfo {
+    /// Folder-size prefix incl. trailing separator, e.g. "📂 3.4G | ".
+    pub(crate) folder_segment: String,
+    /// The used/total label without a percentage, e.g. "💾 246G / 915G".
+    pub(crate) disk_segment: String,
+    /// Used fraction in 0.0..=1.0; `None` when total/free is unknown.
+    pub(crate) used_fraction: Option<f64>,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct InternalSearchContentLimits {
     pub(crate) max_files: usize,

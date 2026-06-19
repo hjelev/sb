@@ -165,7 +165,7 @@ pub fn list_current_directory(
     // Override size columns for all entries when include_total_size=true
     if include_total_size {
         for row in &mut rows {
-            let total = App::compute_total_display_bytes(&row.path).unwrap_or(0);
+            let total = App::compute_total_display_bytes(&row.path, None).unwrap_or(0);
             row.entry_total_bytes = Some(total);
             row.cache.size_col = format!("{:>width$}", App::format_size(total), width = size_width);
             row.cache.size_bytes = Some(total);
