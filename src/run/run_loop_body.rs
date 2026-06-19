@@ -2801,74 +2801,38 @@ fn render_footer(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
     let chunks = [ctx.main, ctx.footer];
     let header_reserved_rows = ctx.header_rows;
 
-    // --- Footer ---
-    let left_status = if app.is_dual_panel_mode() && app.active_panel == crate::DualPanelSide::Right {
-        let total_entries = app.right.entries.len();
-        let selected_ordinal = if total_entries == 0 {
-            0
-        } else {
-            app.right.selected_index.min(total_entries - 1) + 1
-        };
-        let mut left_status_parts = vec![format!("{}/{}", selected_ordinal, total_entries)];
-        if !app.clipboard.is_empty() {
-            left_status_parts.push(format!("Clipboard:{}", app.clipboard.len()));
-        }
-        left_status_parts.join(" │ ")
-    } else {
-        let total_entries = app.entries.len();
-        let selected_ordinal = if total_entries == 0 {
-            0
-        } else {
-            app.selected_index.min(total_entries - 1) + 1
-        };
-        let mut left_status_parts = vec![format!("{}/{}", selected_ordinal, total_entries)];
-        if !app.clipboard.is_empty() {
-            left_status_parts.push(format!("Clipboard:{}", app.clipboard.len()));
-        }
-        left_status_parts.join(" │ ")
-    };
-    let width = chunks[1].width as usize;
-    let left_len = left_status.chars().count();
+    let spec = ui::theme::theme_spec(app.active_theme);
+    let nf = app.nerd_font_active;
 
-    let left_spans: Vec<Span> = if app.is_dual_panel_mode() && app.active_panel == crate::DualPanelSide::Right {
-        let total_entries = app.right.entries.len();
-        let selected_ordinal = if total_entries == 0 {
-            0
-        } else {
-            app.right.selected_index.min(total_entries - 1) + 1
-        };
-        let mut spans = vec![
-            Span::styled(selected_ordinal.to_string(), Style::default().fg(active_theme.text_normal)),
-            Span::styled("/", Style::default().fg(active_theme.text_dim)),
-            Span::styled(total_entries.to_string(), Style::default().fg(active_theme.text_normal)),
-        ];
-        if !app.clipboard.is_empty() {
-            spans.push(Span::styled(" │ ", Style::default().fg(active_theme.text_dim)));
-            spans.push(Span::styled("Clipboard", Style::default().fg(active_theme.text_dim)));
-            spans.push(Span::styled(":", Style::default().fg(active_theme.text_dim)));
-            spans.push(Span::styled(app.clipboard.len().to_string(), Style::default().fg(active_theme.text_normal)));
-        }
-        spans
+    // --- Footer ---
+    let (total_entries, selected_ordinal) = if app.is_dual_panel_mode()
+        && app.active_panel == crate::DualPanelSide::Right
+    {
+        let total = app.right.entries.len();
+        let ord = if total == 0 { 0 } else { app.right.selected_index.min(total - 1) + 1 };
+        (total, ord)
     } else {
-        let total_entries = app.entries.len();
-        let selected_ordinal = if total_entries == 0 {
-            0
-        } else {
-            app.selected_index.min(total_entries - 1) + 1
-        };
-        let mut spans = vec![
-            Span::styled(selected_ordinal.to_string(), Style::default().fg(active_theme.text_normal)),
-            Span::styled("/", Style::default().fg(active_theme.text_dim)),
-            Span::styled(total_entries.to_string(), Style::default().fg(active_theme.text_normal)),
-        ];
-        if !app.clipboard.is_empty() {
-            spans.push(Span::styled(" │ ", Style::default().fg(active_theme.text_dim)));
-            spans.push(Span::styled("Clipboard", Style::default().fg(active_theme.text_dim)));
-            spans.push(Span::styled(":", Style::default().fg(active_theme.text_dim)));
-            spans.push(Span::styled(app.clipboard.len().to_string(), Style::default().fg(active_theme.text_normal)));
-        }
-        spans
+        let total = app.entries.len();
+        let ord = if total == 0 { 0 } else { app.selected_index.min(total - 1) + 1 };
+        (total, ord)
     };
+    let ordinal_str = selected_ordinal.to_string();
+    let total_str = total_entries.to_string();
+
+    let width = chunks[1].width as usize;
+
+    // Counter rendered as a two-tone pill matching the footer shortcuts: the
+    // current index is the (lighter) key segment, the total is the (darker)
+    // label segment. No `/` separator.
+    let mut left_spans: Vec<Span> = ui::panels::shortcut_spans(&ordinal_str, &total_str, nf, spec);
+    let mut left_len = ui::panels::shortcut_width(&ordinal_str, &total_str, nf);
+    if !app.clipboard.is_empty() {
+        left_len += format!(" │ Clipboard:{}", app.clipboard.len()).chars().count();
+        left_spans.push(Span::styled(" │ ", Style::default().fg(active_theme.text_dim)));
+        left_spans.push(Span::styled("Clipboard", Style::default().fg(active_theme.text_dim)));
+        left_spans.push(Span::styled(":", Style::default().fg(active_theme.text_dim)));
+        left_spans.push(Span::styled(app.clipboard.len().to_string(), Style::default().fg(active_theme.text_normal)));
+    }
 
     // Footer shortcuts: pill-styled keys (nerd font) or plain keys,
     // each followed by its description. No `:` separator.
@@ -2887,8 +2851,6 @@ fn render_footer(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
         ("h", "Help"),
         ("q", "Quit"),
     ];
-    let spec = ui::theme::theme_spec(app.active_theme);
-    let nf = app.nerd_font_active;
     let sep_w = 1usize; // single space between shortcuts
     let avail_right = width.saturating_sub(left_len + 1);
 
