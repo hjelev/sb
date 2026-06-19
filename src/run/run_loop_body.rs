@@ -2133,16 +2133,26 @@ fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
                 f.render_widget(Paragraph::new(sb_lines), sb_area);
             }
         }
+        let search_footer_entries: &[(&'static str, &'static str)] = &[
+            ("↑↓", "navigate"),
+            ("Enter", "open"),
+            ("Ctrl+T", "toggle scope"),
+            ("Regex", "re:pattern or /pattern/i"),
+            ("Tab", "switch tabs"),
+        ];
         f.render_widget(
-            Paragraph::new(ui::panels::shortcut_footer_lines(&[
-                ("↑↓", "navigate"),
-                ("Enter", "open"),
-                ("Ctrl+T", "toggle scope"),
-                ("Regex", "re:pattern or /pattern/i"),
-                ("Tab", "switch tabs"),
-            ], app.active_theme, app.nerd_font_active)),
+            Paragraph::new(ui::panels::shortcut_footer_lines(
+                search_footer_entries,
+                app.active_theme,
+                app.nerd_font_active,
+            )),
             footer_area,
         );
+        app.footer_shortcut_zones.extend(ui::panels::footer_shortcut_zones(
+            search_footer_entries,
+            footer_area,
+            app.nerd_font_active,
+        ));
 
         app.clamp_input_cursor();
         let cursor_x = query_input_area.x
@@ -2265,6 +2275,7 @@ fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             app.active_theme,
             app.help_scroll_offset,
             app.nerd_font_active,
+            &mut app.footer_shortcut_zones,
         );
         app.help_max_offset = max_off;
         app.help_scroll_offset = clamped_off;
@@ -2526,6 +2537,7 @@ fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             &bookmarks,
             app.bookmark_selected,
             app.nerd_font_active,
+            &mut app.footer_shortcut_zones,
         );
         if app.mode == AppMode::BookmarkEditing {
             let area = f.size();
@@ -2596,6 +2608,7 @@ fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             app.integration_search_active,
             &app.integration_search_query,
             app.show_icons,
+            &mut app.footer_shortcut_zones,
         );
     } else if app.mode == AppMode::Themes {
         ui::panels::render_themes_overlay(
@@ -2610,6 +2623,7 @@ fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             app.theme_panel_color_selected,
             app.disable_clock,
             app.theme_panel_clock_selected,
+            &mut app.footer_shortcut_zones,
         );
     } else if app.mode == AppMode::SortMenu {
         let options = App::sort_mode_options();
@@ -2624,6 +2638,7 @@ fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             &options,
             app.sort_menu_selected,
             app.sort_mode,
+            &mut app.footer_shortcut_zones,
         );
     } else if app.mode == AppMode::SshPicker {
         let ssh_popup_w = tab_overlay_anchor.width;
@@ -2777,17 +2792,27 @@ fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             .constraints([Constraint::Min(1), Constraint::Length(2)])
             .split(ssh_inner);
         f.render_widget(Paragraph::new(lines), ssh_chunks[0]);
+        let ssh_footer_entries: &[(&'static str, &'static str)] = &[
+            ("↑↓", "navigate"),
+            ("Enter/→", "open or mount"),
+            ("s", "ssh shell"),
+            ("u/Delete", "unmount"),
+            ("Tab", "switch tabs"),
+            ("Esc", "close"),
+        ];
         f.render_widget(
-            Paragraph::new(ui::panels::shortcut_footer_lines(&[
-                ("↑↓", "navigate"),
-                ("Enter/→", "open or mount"),
-                ("s", "ssh shell"),
-                ("u/Delete", "unmount"),
-                ("Tab", "switch tabs"),
-                ("Esc", "close"),
-            ], app.active_theme, app.nerd_font_active)),
+            Paragraph::new(ui::panels::shortcut_footer_lines(
+                ssh_footer_entries,
+                app.active_theme,
+                app.nerd_font_active,
+            )),
             ssh_chunks[1],
         );
+        app.footer_shortcut_zones.extend(ui::panels::footer_shortcut_zones(
+            ssh_footer_entries,
+            ssh_chunks[1],
+            app.nerd_font_active,
+        ));
     } else if app.mode == AppMode::ConfirmExtract {
         let area = f.size();
         let to_extract = &app.archive_extract_targets;
@@ -2956,11 +2981,36 @@ fn render_footer(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
         }
     }
 
+    // Register clickable hit-zones for the footer pills. The vec is cleared
+    // once per frame in the draw closure (overlay footers append earlier), so
+    // here we only append. Only register in Browsing mode (preview/dual panel
+    // are still Browsing) so the main footer pills are inert under an overlay.
+    let zones_enabled = app.mode == crate::AppMode::Browsing;
+    // The shortcut text sits below the optional top border (normal mode) or on
+    // the single footer row (preview/dual panel mode).
+    let zone_y = if app.is_preview_mode() || app.is_dual_panel_mode() {
+        chunks[1].y
+    } else {
+        chunks[1].y + 1
+    };
+    // The right-aligned block begins after the left segment and gap fill.
+    let mut zone_x = (chunks[1].x as usize + width.saturating_sub(right_len)) as u16;
+
     let mut right_spans: Vec<Span> = Vec::new();
     for (idx, (k, d)) in FOOTER_SHORTCUTS[start..].iter().enumerate() {
         if idx > 0 {
             right_spans.push(Span::raw(" "));
+            zone_x = zone_x.saturating_add(sep_w as u16);
         }
+        let pill_w = ui::panels::shortcut_width(k, d, nf) as u16;
+        if zones_enabled && let Some(key) = k.chars().next() {
+            let event = KeyEvent::new(
+                crossterm::event::KeyCode::Char(key),
+                crossterm::event::KeyModifiers::NONE,
+            );
+            app.footer_shortcut_zones.push((event, zone_x, zone_x + pill_w, zone_y));
+        }
+        zone_x = zone_x.saturating_add(pill_w);
         right_spans.extend(ui::panels::shortcut_spans(k, d, nf, spec));
     }
 
@@ -3094,6 +3144,10 @@ pub(crate) fn run_tui_body(
             execute!(terminal.backend_mut(), SetCursorStyle::DefaultUserShape)?;
         }
         terminal.draw(|f| {
+            // Footer pill hit-zones are rebuilt every frame. Overlay footers
+            // append during render_overlays and the main footer appends in
+            // render_footer, so clear once here before any of them run.
+            app.footer_shortcut_zones.clear();
             let theme = *ui::theme::theme_spec(app.active_theme);
             f.render_widget(
                 Block::default().style(

@@ -1,6 +1,7 @@
 use crate::integration::rows::IntegrationRow;
 use crate::ui::theme::{theme_spec, themes, ThemeId};
 use crate::SortMode;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     prelude::*,
     widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap},
@@ -329,6 +330,76 @@ pub fn shortcut_footer_lines(
     vec![Line::from(""), shortcut_footer_line(entries, theme_id, nerd_font)]
 }
 
+/// Map a footer key label (as shown in the pill) to the key event a click
+/// should synthesize. Pure navigation labels like the arrow pair are not
+/// actionable and return `None`; combined labels (e.g. "Enter/0-9",
+/// "Enter/Space") map to their primary key.
+fn footer_key_label_to_event(label: &str) -> Option<KeyEvent> {
+    // Modifier-prefixed labels like "Ctrl+T". Crossterm delivers Ctrl+<letter>
+    // as the lowercase char with the CONTROL modifier, so normalize to that.
+    if let Some(rest) = label.strip_prefix("Ctrl+") {
+        let mut chars = rest.chars();
+        let c = chars.next()?;
+        if chars.next().is_some() {
+            return None;
+        }
+        return Some(KeyEvent::new(
+            KeyCode::Char(c.to_ascii_lowercase()),
+            KeyModifiers::CONTROL,
+        ));
+    }
+    // Combined "X/Y" labels (e.g. "Enter/0-9", "Enter/→", "u/Delete") use the
+    // first segment as the primary key. The lone "/" search key has no leading
+    // segment, so fall back to the whole label in that case.
+    let primary = match label.split('/').next() {
+        Some(seg) if !seg.is_empty() => seg,
+        _ => label,
+    };
+    let code = if primary == "Space" {
+        KeyCode::Char(' ')
+    } else if primary == "Tab" {
+        KeyCode::Tab
+    } else if primary == "Esc" {
+        KeyCode::Esc
+    } else if primary == "Enter" {
+        KeyCode::Enter
+    } else {
+        let mut chars = primary.chars();
+        let c = chars.next()?;
+        if chars.next().is_some() {
+            return None; // multi-char, non-keyword label (e.g. "↑↓", "Regex")
+        }
+        KeyCode::Char(c)
+    };
+    Some(KeyEvent::new(code, KeyModifiers::NONE))
+}
+
+/// Compute clickable hit-zones for a shortcut footer produced by
+/// [`shortcut_footer_lines`] when rendered into `footer_area`. The layout
+/// mirrors [`shortcut_footer_line`]: a blank first row, then a leading space
+/// followed by pills separated by two spaces. Each returned tuple is
+/// `(event, x_start, x_end_exclusive, y)` in terminal cells.
+pub fn footer_shortcut_zones(
+    entries: &[(&'static str, &'static str)],
+    footer_area: Rect,
+    nerd_font: bool,
+) -> Vec<(KeyEvent, u16, u16, u16)> {
+    let y = footer_area.y + 1; // blank Line::from("") precedes the shortcut line
+    let mut x = footer_area.x + 1; // leading Span::raw(" ")
+    let mut zones = Vec::new();
+    for (idx, (key, desc)) in entries.iter().enumerate() {
+        if idx > 0 {
+            x = x.saturating_add(2); // two-space separator between pills
+        }
+        let w = shortcut_width(key, desc, nerd_font) as u16;
+        if let Some(event) = footer_key_label_to_event(key) {
+            zones.push((event, x, x.saturating_add(w), y));
+        }
+        x = x.saturating_add(w);
+    }
+    zones
+}
+
 fn selector_edge_spans(is_selected: bool, spec: &crate::ui::theme::ThemeSpec, nerd_font: bool) -> (Span<'static>, Span<'static>) {
     if is_selected {
         if nerd_font {
@@ -375,6 +446,7 @@ pub fn render_integrations_overlay(
     search_active: bool,
     search_query: &str,
     show_icons: bool,
+    footer_zones: &mut Vec<(KeyEvent, u16, u16, u16)>,
 ) {
     let OverlayChrome {
         anchor: tab_overlay_anchor,
@@ -501,17 +573,19 @@ pub fn render_integrations_overlay(
         );
         render_scrollbar_track(f, sb_area, total_rows, visible_rows, int_scroll, max_scroll, spec);
     }
+    let footer_entries: &[(&'static str, &'static str)] = &[
+        ("↑↓", "navigate"),
+        ("Space", "toggle"),
+        ("Enter", "install missing"),
+        ("/", "search"),
+        ("Tab", "switch tabs"),
+        ("Esc", "close"),
+    ];
     f.render_widget(
-        Paragraph::new(shortcut_footer_lines(&[
-            ("↑↓", "navigate"),
-            ("Space", "toggle"),
-            ("Enter", "install missing"),
-            ("/", "search"),
-            ("Tab", "switch tabs"),
-            ("Esc", "close"),
-        ], theme_id, nerd_font)),
+        Paragraph::new(shortcut_footer_lines(footer_entries, theme_id, nerd_font)),
         int_chunks[1],
     );
+    footer_zones.extend(footer_shortcut_zones(footer_entries, int_chunks[1], nerd_font));
 }
 
 const HELP_LOGO_BYTES: &[u8] = include_bytes!("../../docs/images/favicon.png");
@@ -581,6 +655,7 @@ pub fn render_help_overlay(
     theme_id: ThemeId,
     help_scroll_offset: u16,
     nerd_font: bool,
+    footer_zones: &mut Vec<(KeyEvent, u16, u16, u16)>,
 ) -> (u16, u16, Option<Rect>) {
     let spec = theme_spec(theme_id);
     let help_w = tab_overlay_anchor.width;
@@ -828,15 +903,17 @@ pub fn render_help_overlay(
             clamped_offset as usize, max_scroll, spec,
         );
     }
+    let footer_entries: &[(&'static str, &'static str)] = &[
+        ("↑↓", "navigate"),
+        ("Tab", "switch tabs"),
+        ("c", "open config"),
+        ("Esc", "close"),
+    ];
     f.render_widget(
-        Paragraph::new(shortcut_footer_lines(&[
-            ("↑↓", "navigate"),
-            ("Tab", "switch tabs"),
-            ("c", "open config"),
-            ("Esc", "close"),
-        ], theme_id, nerd_font)),
+        Paragraph::new(shortcut_footer_lines(footer_entries, theme_id, nerd_font)),
         help_footer_area,
     );
+    footer_zones.extend(footer_shortcut_zones(footer_entries, help_footer_area, nerd_font));
 
     (max_offset, clamped_offset, logo_native_area)
 }
@@ -849,6 +926,7 @@ pub fn render_bookmarks_overlay(
     bookmarks: &[(usize, Option<PathBuf>)],
     bookmark_selected: usize,
     nerd_font: bool,
+    footer_zones: &mut Vec<(KeyEvent, u16, u16, u16)>,
 ) {
     let spec = theme_spec(theme_id);
     let mut lines: Vec<Line> = vec![Line::from("")];
@@ -909,16 +987,18 @@ pub fn render_bookmarks_overlay(
         .constraints([Constraint::Min(1), Constraint::Length(2)])
         .split(bm_inner);
     f.render_widget(Paragraph::new(lines), bm_chunks[0]);
+    let footer_entries: &[(&'static str, &'static str)] = &[
+        ("↑↓", "navigate"),
+        ("Enter/0-9", "jump"),
+        ("d", "delete"),
+        ("Tab", "switch tabs"),
+        ("Esc", "close"),
+    ];
     f.render_widget(
-        Paragraph::new(shortcut_footer_lines(&[
-            ("↑↓", "navigate"),
-            ("Enter/0-9", "jump"),
-            ("d", "delete"),
-            ("Tab", "switch tabs"),
-            ("Esc", "close"),
-        ], theme_id, nerd_font)),
+        Paragraph::new(shortcut_footer_lines(footer_entries, theme_id, nerd_font)),
         bm_chunks[1],
     );
+    footer_zones.extend(footer_shortcut_zones(footer_entries, bm_chunks[1], nerd_font));
 }
 
 pub fn render_sort_overlay(
@@ -927,6 +1007,7 @@ pub fn render_sort_overlay(
     options: &[SortMode],
     sort_menu_selected: usize,
     current_sort_mode: SortMode,
+    footer_zones: &mut Vec<(KeyEvent, u16, u16, u16)>,
 ) {
     let OverlayChrome {
         anchor: tab_overlay_anchor,
@@ -996,15 +1077,17 @@ pub fn render_sort_overlay(
         .constraints([Constraint::Min(1), Constraint::Length(2)])
         .split(sort_inner);
     f.render_widget(Paragraph::new(lines), sort_chunks[0]);
+    let footer_entries: &[(&'static str, &'static str)] = &[
+        ("↑↓", "navigate"),
+        ("Enter", "apply"),
+        ("Tab", "switch tabs"),
+        ("Esc", "close"),
+    ];
     f.render_widget(
-        Paragraph::new(shortcut_footer_lines(&[
-            ("↑↓", "navigate"),
-            ("Enter", "apply"),
-            ("Tab", "switch tabs"),
-            ("Esc", "close"),
-        ], theme_id, nerd_font_active)),
+        Paragraph::new(shortcut_footer_lines(footer_entries, theme_id, nerd_font_active)),
         sort_chunks[1],
     );
+    footer_zones.extend(footer_shortcut_zones(footer_entries, sort_chunks[1], nerd_font_active));
 }
 
 pub fn render_themes_overlay(
@@ -1019,6 +1102,7 @@ pub fn render_themes_overlay(
     color_focus: bool,
     disable_clock: bool,
     clock_focus: bool,
+    footer_zones: &mut Vec<(KeyEvent, u16, u16, u16)>,
 ) {
     let current = theme_spec(theme_id);
     let theme_w = tab_overlay_anchor.width;
@@ -1186,15 +1270,16 @@ pub fn render_themes_overlay(
         .constraints([Constraint::Min(1), Constraint::Length(2)])
         .split(theme_inner);
     f.render_widget(Paragraph::new(lines), theme_chunks[0]);
+    let footer_entries: &[(&'static str, &'static str)] = &[
+        ("↑↓", "select"),
+        ("Enter/Space", "apply/toggle"),
+        ("Esc", "close"),
+    ];
     f.render_widget(
-        Paragraph::new(shortcut_footer_lines(&[
-            ("↑↓", "select"),
-            ("Enter/Space", "apply/toggle"),
-            ("T", "open themes"),
-            ("Esc", "close"),
-        ], theme_id, nerd_font)),
+        Paragraph::new(shortcut_footer_lines(footer_entries, theme_id, nerd_font)),
         theme_chunks[1],
     );
+    footer_zones.extend(footer_shortcut_zones(footer_entries, theme_chunks[1], nerd_font));
 }
 
 #[cfg(test)]
@@ -1243,5 +1328,52 @@ mod tests {
         assert_eq!(panel_tab_hit_test(0, 6, 30), Some(4)); // left chevron → tab before window
         assert_eq!(panel_tab_hit_test(1, 6, 30), Some(5)); // first visible tab
         assert_eq!(panel_tab_hit_test(16, 6, 30), Some(6)); // active tab
+    }
+
+    #[test]
+    fn footer_key_labels_map_to_events() {
+        let code = |label| footer_key_label_to_event(label).map(|e| e.code);
+        assert_eq!(code("Space"), Some(KeyCode::Char(' ')));
+        assert_eq!(code("Tab"), Some(KeyCode::Tab));
+        assert_eq!(code("Esc"), Some(KeyCode::Esc));
+        assert_eq!(code("Enter"), Some(KeyCode::Enter));
+        assert_eq!(code("Enter/0-9"), Some(KeyCode::Enter)); // combined label → primary key
+        assert_eq!(code("Enter/Space"), Some(KeyCode::Enter));
+        assert_eq!(code("Enter/→"), Some(KeyCode::Enter));
+        assert_eq!(code("u/Delete"), Some(KeyCode::Char('u'))); // first segment wins
+        assert_eq!(code("/"), Some(KeyCode::Char('/'))); // lone slash stays a key
+        assert_eq!(code("c"), Some(KeyCode::Char('c')));
+        assert_eq!(code("T"), Some(KeyCode::Char('T')));
+        assert_eq!(code("↑↓"), None); // pure navigation hint is not clickable
+
+        // Ctrl-prefixed labels map to the lowercase char with CONTROL set.
+        let ctrl_t = footer_key_label_to_event("Ctrl+T").unwrap();
+        assert_eq!(ctrl_t.code, KeyCode::Char('t'));
+        assert!(ctrl_t.modifiers.contains(KeyModifiers::CONTROL));
+        assert_eq!(code("Regex"), None); // informational label, not a key
+    }
+
+    #[test]
+    fn footer_zones_track_pill_positions() {
+        // Square (non-nerd) widths: key.width + desc.width, leading space, and
+        // two-space separators. The blank first line pushes pills to y + 1.
+        let entries: &[(&'static str, &'static str)] = &[
+            ("Space", "toggle"), // width 11, x 1..12
+            ("Enter", "apply"),  // sep → x 14..24
+            ("↑↓", "nav"),       // width 5, skipped but still consumes layout
+            ("Esc", "close"),    // sep → x 33..41
+        ];
+        let area = ratatui::layout::Rect::new(0, 0, 80, 2);
+        let zones = footer_shortcut_zones(entries, area, false);
+        let mapped: Vec<(KeyCode, u16, u16, u16)> =
+            zones.iter().map(|(e, a, b, y)| (e.code, *a, *b, *y)).collect();
+        assert_eq!(
+            mapped,
+            vec![
+                (KeyCode::Char(' '), 1, 12, 1),
+                (KeyCode::Enter, 14, 24, 1),
+                (KeyCode::Esc, 33, 41, 1),
+            ]
+        );
     }
 }

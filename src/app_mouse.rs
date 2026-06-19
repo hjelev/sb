@@ -503,6 +503,58 @@ impl App {
 
                 None
             }
+            AppMode::Themes => {
+                let overlay = Self::tab_overlay_anchor(area);
+                let themes = crate::ui::theme::themes();
+                // Body lines mirror render_themes_overlay: 0 blank, 1 Nerd Fonts,
+                // 2 Filename colors, 3 Disable clock, 4 blank, then one row per
+                // theme (no scroll offset).
+                let line_count = 5 + themes.len();
+                let theme_h = ((line_count as u16) + 7).max(12).min(overlay.height);
+                let theme_area = Rect::new(overlay.x, overlay.y, overlay.width, theme_h);
+                let theme_inner = Self::inner_with_borders(theme_area);
+                let theme_chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Min(1), Constraint::Length(2)])
+                    .split(theme_inner);
+                let content = theme_chunks[0];
+
+                if row < content.y || row >= content.y + content.height {
+                    return None;
+                }
+                if column < content.x || column >= content.x + content.width {
+                    return None;
+                }
+
+                // Move focus to the clicked row, then synthesize Enter so the
+                // existing key handler applies/toggles the focused item.
+                let offset = row.saturating_sub(content.y) as usize;
+                match offset {
+                    1 => {
+                        self.theme_panel_nerd_selected = true;
+                        self.theme_panel_color_selected = false;
+                        self.theme_panel_clock_selected = false;
+                    }
+                    2 => {
+                        self.theme_panel_nerd_selected = false;
+                        self.theme_panel_color_selected = true;
+                        self.theme_panel_clock_selected = false;
+                    }
+                    3 => {
+                        self.theme_panel_nerd_selected = false;
+                        self.theme_panel_color_selected = false;
+                        self.theme_panel_clock_selected = true;
+                    }
+                    o if o >= 5 && (o - 5) < themes.len() => {
+                        self.theme_panel_nerd_selected = false;
+                        self.theme_panel_color_selected = false;
+                        self.theme_panel_clock_selected = false;
+                        self.theme_selected = o - 5;
+                    }
+                    _ => return None, // blank separator rows
+                }
+                Some(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+            }
             _ => None,
         }
     }
@@ -585,6 +637,36 @@ impl App {
                     self.ssh_picker_selection = self.ssh_picker_selection.saturating_sub(1);
                 } else {
                     self.ssh_picker_selection = (self.ssh_picker_selection + 1).min(max_idx);
+                }
+            }
+            AppMode::Themes => {
+                // Mirror the keyboard Up/Down focus order:
+                // Nerd Fonts → Filename colors → Disable clock → theme list.
+                if scroll_up {
+                    if self.theme_panel_nerd_selected {
+                        // already at the top row
+                    } else if self.theme_panel_color_selected {
+                        self.theme_panel_color_selected = false;
+                        self.theme_panel_nerd_selected = true;
+                    } else if self.theme_panel_clock_selected {
+                        self.theme_panel_clock_selected = false;
+                        self.theme_panel_color_selected = true;
+                    } else if self.theme_selected == 0 {
+                        self.theme_panel_clock_selected = true;
+                    } else {
+                        self.theme_selected -= 1;
+                    }
+                } else if self.theme_panel_nerd_selected {
+                    self.theme_panel_nerd_selected = false;
+                    self.theme_panel_color_selected = true;
+                } else if self.theme_panel_color_selected {
+                    self.theme_panel_color_selected = false;
+                    self.theme_panel_clock_selected = true;
+                } else if self.theme_panel_clock_selected {
+                    self.theme_panel_clock_selected = false;
+                } else {
+                    let max_idx = crate::ui::theme::themes().len().saturating_sub(1);
+                    self.theme_selected = (self.theme_selected + 1).min(max_idx);
                 }
             }
             AppMode::ConfirmDelete => {
@@ -725,6 +807,18 @@ impl App {
             1,
             list_area.height,
         ))
+    }
+
+    /// Hit-test a click against the footer shortcut pills (rebuilt each render
+    /// for both the main footer and the tabbed overlay footers). A hit returns
+    /// the stored key event so clicking a pill behaves exactly like pressing it.
+    fn handle_footer_shortcut_click(&self, column: u16, row: u16) -> Option<KeyEvent> {
+        for &(event, x0, x1, y) in &self.footer_shortcut_zones {
+            if row == y && column >= x0 && column < x1 {
+                return Some(event);
+            }
+        }
+        None
     }
 
     pub(crate) fn handle_main_list_click(&mut self, column: u16, row: u16, area: Rect) -> Option<KeyEvent> {
@@ -1015,6 +1109,13 @@ impl App {
                 self.right.list_scroll_dragging = false;
                 if self.handle_preview_pane_tab_click(mouse.column, mouse.row, area) {
                     return None;
+                }
+                // Footer pills use exact stored hit-zones, so resolve them before
+                // the background file-list click (which would otherwise mutate the
+                // selection or register a double-click) and before the overlay
+                // body row hit-test.
+                if let Some(key) = self.handle_footer_shortcut_click(mouse.column, mouse.row) {
+                    return Some(key);
                 }
                 if let Some(key) = self.handle_main_list_click(mouse.column, mouse.row, area) {
                     return Some(key);
