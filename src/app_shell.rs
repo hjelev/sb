@@ -125,6 +125,7 @@ impl App {
             Err(e) => self.set_status(format!("split shell failed: {}", e)),
         }
         self.refresh_entries_or_status();
+        self.sync_inactive_panel_if_same_dir();
         Ok(())
     }
 
@@ -273,6 +274,7 @@ impl App {
 
         self.set_status(format!("ran command: {}", trimmed));
         self.refresh_entries_or_status();
+        self.sync_inactive_panel_if_same_dir();
         Ok(())
     }
 
@@ -288,6 +290,7 @@ impl App {
         execute!(io::stdout(), Hide)?;
         self.set_status("returned from shell");
         self.refresh_entries_or_status();
+        self.sync_inactive_panel_if_same_dir();
         Ok(())
     }
 

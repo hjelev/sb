@@ -451,6 +451,7 @@ impl App {
         }
 
         self.refresh_entries_or_status();
+        self.sync_inactive_panel_if_same_dir();
         if fail_count == 0 {
             self.set_status(format!("extracted {} archive(s)", ok_count));
         } else {
@@ -605,6 +606,7 @@ impl App {
                 Ok(name) => {
                     self.refresh_entries_or_status();
                     self.select_entry_named(&name);
+                    self.sync_inactive_panel_if_same_dir();
                     self.set_status(format!("archive created: {}", name));
                 }
                 Err(e) => {

@@ -993,6 +993,7 @@ impl App {
                 self.select_entry_named(&name);
             }
         }
+        self.sync_inactive_panel_if_same_dir();
 
         if failed == 0 {
             self.set_status(format!("created {} item(s)", created.len()));
@@ -1214,6 +1215,7 @@ impl App {
         } else {
             self.refresh_entries_or_status();
         }
+        self.sync_inactive_panel_if_same_dir();
         // Surface delete failures (e.g. permission denied) instead of silently
         // leaving the item in place; this status takes priority over refresh's.
         if let Some(err) = last_err {

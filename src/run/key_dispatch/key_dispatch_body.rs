@@ -255,7 +255,8 @@ pub(crate) fn handle_app_key_event_body(
                 }
                 app.clear_input_edit();
                 app.mode = AppMode::Browsing;
-                app.refresh_entries_or_status();
+                app.refresh_active_panel_entries_or_status();
+                app.sync_inactive_panel_if_same_dir();
             }
             KeyCode::Esc => { app.clear_input_edit(); app.mode = AppMode::Browsing; }
             KeyCode::Backspace => app.input_backspace(),
@@ -288,6 +289,7 @@ pub(crate) fn handle_app_key_event_body(
                         if app.paste_move_mode && fs::rename(&src, &dest).is_ok() {
                             app.paste_ok_items += 1;
                             let _ = app.refresh_entries();
+                            app.sync_inactive_panel_if_same_dir();
                             app.advance_paste_queue();
                             return Ok(KeyDispatchOutcome::ContinueLoop);
                         }

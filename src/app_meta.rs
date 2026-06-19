@@ -139,6 +139,7 @@ impl App {
 
             if changed > 0 {
                 self.refresh_entries_or_status();
+                self.sync_inactive_panel_if_same_dir();
             }
 
             if changed > 0 && failed == 0 && skipped_dirs == 0 {

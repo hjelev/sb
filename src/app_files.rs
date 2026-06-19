@@ -308,6 +308,7 @@ impl App {
                 let _ = crate::util::cleanup::safe_cleanup_path(input);
                 self.set_status("file protected with age password");
                 self.refresh_entries_or_status();
+                self.sync_inactive_panel_if_same_dir();
             }
             Err(e) => {
                 let _ = crate::util::cleanup::safe_cleanup_path(&protected_path);
@@ -337,6 +338,7 @@ impl App {
                 let _ = crate::util::cleanup::safe_cleanup_path(input);
                 self.set_status("password protection removed");
                 self.refresh_entries_or_status();
+                self.sync_inactive_panel_if_same_dir();
             }
             Err(e) => {
                 let _ = crate::util::cleanup::safe_cleanup_path(&plain_path);
@@ -499,6 +501,7 @@ impl App {
             Err(e) => self.set_status(format!("re-protect failed: {}", e)),
         }
         self.refresh_entries_or_status();
+        self.sync_inactive_panel_if_same_dir();
         Ok(true)
     }
 }

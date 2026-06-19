@@ -15,7 +15,7 @@ impl App {
         }
     }
 
-    fn refresh_active_panel_entries_or_status(&mut self) -> bool {
+    pub(crate) fn refresh_active_panel_entries_or_status(&mut self) -> bool {
         if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
             match self.refresh_right_panel_entries() {
                 Ok(()) => {
@@ -29,6 +29,24 @@ impl App {
             }
         } else {
             self.refresh_entries_or_status()
+        }
+    }
+
+    /// In dual-panel mode, refresh the *inactive* panel when it shows the same
+    /// directory as the active one, so a filesystem mutation made through the
+    /// active panel doesn't leave stale entries in the other panel. No-op in
+    /// single-panel mode or when the two panels point at different directories.
+    pub(crate) fn sync_inactive_panel_if_same_dir(&mut self) {
+        if !self.is_dual_panel_mode() || self.current_dir != self.right.dir {
+            return;
+        }
+        // The active panel was just refreshed by the caller; refresh the other.
+        // Use the non-status-setting refreshers so the mutation's own status
+        // message (e.g. a delete-failure notice) is preserved.
+        if self.active_panel == DualPanelSide::Right {
+            let _ = self.refresh_entries();
+        } else {
+            let _ = self.refresh_right_panel_entries();
         }
     }
 

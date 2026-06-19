@@ -258,6 +258,7 @@ impl App {
             self.download_rx = None;
             self.download_active_name.clear();
             self.refresh_entries_or_status();
+            self.sync_inactive_panel_if_same_dir();
             match result {
                 Ok(()) => {
                     self.select_entry_named(&file_name);
