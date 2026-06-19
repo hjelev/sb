@@ -170,6 +170,9 @@ impl App {
             self.start_folder_size_scan();
             self.refresh_current_dir_free_space();
             self.start_current_dir_total_size_scan();
+        } else if self.disable_clock {
+            // Disk pill follows the active panel even without folder sizes.
+            self.refresh_current_dir_free_space();
         }
         self.right.marked_indices.clear();
         self.clear_selected_total_size_state_for(DualPanelSide::Right);

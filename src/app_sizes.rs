@@ -466,7 +466,9 @@ impl App {
     }
 
     pub(crate) fn current_dir_total_size_header_info(&self) -> Option<crate::DiskHeaderInfo> {
-        if !self.folder_size_enabled {
+        // Shown when folder-size mode is on, or when the clock is disabled (in
+        // which case the disk pill replaces it, without the folder-size prefix).
+        if !self.folder_size_enabled && !self.disable_clock {
             return None;
         }
         let (folder_label, disk_label) = if self.nerd_font_active {
@@ -493,8 +495,12 @@ impl App {
             (None, None) => format!("{} ? / ?", disk_label),
         };
 
-        // Trailing space leaves one uncolored gap between the folder size and the bar.
-        let folder_segment = if self.current_dir_total_size_pending {
+        // Recursive folder-size prefix: only shown when folder-size mode is on.
+        // When the pill is shown solely because the clock is disabled, there is
+        // no prefix. Trailing space leaves one uncolored gap before the bar.
+        let folder_segment = if !self.folder_size_enabled {
+            String::new()
+        } else if self.current_dir_total_size_pending {
             format!("{} scanning... ", folder_label)
         } else {
             match self.current_dir_total_size_bytes {
