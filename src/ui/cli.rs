@@ -9,7 +9,6 @@ use std::{
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::app_render_cache::{EntryRenderCache, EntryRenderConfig};
-use crate::ui::theme::ThemeId;
 use crate::ui::list_render;
 use crate::ui::list_temperature;
 use crate::App;
@@ -50,9 +49,13 @@ pub fn list_current_directory(
         env::current_dir()?
     };
     let config = crate::app_init::init_config();
-    let nerd_font_active = config.nerd_font_active;
+    let persist = crate::util::config::SbPersistConfig::load();
+    // Mirror the TUI startup path (src/main.rs): persisted settings override env.
+    let nerd_font_active = persist.nerd_font.unwrap_or(config.nerd_font_active);
     let no_color = config.no_color;
     let show_icons = config.show_icons;
+    let theme_id = crate::ui::theme::theme_by_name(&persist.current_theme);
+    let filename_color_mode = persist.filename_color_mode;
     let term_w = crossterm::terminal::size()
         .map(|(w, _)| w as usize)
         .unwrap_or(120);
@@ -131,8 +134,8 @@ pub fn list_current_directory(
     let config = EntryRenderConfig {
         nerd_font_active,
         show_icons,
-        theme_id: ThemeId::original(),
-        filename_color_mode: crate::FilenameColorMode::Full,
+        theme_id,
+        filename_color_mode,
     };
     let uid_cache = App::build_uid_cache_refs(&entries);
     let gid_cache = App::build_gid_cache_refs(&entries);
