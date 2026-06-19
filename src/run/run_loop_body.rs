@@ -1,6 +1,29 @@
 use super::*;
 use crate::ui::list_metrics::*;
 
+/// Darken a color toward black (mirrors `ui::panels::darken`): used for the
+/// free segment of the disk pill so it reads as a darker shade of the used fill.
+fn darken_color(color: Color, factor: f32) -> Color {
+    match color {
+        Color::Rgb(r, g, b) => Color::Rgb(
+            (r as f32 * factor) as u8,
+            (g as f32 * factor) as u8,
+            (b as f32 * factor) as u8,
+        ),
+        _ => Color::Rgb(24, 24, 30),
+    }
+}
+
+/// Build one span of the disk progress bar. The "used" portion gets the
+/// threshold fill color as background with a dark foreground for contrast; the
+/// "free" portion uses the dim panel background with normal-text foreground.
+fn bar_span(text: String, in_used: bool, used_bg: Option<Color>, free_bg: Color, free_fg: Color) -> Span<'static> {
+    match (in_used, used_bg) {
+        (true, Some(bg)) => Span::styled(text, Style::default().bg(bg).fg(Color::Black)),
+        _ => Span::styled(text, Style::default().bg(free_bg).fg(free_fg)),
+    }
+}
+
 fn truncate_display_width(s: &str, max_width: usize) -> String {
     if max_width == 0 {
         return String::new();
@@ -215,13 +238,15 @@ fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user: &str, host
             left_spans.push(Span::styled(")", branch_style));
         }
     let mut header_right_is_clock = false;
-    let header_right = if let Some(total_suffix) = app.current_dir_total_size_header_suffix() {
+    let header_right = if let Some(disk_info) = app.current_dir_total_size_header_info() {
         let icon_style = Style::default().fg(Color::Rgb(100, 160, 240));
         let text_style = Style::default().fg(active_theme.text_normal);
         let mut spans: Vec<Span> = Vec::new();
+
+        // Folder-size prefix: recolor the folder glyph, plain text otherwise.
         let mut text_buf = String::new();
-        for ch in total_suffix.chars() {
-            if ch == '\u{f10b7}' || ch == '\u{f02ca}' {
+        for ch in disk_info.folder_segment.chars() {
+            if ch == '\u{f10b7}' {
                 if !text_buf.is_empty() {
                     spans.push(Span::styled(text_buf.clone(), text_style));
                     text_buf.clear();
@@ -232,8 +257,68 @@ fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user: &str, host
             }
         }
         if !text_buf.is_empty() {
-            spans.push(Span::styled(text_buf, text_style));
+            spans.push(Span::styled(text_buf.clone(), text_style));
+            text_buf.clear();
         }
+
+        // Disk label rendered as a two-tone pill progress bar (same look as the
+        // footer shortcut pills): the left `used_fraction` of the width is filled
+        // with a threshold color (green/amber/red), the remainder uses a darker
+        // shade of that color. With Nerd Fonts the ends get rounded Powerline
+        // caps; without, it degrades to a square two-tone block.
+        let bar = &disk_info.disk_segment;
+        let bar_width = UnicodeWidthStr::width(bar.as_str());
+        let used_color = disk_info.used_fraction.map(|f| {
+            if f >= 0.90 {
+                active_theme.error
+            } else if f >= 0.70 {
+                active_theme.warning
+            } else {
+                active_theme.success
+            }
+        });
+        let used_bg = used_color;
+        let free_bg = used_color
+            .map(|c| darken_color(c, 0.45))
+            .unwrap_or(active_theme.bg_inactive_panel);
+        let fill_cols = disk_info
+            .used_fraction
+            .map(|f| ((bar_width as f64) * f).round() as usize)
+            .unwrap_or(0)
+            .min(bar_width);
+
+        // Cap colors match the color of the cell they round into.
+        let first_color = if fill_cols > 0 { used_bg.unwrap_or(free_bg) } else { free_bg };
+        let last_color = if fill_cols >= bar_width { used_bg.unwrap_or(free_bg) } else { free_bg };
+
+        // Split the label into the used (filled) and free runs by column.
+        let mut col = 0usize;
+        let mut used_text = String::new();
+        let mut free_text = String::new();
+        for ch in bar.chars() {
+            if col < fill_cols {
+                used_text.push(ch);
+            } else {
+                free_text.push(ch);
+            }
+            col += UnicodeWidthStr::width(ch.to_string().as_str());
+        }
+
+        if app.nerd_font_active {
+            spans.push(Span::styled("\u{e0b6}", Style::default().fg(first_color)));
+        }
+        if !used_text.is_empty() {
+            spans.push(bar_span(used_text, true, used_bg, free_bg, active_theme.text_normal));
+        }
+        if !free_text.is_empty() {
+            spans.push(bar_span(free_text, false, used_bg, free_bg, active_theme.text_normal));
+        }
+        if app.nerd_font_active {
+            spans.push(Span::styled("\u{e0b4}", Style::default().fg(last_color)));
+        }
+        // One trailing space so the pill isn't flush against the right edge.
+        spans.push(Span::raw(" "));
+
         Some(Line::from(spans))
     } else if !app.folder_size_enabled {
         header_right_is_clock = true;

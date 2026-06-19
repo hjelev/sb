@@ -32,7 +32,11 @@ use std::{
     io,
     path::PathBuf,
     process::Command,
-    sync::mpsc::{self, Receiver},
+    sync::{
+        atomic::AtomicBool,
+        mpsc::{self, Receiver},
+        Arc,
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 mod integration;
@@ -170,18 +174,21 @@ struct App {
     folder_size_cache: HashMap<PathBuf, u64>,
     folder_size_rx: Option<Receiver<FolderSizeMsg>>,
     folder_size_scan_id: u64,
+    folder_size_cancel: Option<Arc<AtomicBool>>,
     tree_expansion_levels: HashMap<PathBuf, usize>,
     tree_last_tap: Option<(char, Instant)>,
     main_list_last_click: Option<(PathBuf, usize, Instant)>,
     tree_row_prefixes: Vec<String>,
     current_dir_total_size_rx: Option<Receiver<CurrentDirTotalSizeMsg>>,
     current_dir_total_size_scan_id: u64,
+    current_dir_total_size_cancel: Option<Arc<AtomicBool>>,
     current_dir_total_size_pending: bool,
     current_dir_total_size_bytes: Option<u64>,
     current_dir_total_space_bytes: Option<u64>,
     current_dir_free_bytes: Option<u64>,
     recursive_mtime_rx: Option<Receiver<RecursiveMtimeMsg>>,
     recursive_mtime_scan_id: u64,
+    recursive_mtime_cancel: Option<Arc<AtomicBool>>,
     selected_total_size_rx: Option<Receiver<SelectedTotalSizeMsg>>,
     selected_total_size_scan_id: u64,
     selected_total_size_pending: bool,
@@ -394,18 +401,21 @@ impl App {
             folder_size_cache: HashMap::new(),
             folder_size_rx: None,
             folder_size_scan_id: 0,
+            folder_size_cancel: None,
             tree_expansion_levels: HashMap::new(),
             tree_last_tap: None,
             main_list_last_click: None,
             tree_row_prefixes: Vec::new(),
             current_dir_total_size_rx: None,
             current_dir_total_size_scan_id: 0,
+            current_dir_total_size_cancel: None,
             current_dir_total_size_pending: false,
             current_dir_total_size_bytes: None,
             current_dir_total_space_bytes: None,
             current_dir_free_bytes: None,
             recursive_mtime_rx: None,
             recursive_mtime_scan_id: 0,
+            recursive_mtime_cancel: None,
             selected_total_size_rx: None,
             selected_total_size_scan_id: 0,
             selected_total_size_pending: false,
@@ -522,6 +532,10 @@ impl App {
         app.set_active_theme(ui::theme::theme_by_name(&persist.current_theme));
         for key in &persist.disabled_integrations {
             app.integration_overrides.insert(key.clone(), false);
+        }
+        // Restore persisted folder-size calculation toggle (kicks off the scan).
+        if persist.folder_size_enabled {
+            app.set_folder_size_enabled(true);
         }
         Ok(app)
     }

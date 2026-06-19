@@ -455,7 +455,7 @@ impl App {
                 line_kinds.push(PreviewLineKind::Plain);
             }
 
-            let footer = App::compute_total_display_bytes(&path)
+            let footer = App::compute_total_display_bytes(&path, None)
                 .ok()
                 .map(|bytes| format!("Total: {}", App::format_size(bytes)));
             return PreviewContentMsg::Ready {

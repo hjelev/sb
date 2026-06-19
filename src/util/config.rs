@@ -132,6 +132,8 @@ pub struct SbPersistConfig {
     pub nerd_font: Option<bool>,
     /// How file (not folder) names are colored in the list.
     pub(crate) filename_color_mode: FilenameColorMode,
+    /// Whether folder size calculation (the `s` toggle) is enabled on launch.
+    pub folder_size_enabled: bool,
     /// Integration keys that the user has explicitly disabled.
     pub disabled_integrations: Vec<String>,
     /// Persistent bookmarks (index 0–9 → path string). Env vars take precedence at runtime.
@@ -147,6 +149,7 @@ impl Default for SbPersistConfig {
             current_theme: "original".to_string(),
             nerd_font: None,
             filename_color_mode: FilenameColorMode::Full,
+            folder_size_enabled: false,
             disabled_integrations: Vec::new(),
             bookmarks: std::collections::HashMap::new(),
             unknown: std::collections::HashMap::new(),
@@ -185,6 +188,12 @@ impl SbPersistConfig {
                     "filename_colors" => {
                         cfg.filename_color_mode = FilenameColorMode::from_key(val);
                     }
+                    "folder_size_enabled" => {
+                        cfg.folder_size_enabled = matches!(
+                            val.to_ascii_lowercase().as_str(),
+                            "1" | "true"
+                        );
+                    }
                     "disabled_integrations" => {
                         cfg.disabled_integrations = val
                             .split(',')
@@ -222,6 +231,7 @@ impl SbPersistConfig {
             lines.push(format!("nerd_font = {}", nf));
         }
         lines.push(format!("filename_colors = {}", self.filename_color_mode.as_key()));
+        lines.push(format!("folder_size_enabled = {}", self.folder_size_enabled));
         if !self.disabled_integrations.is_empty() {
             lines.push(format!(
                 "disabled_integrations = {}",
