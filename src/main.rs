@@ -264,6 +264,10 @@ struct App {
     help_logo_native_area: Option<Rect>,
     help_logo_native_last_key: Option<String>,
     help_logo_native_last_area: Option<Rect>,
+    // Click hit-zones for the footer shortcut pills (main footer + tabbed
+    // overlay footers), rebuilt every render. Each entry is
+    // (key event to synthesize, x_start, x_end_exclusive, y) in terminal cells.
+    footer_shortcut_zones: Vec<(KeyEvent, u16, u16, u16)>,
     preview_pane_focus: PreviewPaneFocus,
     active_panel: DualPanelSide,
     right: PanelState,
@@ -489,6 +493,7 @@ impl App {
             help_logo_native_area: None,
             help_logo_native_last_key: None,
             help_logo_native_last_area: None,
+            footer_shortcut_zones: Vec::new(),
             preview_pane_focus: PreviewPaneFocus::Folder,
             active_panel: DualPanelSide::Left,
             right: PanelState {
