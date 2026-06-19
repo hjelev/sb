@@ -235,43 +235,70 @@ pub fn panel_tab_hit_test(relative_x: u16, active: u8, avail_width: u16) -> Opti
 const PILL_LEFT_CAP: &str = "\u{e0b6}";
 const PILL_RIGHT_CAP: &str = "\u{e0b4}";
 
-/// Spans for a single footer shortcut: the key (a rounded pill when nerd fonts
-/// are active) followed by a space and its description. No `:` separator.
+/// Darken a color toward black for the label pill background.
+/// Named colors (e.g. the Original theme's `DarkGray`) fall back to a fixed
+/// near-black so the label pill always reads darker than the key pill.
+fn darken(color: Color, factor: f32) -> Color {
+    match color {
+        Color::Rgb(r, g, b) => Color::Rgb(
+            (r as f32 * factor) as u8,
+            (g as f32 * factor) as u8,
+            (b as f32 * factor) as u8,
+        ),
+        _ => Color::Rgb(24, 24, 30),
+    }
+}
+
+/// Spans for a single footer shortcut: a single two-tone pill. The key segment
+/// (lighter `bg_selected`) flows straight into the darker label segment, sharing
+/// one rounded outline — rounded caps only on the outer left/right ends. With
+/// nerd fonts the ends are Powerline caps; without, it degrades to a square
+/// two-tone background block. No `:` separator.
 pub fn shortcut_spans(
     key: &str,
     description: &str,
     nerd_font: bool,
     spec: &crate::ui::theme::ThemeSpec,
 ) -> Vec<Span<'static>> {
-    let desc_style = Style::default().fg(spec.text_dim);
+    let key_bg = spec.bg_selected;
+    let label_bg = darken(key_bg, 0.45);
+    let key_style = Style::default()
+        .fg(spec.text_normal)
+        .bg(key_bg)
+        .add_modifier(Modifier::BOLD);
+    let label_style = Style::default().fg(spec.text_normal).bg(label_bg);
     let mut spans: Vec<Span<'static>> = Vec::new();
 
     if nerd_font {
-        let pill_bg = spec.bg_selected;
-        let cap_style = Style::default().fg(pill_bg);
-        let key_style = Style::default()
-            .fg(spec.text_normal)
-            .bg(pill_bg)
-            .add_modifier(Modifier::BOLD);
-        spans.push(Span::styled(PILL_LEFT_CAP, cap_style));
+        // Outer left cap: gray rounding out of the footer background.
+        spans.push(Span::styled(PILL_LEFT_CAP, Style::default().fg(key_bg)));
         spans.push(Span::styled(key.to_string(), key_style));
-        spans.push(Span::styled(PILL_RIGHT_CAP, cap_style));
+        // Junction cap: gray rounded edge drawn over the dark label background,
+        // so the key segment appears to round into the darker area.
+        spans.push(Span::styled(
+            PILL_RIGHT_CAP,
+            Style::default().fg(key_bg).bg(label_bg),
+        ));
+        spans.push(Span::styled(description.to_string(), label_style));
+        // Outer right cap: dark rounding back into the footer background.
+        spans.push(Span::styled(PILL_RIGHT_CAP, Style::default().fg(label_bg)));
     } else {
-        let key_style = Style::default().fg(spec.text_normal).add_modifier(Modifier::BOLD);
         spans.push(Span::styled(key.to_string(), key_style));
+        spans.push(Span::styled(description.to_string(), label_style));
     }
-    spans.push(Span::raw(" "));
-    spans.push(Span::styled(description.to_string(), desc_style));
     spans
 }
 
 /// Rendered display width of a shortcut produced by [`shortcut_spans`].
+///
+/// Compact: no inner padding. Nerd fonts add three rounded caps (left,
+/// junction, right) around the key and label text; the square fallback is just
+/// the two text segments.
 pub fn shortcut_width(key: &str, description: &str, nerd_font: bool) -> usize {
-    let base = key.width() + 1 + description.width();
     if nerd_font {
-        base + 2
+        key.width() + description.width() + 3
     } else {
-        base
+        key.width() + description.width()
     }
 }
 
