@@ -4,7 +4,10 @@ use std::{
     path::PathBuf,
     process::Command,
     str::FromStr,
-    sync::mpsc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc, Arc,
+    },
     thread,
     time::UNIX_EPOCH,
 };
@@ -28,9 +31,31 @@ impl App {
         }
     }
 
+    /// Signal a previous scan's worker to stop and install a fresh token.
+    ///
+    /// Flips the old `Arc<AtomicBool>` (if any) to `true` so the still-running
+    /// recursive walk bails out early, then returns a new token cloned into the
+    /// new worker. The cooperative checks live in the recursive walk functions.
+    fn renew_cancel_token(slot: &mut Option<Arc<AtomicBool>>) -> Arc<AtomicBool> {
+        if let Some(old) = slot.take() {
+            old.store(true, Ordering::Relaxed);
+        }
+        let token = Arc::new(AtomicBool::new(false));
+        *slot = Some(token.clone());
+        token
+    }
+
+    /// Signal a previous scan's worker to stop without starting a new one.
+    fn abort_cancel_token(slot: &mut Option<Arc<AtomicBool>>) {
+        if let Some(old) = slot.take() {
+            old.store(true, Ordering::Relaxed);
+        }
+    }
+
     pub(crate) fn start_recursive_mtime_scan(&mut self) {
         self.recursive_mtime_scan_id = self.recursive_mtime_scan_id.wrapping_add(1);
         let scan_id = self.recursive_mtime_scan_id;
+        let cancel = Self::renew_cancel_token(&mut self.recursive_mtime_cancel);
 
         let mut unique_dirs: HashSet<PathBuf> = self
             .entries
@@ -58,9 +83,17 @@ impl App {
         self.recursive_mtime_rx = Some(spawn_worker(move |tx| {
             let updated: Vec<(PathBuf, u64)> = dir_paths
                 .par_iter()
-                .map(|dir| (dir.clone(), App::compute_latest_modified_unix_recursive(dir).unwrap_or(0)))
+                .map(|dir| {
+                    (
+                        dir.clone(),
+                        App::compute_latest_modified_unix_recursive(dir, Some(&cancel)).unwrap_or(0),
+                    )
+                })
                 .collect();
 
+            if cancel.load(Ordering::Relaxed) {
+                return;
+            }
             for (dir, latest_unix) in updated {
                 let _ = tx.send(RecursiveMtimeMsg::EntryMtime(scan_id, dir, latest_unix));
             }
@@ -95,7 +128,13 @@ impl App {
         }
     }
 
-    pub(crate) fn compute_latest_modified_unix_recursive(path: &PathBuf) -> io::Result<u64> {
+    pub(crate) fn compute_latest_modified_unix_recursive(
+        path: &PathBuf,
+        cancel: Option<&AtomicBool>,
+    ) -> io::Result<u64> {
+        if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
+            return Ok(0);
+        }
         let meta = match fs::symlink_metadata(path) {
             Ok(m) => m,
             Err(_) => return Ok(0),
@@ -118,8 +157,12 @@ impl App {
         };
 
         for child in children.flatten() {
+            if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
+                return Ok(latest);
+            }
             let child_path = child.path();
-            let child_latest = Self::compute_latest_modified_unix_recursive(&child_path).unwrap_or(0);
+            let child_latest =
+                Self::compute_latest_modified_unix_recursive(&child_path, cancel).unwrap_or(0);
             latest = latest.max(child_latest);
         }
 
@@ -218,7 +261,7 @@ impl App {
         thread::spawn(move || {
             let total = targets
                 .par_iter()
-                .map(|p| App::compute_total_display_bytes(p).unwrap_or(0))
+                .map(|p| App::compute_total_display_bytes(p, None).unwrap_or(0))
                 .reduce(|| 0u64, |acc, v| acc.saturating_add(v));
             let _ = tx.send(SelectedTotalSizeMsg::Finished(scan_id, total));
         });
@@ -310,6 +353,7 @@ impl App {
 
         self.folder_size_scan_id = self.folder_size_scan_id.wrapping_add(1);
         let scan_id = self.folder_size_scan_id;
+        let cancel = Self::renew_cancel_token(&mut self.folder_size_cancel);
 
         let mut unique_dirs: HashSet<PathBuf> = self
             .entries
@@ -337,8 +381,11 @@ impl App {
         self.folder_size_rx = Some(spawn_worker(move |tx| {
             let sized: Vec<(PathBuf, u64)> = dir_paths
                 .par_iter()
-                .map(|dir| (dir.clone(), App::compute_total_display_bytes(dir).unwrap_or(0)))
+                .map(|dir| (dir.clone(), App::compute_total_display_bytes(dir, Some(&cancel)).unwrap_or(0)))
                 .collect();
+            if cancel.load(Ordering::Relaxed) {
+                return;
+            }
             for (dir, size) in sized {
                 let _ = tx.send(FolderSizeMsg::EntrySize(scan_id, dir, size));
             }
@@ -348,6 +395,7 @@ impl App {
 
     pub(crate) fn clear_current_dir_total_size_state(&mut self) {
         self.current_dir_total_size_scan_id = self.current_dir_total_size_scan_id.wrapping_add(1);
+        Self::abort_cancel_token(&mut self.current_dir_total_size_cancel);
         self.current_dir_total_size_rx = None;
         self.current_dir_total_size_pending = false;
         self.current_dir_total_size_bytes = None;
@@ -389,12 +437,16 @@ impl App {
 
         self.current_dir_total_size_scan_id = self.current_dir_total_size_scan_id.wrapping_add(1);
         let scan_id = self.current_dir_total_size_scan_id;
+        let cancel = Self::renew_cancel_token(&mut self.current_dir_total_size_cancel);
         let current_dir = self.active_size_context_dir();
         self.current_dir_total_size_pending = true;
         self.current_dir_total_size_bytes = None;
 
         self.current_dir_total_size_rx = Some(spawn_worker(move |tx| {
-            let total = App::compute_total_display_bytes(&current_dir).unwrap_or(0);
+            let total = App::compute_total_display_bytes(&current_dir, Some(&cancel)).unwrap_or(0);
+            if cancel.load(Ordering::Relaxed) {
+                return;
+            }
             let _ = tx.send(CurrentDirTotalSizeMsg::Finished(scan_id, total));
         }));
     }
@@ -413,44 +465,48 @@ impl App {
         }
     }
 
-    pub(crate) fn current_dir_total_size_header_suffix(&self) -> Option<String> {
+    pub(crate) fn current_dir_total_size_header_info(&self) -> Option<crate::DiskHeaderInfo> {
         if !self.folder_size_enabled {
             return None;
         }
-        let (folder_label, free_label) = if self.nerd_font_active {
+        let (folder_label, disk_label) = if self.nerd_font_active {
             ("\u{f10b7}", "\u{f02ca}")
         } else {
-            ("folder:", "free:")
+            ("folder:", "disk:")
         };
-        let total_space = self.current_dir_total_space_bytes.map(Self::format_size);
-        let free_pct = self
-            .current_dir_total_space_bytes
-            .and_then(|total| {
-                self.current_dir_free_bytes.map(|free| {
-                    let pct = if total > 0 {
-                        (free as f64 * 100.0) / (total as f64)
-                    } else {
-                        0.0
-                    };
-                    format!("{:.0}%", pct)
-                })
-            })
-            .unwrap_or_else(|| "?".to_string());
-
-        let free_part = match (self.current_dir_free_bytes, total_space) {
-            (Some(free), Some(total)) => format!("{} {}/{} ({})", free_label, Self::format_size(free), total, free_pct),
-            (Some(free), None) => format!("{} {} (?)", free_label, Self::format_size(free)),
-            (None, Some(total)) => format!("{} ?/{} ({})", free_label, total, free_pct),
-            (None, None) => format!("{} ? (?)", free_label),
+        let total_raw = self.current_dir_total_space_bytes;
+        let free_raw = self.current_dir_free_bytes;
+        let used_raw = match (total_raw, free_raw) {
+            (Some(total), Some(free)) => Some(total.saturating_sub(free)),
+            _ => None,
+        };
+        let used_fraction = match (total_raw, used_raw) {
+            (Some(total), Some(used)) if total > 0 => Some((used as f64 / total as f64).clamp(0.0, 1.0)),
+            _ => None,
         };
 
-        if self.current_dir_total_size_pending {
-            return Some(format!("{} scanning... | {}", folder_label, free_part));
-        }
+        let total_space = total_raw.map(Self::format_size);
+        let disk_segment = match (used_raw, total_space) {
+            (Some(used), Some(total)) => format!("{} {} / {}", disk_label, Self::format_size(used), total),
+            (Some(used), None) => format!("{} {} / ?", disk_label, Self::format_size(used)),
+            (None, Some(total)) => format!("{} ? / {}", disk_label, total),
+            (None, None) => format!("{} ? / ?", disk_label),
+        };
 
-        Some(match self.current_dir_total_size_bytes {
-            Some(bytes) => format!("{} {} | {}", folder_label, Self::format_size(bytes), free_part),
-            None => format!("{} ? | {}", folder_label, free_part),
+        // Trailing space leaves one uncolored gap between the folder size and the bar.
+        let folder_segment = if self.current_dir_total_size_pending {
+            format!("{} scanning... ", folder_label)
+        } else {
+            match self.current_dir_total_size_bytes {
+                Some(bytes) => format!("{} {} ", folder_label, Self::format_size(bytes)),
+                None => format!("{} ? ", folder_label),
+            }
+        };
+
+        Some(crate::DiskHeaderInfo {
+            folder_segment,
+            disk_segment,
+            used_fraction,
         })
     }
 
@@ -504,8 +560,14 @@ impl App {
 
         self.folder_size_enabled = enabled;
         self.folder_size_scan_id = self.folder_size_scan_id.wrapping_add(1);
+        Self::abort_cancel_token(&mut self.folder_size_cancel);
         self.folder_size_rx = None;
         self.reset_folder_size_columns();
+
+        // Persist the choice so it is restored on next launch.
+        let mut cfg = crate::util::config::SbPersistConfig::load();
+        cfg.folder_size_enabled = enabled;
+        let _ = cfg.save();
 
         if enabled {
             self.apply_cached_folder_size_columns();
@@ -562,8 +624,11 @@ impl App {
         Self::compute_total_bytes_inner(src, true)
     }
 
-    pub(crate) fn compute_total_display_bytes(src: &PathBuf) -> io::Result<u64> {
-        Self::compute_total_display_bytes_inner(src, false)
+    pub(crate) fn compute_total_display_bytes(
+        src: &PathBuf,
+        cancel: Option<&AtomicBool>,
+    ) -> io::Result<u64> {
+        Self::compute_total_display_bytes_inner(src, false, cancel)
     }
 
     pub(crate) fn compute_total_bytes_inner(src: &PathBuf, follow_symlink_dir: bool) -> io::Result<u64> {
@@ -593,6 +658,7 @@ impl App {
     pub(crate) fn compute_total_display_bytes_inner(
         src: &PathBuf,
         follow_symlink_dir: bool,
+        cancel: Option<&AtomicBool>,
     ) -> io::Result<u64> {
         // Best-effort size walk for display: uses disk-usage bytes on Unix to avoid
         // huge apparent sizes from virtual files (for example /proc/kcore).
@@ -606,13 +672,13 @@ impl App {
             if follow_symlink_dir
                 && let Ok(target_meta) = fs::metadata(src)
                     && target_meta.is_dir() {
-                        return Self::compute_dir_total_display_bytes(src);
+                        return Self::compute_dir_total_display_bytes(src, cancel);
                     }
             return Ok(Self::display_leaf_size(&metadata));
         }
 
         if file_type.is_dir() {
-            return Self::compute_dir_total_display_bytes(src);
+            return Self::compute_dir_total_display_bytes(src, cancel);
         }
 
         Ok(Self::display_leaf_size(&metadata))
@@ -644,8 +710,14 @@ impl App {
         Ok(total)
     }
 
-    pub(crate) fn compute_dir_total_display_bytes(dir: &PathBuf) -> io::Result<u64> {
+    pub(crate) fn compute_dir_total_display_bytes(
+        dir: &PathBuf,
+        cancel: Option<&AtomicBool>,
+    ) -> io::Result<u64> {
         const SIZE_WALK_PAR_THRESHOLD: usize = 32;
+        if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
+            return Ok(0);
+        }
         let children = match fs::read_dir(dir) {
             Ok(rd) => rd,
             Err(_) => return Ok(0),
@@ -658,12 +730,12 @@ impl App {
         let total = if child_paths.len() >= SIZE_WALK_PAR_THRESHOLD {
             child_paths
                 .par_iter()
-                .map(|child_path| Self::compute_total_display_bytes_inner(child_path, false).unwrap_or(0))
+                .map(|child_path| Self::compute_total_display_bytes_inner(child_path, false, cancel).unwrap_or(0))
                 .reduce(|| 0u64, |acc, v| acc.saturating_add(v))
         } else {
             child_paths
                 .iter()
-                .map(|child_path| Self::compute_total_display_bytes_inner(child_path, false).unwrap_or(0))
+                .map(|child_path| Self::compute_total_display_bytes_inner(child_path, false, cancel).unwrap_or(0))
                 .fold(0u64, |acc, v| acc.saturating_add(v))
         };
 
