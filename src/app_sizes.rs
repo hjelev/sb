@@ -417,40 +417,44 @@ impl App {
         if !self.folder_size_enabled {
             return None;
         }
-        let (folder_label, free_label) = if self.nerd_font_active {
+        let (folder_label, disk_label) = if self.nerd_font_active {
             ("\u{f10b7}", "\u{f02ca}")
         } else {
-            ("folder:", "free:")
+            ("folder:", "disk:")
         };
-        let total_space = self.current_dir_total_space_bytes.map(Self::format_size);
-        let free_pct = self
-            .current_dir_total_space_bytes
-            .and_then(|total| {
-                self.current_dir_free_bytes.map(|free| {
-                    let pct = if total > 0 {
-                        (free as f64 * 100.0) / (total as f64)
-                    } else {
-                        0.0
-                    };
-                    format!("{:.0}%", pct)
-                })
-            })
-            .unwrap_or_else(|| "?".to_string());
+        let total_raw = self.current_dir_total_space_bytes;
+        let free_raw = self.current_dir_free_bytes;
+        let used_raw = match (total_raw, free_raw) {
+            (Some(total), Some(free)) => Some(total.saturating_sub(free)),
+            _ => None,
+        };
+        let used_pct = match (total_raw, used_raw) {
+            (Some(total), Some(used)) => {
+                let pct = if total > 0 {
+                    (used as f64 * 100.0) / (total as f64)
+                } else {
+                    0.0
+                };
+                format!("{:.0}%", pct)
+            }
+            _ => "?".to_string(),
+        };
 
-        let free_part = match (self.current_dir_free_bytes, total_space) {
-            (Some(free), Some(total)) => format!("{} {}/{} ({})", free_label, Self::format_size(free), total, free_pct),
-            (Some(free), None) => format!("{} {} (?)", free_label, Self::format_size(free)),
-            (None, Some(total)) => format!("{} ?/{} ({})", free_label, total, free_pct),
-            (None, None) => format!("{} ? (?)", free_label),
+        let total_space = total_raw.map(Self::format_size);
+        let disk_part = match (used_raw, total_space) {
+            (Some(used), Some(total)) => format!("{} {} / {} ({} Used)", disk_label, Self::format_size(used), total, used_pct),
+            (Some(used), None) => format!("{} {} / ? ({} Used)", disk_label, Self::format_size(used), used_pct),
+            (None, Some(total)) => format!("{} ? / {} ({} Used)", disk_label, total, used_pct),
+            (None, None) => format!("{} ? / ? (?)", disk_label),
         };
 
         if self.current_dir_total_size_pending {
-            return Some(format!("{} scanning... | {}", folder_label, free_part));
+            return Some(format!("{} scanning... | {}", folder_label, disk_part));
         }
 
         Some(match self.current_dir_total_size_bytes {
-            Some(bytes) => format!("{} {} | {}", folder_label, Self::format_size(bytes), free_part),
-            None => format!("{} ? | {}", folder_label, free_part),
+            Some(bytes) => format!("{} {} | {}", folder_label, Self::format_size(bytes), disk_part),
+            None => format!("{} ? | {}", folder_label, disk_part),
         })
     }
 
