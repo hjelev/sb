@@ -171,6 +171,9 @@ struct App {
     git_info_rx: Option<Receiver<(PathBuf, Option<(String, bool, Option<(String, u64)>)>)>>,
     git_last_check_at: Option<Instant>,
     folder_size_enabled: bool,
+    /// When true, the top-right header clock is replaced by the disk-usage pill
+    /// (without the recursive folder-size prefix). Persisted to config.
+    disable_clock: bool,
     folder_size_cache: HashMap<PathBuf, u64>,
     folder_size_rx: Option<Receiver<FolderSizeMsg>>,
     folder_size_scan_id: u64,
@@ -205,6 +208,8 @@ struct App {
     /// True when the Themes panel's "Filename colors" toggle row is the selected
     /// row (rather than the Nerd Fonts row or one of the theme rows).
     theme_panel_color_selected: bool,
+    /// True when the Themes panel's "Disable clock" toggle row is the selected row.
+    theme_panel_clock_selected: bool,
     internal_search_candidates: Vec<PathBuf>,
     internal_search_results: Vec<InternalSearchResult>,
     internal_search_selected: usize,
@@ -398,6 +403,7 @@ impl App {
             git_info_rx: None,
             git_last_check_at: None,
             folder_size_enabled: false,
+            disable_clock: false,
             folder_size_cache: HashMap::new(),
             folder_size_rx: None,
             folder_size_scan_id: 0,
@@ -428,6 +434,7 @@ impl App {
             theme_selected: 0,
             theme_panel_nerd_selected: false,
             theme_panel_color_selected: false,
+            theme_panel_clock_selected: false,
             internal_search_candidates: Vec::new(),
             internal_search_results: Vec::new(),
             internal_search_selected: 0,
@@ -525,6 +532,10 @@ impl App {
         // correct glyph mode.
         if let Some(nf) = persist.nerd_font {
             app.nerd_font_active = nf;
+        }
+        // Persisted "disable clock" choice: show the disk pill instead of the clock.
+        if let Some(dc) = persist.disable_clock {
+            app.disable_clock = dc;
         }
         // Persisted filename-color mode; applied before set_active_theme so the
         // first render-cache build uses it.

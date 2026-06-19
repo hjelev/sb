@@ -2608,6 +2608,8 @@ fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             app.theme_panel_nerd_selected,
             app.filename_color_mode,
             app.theme_panel_color_selected,
+            app.disable_clock,
+            app.theme_panel_clock_selected,
         );
     } else if app.mode == AppMode::SortMenu {
         let options = App::sort_mode_options();

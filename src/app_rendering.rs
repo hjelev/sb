@@ -56,6 +56,17 @@ impl App {
         let _ = cfg.save();
     }
 
+    /// Flip the "disable clock" setting and persist it. When enabled, the
+    /// top-right header shows the disk-usage pill instead of the clock; refresh
+    /// the disk space so the pill has data to show immediately.
+    pub(crate) fn toggle_disable_clock(&mut self) {
+        self.disable_clock = !self.disable_clock;
+        self.refresh_current_dir_free_space();
+        let mut cfg = crate::util::config::SbPersistConfig::load();
+        cfg.disable_clock = Some(self.disable_clock);
+        let _ = cfg.save();
+    }
+
     /// Cycle the filename-color mode (Full → Less → White), re-render the file
     /// list, and persist the choice to `~/.config/sb/config`.
     pub(crate) fn cycle_filename_color_mode(&mut self) {

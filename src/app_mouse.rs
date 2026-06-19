@@ -90,6 +90,7 @@ impl App {
                 self.panel_tab = 6;
                 self.theme_panel_nerd_selected = false;
                 self.theme_panel_color_selected = false;
+                self.theme_panel_clock_selected = false;
                 self.mode = AppMode::Themes;
             }
             _ => {}

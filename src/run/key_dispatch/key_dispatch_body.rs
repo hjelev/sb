@@ -372,6 +372,7 @@ pub(crate) fn handle_app_key_event_body(
                     .unwrap_or(0);
                 app.theme_panel_nerd_selected = false;
                 app.theme_panel_color_selected = false;
+                app.theme_panel_clock_selected = false;
                 app.mode = AppMode::Themes;
             }
             KeyCode::Up => {
@@ -506,6 +507,7 @@ pub(crate) fn handle_app_key_event_body(
                         .unwrap_or(0);
                     app.theme_panel_nerd_selected = false;
                     app.theme_panel_color_selected = false;
+                    app.theme_panel_clock_selected = false;
                     app.mode = AppMode::Themes;
                 }
                 _ => {}
@@ -529,14 +531,17 @@ pub(crate) fn handle_app_key_event_body(
                     app.mode = AppMode::Help;
                 }
                 KeyCode::Up => {
-                    // Focus order: Nerd Fonts row → Filename colors row → theme list.
+                    // Focus order: Nerd Fonts → Filename colors → Disable clock → theme list.
                     if app.theme_panel_nerd_selected {
                         // Already at the top row; nothing above.
                     } else if app.theme_panel_color_selected {
                         app.theme_panel_color_selected = false;
                         app.theme_panel_nerd_selected = true;
-                    } else if app.theme_selected == 0 {
+                    } else if app.theme_panel_clock_selected {
+                        app.theme_panel_clock_selected = false;
                         app.theme_panel_color_selected = true;
+                    } else if app.theme_selected == 0 {
+                        app.theme_panel_clock_selected = true;
                     } else {
                         app.theme_selected -= 1;
                     }
@@ -547,6 +552,9 @@ pub(crate) fn handle_app_key_event_body(
                         app.theme_panel_color_selected = true;
                     } else if app.theme_panel_color_selected {
                         app.theme_panel_color_selected = false;
+                        app.theme_panel_clock_selected = true;
+                    } else if app.theme_panel_clock_selected {
+                        app.theme_panel_clock_selected = false;
                     } else {
                         let max_idx = theme::themes().len().saturating_sub(1);
                         app.theme_selected = (app.theme_selected + 1).min(max_idx);
@@ -557,6 +565,8 @@ pub(crate) fn handle_app_key_event_body(
                         app.toggle_nerd_font();
                     } else if app.theme_panel_color_selected {
                         app.cycle_filename_color_mode();
+                    } else if app.theme_panel_clock_selected {
+                        app.toggle_disable_clock();
                     } else {
                         app.apply_selected_theme();
                     }
@@ -792,6 +802,9 @@ fn handle_browsing_key(
                     app.refresh_current_dir_free_space();
                     app.start_current_dir_total_size_scan();
                     app.start_selected_total_size_scan();
+                } else if app.disable_clock {
+                    // Disk pill follows the active panel even without folder sizes.
+                    app.refresh_current_dir_free_space();
                 }
             } else if app.is_preview_mode() {
                 app.toggle_preview_pane_focus();
