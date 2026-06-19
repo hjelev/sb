@@ -1017,6 +1017,8 @@ pub fn render_themes_overlay(
     nerd_focus: bool,
     color_mode: crate::FilenameColorMode,
     color_focus: bool,
+    disable_clock: bool,
+    clock_focus: bool,
 ) {
     let current = theme_spec(theme_id);
     let theme_w = tab_overlay_anchor.width;
@@ -1024,6 +1026,7 @@ pub fn render_themes_overlay(
     let theme_row_inner_w = theme_content_w.saturating_sub(2);
     const NERD_LABEL: &str = "Nerd Fonts";
     const COLOR_LABEL: &str = "Filename colors";
+    const CLOCK_LABEL: &str = "Disable clock";
     // Width of the name column = longest theme name (display width), so the
     // checkboxes line up regardless of how long custom skin names are.
     let name_col_w = themes()
@@ -1033,7 +1036,8 @@ pub fn render_themes_overlay(
         .unwrap_or(0)
         .max(8)
         .max(UnicodeWidthStr::width(NERD_LABEL))
-        .max(UnicodeWidthStr::width(COLOR_LABEL));
+        .max(UnicodeWidthStr::width(COLOR_LABEL))
+        .max(UnicodeWidthStr::width(CLOCK_LABEL));
 
     // Top toggle row: enable/disable Nerd Font glyphs (persisted to config).
     let nerd_base_style = if nerd_focus {
@@ -1087,15 +1091,43 @@ pub fn render_themes_overlay(
     }
     color_row.push(color_right_cap);
 
+    // Third toggle row: disable the header clock (show the disk-usage pill
+    // instead), persisted to config.
+    let clock_base_style = if clock_focus {
+        Style::default().bg(current.bg_selected).fg(current.text_normal)
+    } else {
+        Style::default().fg(current.text_normal)
+    };
+    let clock_pad = name_col_w.saturating_sub(UnicodeWidthStr::width(CLOCK_LABEL));
+    let clock_text = format!(
+        " {}{} {}",
+        CLOCK_LABEL,
+        " ".repeat(clock_pad),
+        if disable_clock { "[x]" } else { "[ ]" }
+    );
+    let (clock_left_cap, clock_right_cap) = selector_edge_spans(clock_focus, current, nerd_font);
+    let mut clock_row = vec![clock_left_cap, Span::styled(clock_text.clone(), clock_base_style)];
+    if clock_focus {
+        let used_w = UnicodeWidthStr::width(clock_text.as_str());
+        if theme_row_inner_w > used_w {
+            clock_row.push(Span::styled(
+                " ".repeat(theme_row_inner_w - used_w),
+                Style::default().bg(current.bg_selected),
+            ));
+        }
+    }
+    clock_row.push(clock_right_cap);
+
     let mut lines: Vec<Line> = vec![
         Line::from(""),
         Line::from(nerd_row),
         Line::from(color_row),
+        Line::from(clock_row),
         Line::from(""),
     ];
     // When a checkbox row holds focus, the theme list shows no cursor highlight
     // (so the selection fully moves to the checkbox, not duplicated in the list).
-    let theme_list_focus = !nerd_focus && !color_focus;
+    let theme_list_focus = !nerd_focus && !color_focus && !clock_focus;
     for (idx, theme) in themes().iter().enumerate() {
         let is_selected = theme_list_focus && idx == selected;
         let is_applied = theme.id == theme_id;
