@@ -1452,13 +1452,13 @@ impl App {
 
     fn delete_bookmark(&self, idx: usize) {
         let from_env = env::var(format!("SB_BOOKMARK_{}", idx)).is_ok();
-        let mut cfg = crate::util::config::SbPersistConfig::load();
-        if from_env {
-            cfg.bookmarks.insert(idx as u8, "<deleted>".to_string());
-        } else {
-            cfg.bookmarks.remove(&(idx as u8));
-        }
-        let _ = cfg.save();
+        crate::util::config::SbPersistConfig::update(|cfg| {
+            if from_env {
+                cfg.bookmarks.insert(idx as u8, "<deleted>".to_string());
+            } else {
+                cfg.bookmarks.remove(&(idx as u8));
+            }
+        });
     }
 
     fn handle_confirm_delete_bookmark_key(&mut self, key: KeyEvent) {
@@ -1549,15 +1549,15 @@ fn main() -> io::Result<()> {
     run::run_tui(&mut terminal, &mut app)?;
     app.cleanup_archive_mounts();
     app.cleanup_ssh_mounts();
-    let mut persist = util::config::SbPersistConfig::load();
-    persist.view_mode = format!("{:?}", app.view_mode);
-    persist.current_theme = ui::theme::theme_name(app.active_theme).to_string();
-    persist.disabled_integrations = app
-        .integration_overrides
-        .iter()
-        .filter_map(|(k, &v)| if !v { Some(k.clone()) } else { None })
-        .collect();
-    let _ = persist.save();
+    util::config::SbPersistConfig::update(|persist| {
+        persist.view_mode = format!("{:?}", app.view_mode);
+        persist.current_theme = ui::theme::theme_name(app.active_theme).to_string();
+        persist.disabled_integrations = app
+            .integration_overrides
+            .iter()
+            .filter_map(|(k, &v)| if !v { Some(k.clone()) } else { None })
+            .collect();
+    });
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),

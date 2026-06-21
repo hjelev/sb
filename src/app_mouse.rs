@@ -2,6 +2,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 
 use crate::ui;
+use crate::util::list::{cursor_down, cursor_up};
 use crate::{App, AppMode, DualPanelSide, InternalSearchScope, PreviewPaneFocus};
 
 impl App {
@@ -594,49 +595,44 @@ impl App {
             AppMode::InternalSearch => {
                 if self.internal_search_limits_menu_open {
                     if scroll_up {
-                        self.internal_search_limits_selected = self.internal_search_limits_selected.saturating_sub(1);
+                        cursor_up(&mut self.internal_search_limits_selected);
                     } else {
-                        self.internal_search_limits_selected = (self.internal_search_limits_selected + 1).min(2);
+                        cursor_down(&mut self.internal_search_limits_selected, 3);
                     }
                 } else if !self.internal_search_results.is_empty() {
                     if scroll_up {
-                        self.internal_search_selected = self.internal_search_selected.saturating_sub(1);
+                        cursor_up(&mut self.internal_search_selected);
                     } else {
-                        self.internal_search_selected = (self.internal_search_selected + 1)
-                            .min(self.internal_search_results.len().saturating_sub(1));
+                        cursor_down(&mut self.internal_search_selected, self.internal_search_results.len());
                     }
                 }
             }
             AppMode::Bookmarks => {
-                let max_idx = Self::load_bookmarks().len().saturating_sub(1);
                 if scroll_up {
-                    self.bookmark_selected = self.bookmark_selected.saturating_sub(1);
+                    cursor_up(&mut self.bookmark_selected);
                 } else {
-                    self.bookmark_selected = (self.bookmark_selected + 1).min(max_idx);
+                    cursor_down(&mut self.bookmark_selected, Self::load_bookmarks().len());
                 }
             }
             AppMode::Integrations => {
-                let max_idx = self.integration_rows_cache.len().saturating_sub(1);
                 if scroll_up {
-                    self.integration_selected = self.integration_selected.saturating_sub(1);
+                    cursor_up(&mut self.integration_selected);
                 } else {
-                    self.integration_selected = (self.integration_selected + 1).min(max_idx);
+                    cursor_down(&mut self.integration_selected, self.integration_rows_cache.len());
                 }
             }
             AppMode::SortMenu => {
-                let max_idx = Self::sort_mode_options().len().saturating_sub(1);
                 if scroll_up {
-                    self.sort_menu_selected = self.sort_menu_selected.saturating_sub(1);
+                    cursor_up(&mut self.sort_menu_selected);
                 } else {
-                    self.sort_menu_selected = (self.sort_menu_selected + 1).min(max_idx);
+                    cursor_down(&mut self.sort_menu_selected, Self::sort_mode_options().len());
                 }
             }
             AppMode::SshPicker => {
-                let max_idx = self.remote_entries.len().saturating_sub(1);
                 if scroll_up {
-                    self.ssh_picker_selection = self.ssh_picker_selection.saturating_sub(1);
+                    cursor_up(&mut self.ssh_picker_selection);
                 } else {
-                    self.ssh_picker_selection = (self.ssh_picker_selection + 1).min(max_idx);
+                    cursor_down(&mut self.ssh_picker_selection, self.remote_entries.len());
                 }
             }
             AppMode::Themes => {

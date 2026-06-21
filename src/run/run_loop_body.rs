@@ -65,24 +65,40 @@ fn truncate_with_ellipsis(s: &str, max: usize) -> String {
     out
 }
 
-#[allow(clippy::too_many_arguments)]
+/// The display-style inputs a panel title needs: the active theme plus the
+/// icon-rendering flags. Grouping them keeps `build_panel_title`'s signature
+/// small (and avoids the `too_many_arguments` lint). Build one with
+/// [`title_style`].
+struct TitleStyle {
+    theme: crate::ui::theme::ThemeSpec,
+    show_icons: bool,
+    nerd_font: bool,
+    theme_id: crate::ui::theme::ThemeId,
+}
+
+fn title_style(app: &App, theme: crate::ui::theme::ThemeSpec) -> TitleStyle {
+    TitleStyle {
+        theme,
+        show_icons: app.show_icons,
+        nerd_font: app.nerd_font_active,
+        theme_id: app.active_theme,
+    }
+}
+
 fn build_panel_title(
     path: &std::path::Path,
     path_text: String,
     editing: bool,
     title_width: u16,
-    theme: crate::ui::theme::ThemeSpec,
-    show_icons: bool,
-    nerd_font: bool,
-    theme_id: crate::ui::theme::ThemeId,
+    style: &TitleStyle,
 ) -> Line<'static> {
     let is_symlink = crate::util::classify::is_symlink(path);
     let (folder_icon, folder_icon_style) = App::icon_for_path(
         path,
-        show_icons,
-        nerd_font,
+        style.show_icons,
+        style.nerd_font,
         is_symlink,
-        theme_id,
+        style.theme_id,
     );
     let title_inner_width = title_width.saturating_sub(2) as usize;
     let icon_width = if folder_icon.is_empty() {
@@ -105,7 +121,7 @@ fn build_panel_title(
             Style::default().fg(Color::Rgb(255, 220, 120)),
         ));
     } else {
-        title_spans.push(Span::styled(display_text.clone(), Style::default().fg(theme.text_normal)));
+        title_spans.push(Span::styled(display_text.clone(), Style::default().fg(style.theme.text_normal)));
     }
     let used_width = prefix_width + UnicodeWidthStr::width(display_text.as_str());
     if used_width < title_inner_width {
@@ -439,14 +455,14 @@ fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user: &str, host
 
     if left_rect.width > 0 {
         f.render_widget(
-            Paragraph::new(Line::from(left_spans.clone())).alignment(Alignment::Left),
+            Paragraph::new(Line::from(left_spans)).alignment(Alignment::Left),
             left_rect,
         );
     }
     if middle_rect.width > 0 {
         let middle_alignment = if show_right { Alignment::Center } else { Alignment::Right };
         f.render_widget(
-            Paragraph::new(Line::from(middle_spans.clone())).alignment(middle_alignment),
+            Paragraph::new(Line::from(middle_spans)).alignment(middle_alignment),
             middle_rect,
         );
     }
@@ -581,10 +597,7 @@ fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> TableLayout {
             path_text,
             app.mode == AppMode::PathEditing,
             list_frame_area.width,
-            active_theme,
-            app.show_icons,
-            app.nerd_font_active,
-            app.active_theme,
+            &title_style(app, active_theme),
         );
 
         let left_border_color = if app.is_dual_panel_mode() {
@@ -1380,10 +1393,7 @@ fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &RenderCtx, t
                 app.display_path_for(&right_path),
                 false,
                 preview_area.width,
-                active_theme,
-                app.show_icons,
-                app.nerd_font_active,
-                app.active_theme,
+                &title_style(app, active_theme),
             );
 
             let right_block = Block::default()
@@ -1751,522 +1761,9 @@ fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
         )
     };
     if app.mode == AppMode::InternalSearch {
-        let popup_area = Rect::new(
-            tab_overlay_anchor.x,
-            tab_overlay_anchor.y,
-            tab_overlay_anchor.width,
-            tab_overlay_anchor.height,
-        );
-
-        f.render_widget(Clear, popup_area);
-        let popup_block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .title(App::panel_tab_bar_line(app.panel_tab, app.active_theme, app.nerd_font_active, popup_area.width.saturating_sub(3)))
-            .title_style(Style::default().fg(active_theme.text_normal))
-            .style(Style::default().bg(active_theme.bg_panel).fg(active_theme.text_normal))
-            .border_style(Style::default().fg(active_theme.divider));
-        let popup_inner = popup_block.inner(popup_area);
-        f.render_widget(popup_block, popup_area);
-        f.render_widget(
-            Paragraph::new(Span::styled(
-                "x",
-                Style::default().fg(active_theme.text_normal),
-            )),
-            App::tabbed_overlay_close_area(popup_area),
-        );
-
-        let search_layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(3),
-                Constraint::Min(1),
-                Constraint::Length(2),
-            ])
-            .split(popup_inner);
-        let query_box_area = search_layout[0];
-        let body_area = search_layout[1];
-        let footer_area = search_layout[2];
-
-        let query_box_block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Rgb(95, 95, 95)));
-        let query_inner = query_box_block.inner(query_box_area);
-        f.render_widget(query_box_block, query_box_area);
-
-        let (mode_text, mode_style) = if app.internal_search_scope == InternalSearchScope::Content {
-            (
-                "Scope: Content".to_string(),
-                Style::default().fg(Color::Rgb(120, 220, 180)),
-            )
-        } else {
-            (
-                "Scope: Filename".to_string(),
-                Style::default().fg(Color::Rgb(120, 170, 255)),
-            )
-        };
-        let mode_width = UnicodeWidthStr::width(mode_text.as_str()) as u16;
-        let query_row = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Min(1), Constraint::Length(mode_width + 1)])
-            .split(query_inner);
-        let query_input_area = query_row[0];
-        let query_mode_area = query_row[1];
-
-        let query_icon = if app.show_icons && app.nerd_font_active { "\u{f002}" } else { "/" };
-        let query_icon_prefix = format!(" {}  ", query_icon);
-        let query_line = Line::from(vec![
-            Span::styled(query_icon_prefix.clone(), Style::default().fg(Color::Rgb(120, 180, 255))),
-            Span::styled(app.input_buffer.as_str(), Style::default().fg(Color::Rgb(255, 220, 120))),
-        ]);
-        f.render_widget(Paragraph::new(query_line), query_input_area);
-        f.render_widget(
-            Paragraph::new(Line::from(Span::styled(mode_text.clone(), mode_style))).alignment(Alignment::Right),
-            query_mode_area,
-        );
-
-        let mut lines: Vec<Line> = Vec::new();
-
-        if app.internal_search_candidates_pending {
-            lines.push(Line::from(Span::styled(
-                "Indexing files asynchronously...",
-                Style::default().fg(active_theme.overlay_section),
-            )));
-        } else if app.internal_search_candidates_truncated {
-            lines.push(Line::from(Span::styled(
-                "Indexed first 20000 files (refine query to narrow results)",
-                Style::default().fg(Color::Rgb(160, 160, 160)),
-            )));
-        }
-
-        if app.internal_search_scope == InternalSearchScope::Content {
-            let limits = app.internal_search_content_limits;
-            lines.push(Line::from(Span::styled(
-                format!(
-                    " Limits: files={}  hits={}  max-file={}",
-                    limits.max_files,
-                    limits.max_hits,
-                    App::format_size(limits.max_file_bytes as u64)
-                ),
-                Style::default().fg(Color::Rgb(160, 160, 160)),
-            )));
-
-            if app.internal_search_limits_menu_open {
-                let selected_style = Style::default().fg(Color::Rgb(255, 220, 120)).add_modifier(Modifier::BOLD);
-                let normal_style = Style::default().fg(Color::Rgb(180, 180, 180));
-                let item_line = |idx: usize, label: &str, value: String| {
-                    let marker = if idx == app.internal_search_limits_selected { ">" } else { " " };
-                    let style = if idx == app.internal_search_limits_selected {
-                        selected_style
-                    } else {
-                        normal_style
-                    };
-                    Line::from(Span::styled(format!("{} {}: {}", marker, label, value), style))
-                };
-                lines.push(item_line(0, "Max files", limits.max_files.to_string()));
-                lines.push(item_line(1, "Max hits", limits.max_hits.to_string()));
-                lines.push(item_line(2, "Max file size", App::format_size(limits.max_file_bytes as u64)));
-                lines.push(Line::from(Span::styled(
-                    "Editor: Up/Down select  Left/Right or +/- adjust  Shift=10x  r reset  Ctrl+L close",
-                    Style::default().fg(active_theme.text_dim),
-                )));
-            } else {
-                lines.push(Line::from(Span::styled(
-                    " Ctrl+L open limits editor",
-                    Style::default().fg(active_theme.text_dim),
-                )));
-            }
-
-            if app.internal_search_content_pending {
-                lines.push(Line::from(Span::styled(
-                    " Scanning content asynchronously...",
-                    Style::default().fg(active_theme.overlay_section),
-                )));
-            }
-            if let Some(note) = &app.internal_search_content_limit_note {
-                lines.push(Line::from(Span::styled(
-                    note.clone(),
-                    Style::default().fg(Color::Rgb(160, 160, 160)),
-                )));
-            }
-        }
-
-        let selected = app.internal_search_selected;
-        let body_content_w = body_area.width as usize;
-        let visible_rows = body_area.height as usize;
-        let header_rows = lines.len();
-        let max_rows = visible_rows.saturating_sub(header_rows).max(1);
-        let offset = if selected >= max_rows {
-            selected + 1 - max_rows
-        } else {
-            0
-        };
-        let search_total_rows = app.internal_search_results.len();
-        let search_max_scroll = search_total_rows.saturating_sub(max_rows);
-        let search_scroll_offset = offset.min(search_max_scroll);
-        let can_draw_search_scrollbar = body_area.width > 2 && search_total_rows > max_rows;
-
-        if let Some(err) = &app.internal_search_regex_error {
-            lines.push(Line::from(Span::styled(
-                format!("Regex error: {}", err),
-                Style::default().fg(Color::Rgb(255, 120, 120)),
-            )));
-        }
-
-        if app.internal_search_results.is_empty() {
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                " No matches",
-                Style::default().fg(Color::Rgb(180, 90, 90)),
-            )));
-        } else {
-            for (display_idx, result_idx) in app
-                .internal_search_results
-                .iter()
-                .skip(offset)
-                .take(max_rows)
-                .enumerate()
-            {
-                let absolute_idx = offset + display_idx;
-                let is_selected = absolute_idx == selected;
-                let row_inner_w = body_content_w.saturating_sub(2);
-                let (left_cap, right_cap) = if is_selected {
-                    if app.nerd_font_active {
-                        (
-                            Span::styled(
-                                "",
-                                Style::default()
-                                    .fg(active_theme.bg_selected)
-                                    .bg(active_theme.bg_panel),
-                            ),
-                            Span::styled(
-                                "",
-                                Style::default()
-                                    .fg(active_theme.bg_selected)
-                                    .bg(active_theme.bg_panel),
-                            ),
-                        )
-                    } else {
-                        (
-                            Span::styled(" ", Style::default().bg(active_theme.bg_selected)),
-                            Span::styled(" ", Style::default().bg(active_theme.bg_selected)),
-                        )
-                    }
-                } else {
-                    (
-                        Span::styled(" ", Style::default().bg(active_theme.bg_panel)),
-                        Span::styled(" ", Style::default().bg(active_theme.bg_panel)),
-                    )
-                };
-                let base_style = if is_selected {
-                    Style::default()
-                        .fg(active_theme.text_normal)
-                        .bg(active_theme.bg_selected)
-                } else {
-                    Style::default().fg(Color::Rgb(200, 200, 200))
-                };
-                let match_style = if is_selected {
-                    Style::default()
-                        .fg(active_theme.warning)
-                        .bg(active_theme.bg_selected)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default()
-                        .fg(Color::Rgb(255, 220, 120))
-                        .add_modifier(Modifier::BOLD)
-                };
-                let mut spans: Vec<Span> = vec![left_cap];
-
-                let rel_path_for_icon = match result_idx {
-                    InternalSearchResult::Filename { rel_path, .. } => rel_path,
-                    InternalSearchResult::Content { rel_path, .. } => rel_path,
-                };
-                let abs_path = app.current_dir.join(rel_path_for_icon);
-                let is_symlink = crate::util::classify::is_symlink(&abs_path);
-                let is_dir = abs_path.is_dir();
-                let icon_name = rel_path_for_icon
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|name| name.to_string())
-                    .unwrap_or_else(|| rel_path_for_icon.to_string_lossy().into_owned());
-                let (icon_glyph, icon_style) = App::icon_for_name(
-                    icon_name.as_str(),
-                    is_dir,
-                    app.show_icons,
-                    app.nerd_font_active,
-                    is_symlink,
-                    app.active_theme,
-                );
-                let icon_span = if app.show_icons && !icon_glyph.is_empty() {
-                    let adjusted_icon_style = if is_selected {
-                        icon_style.bg(active_theme.bg_selected)
-                    } else {
-                        icon_style
-                    };
-                    Some(Span::styled(format!("{} ", icon_glyph), adjusted_icon_style))
-                } else {
-                    None
-                };
-
-                match result_idx {
-                    InternalSearchResult::Filename { rel_path, match_ranges } => {
-                        let rel_str = rel_path.to_string_lossy().into_owned();
-                        let basename_start = rel_str.rfind('/').map(|idx| idx + 1).unwrap_or(0);
-                        let (dir_part, base_part) = rel_str.split_at(basename_start);
-
-                        let project_ranges = |start: usize, end: usize| -> Vec<(usize, usize)> {
-                            match_ranges
-                                .iter()
-                                .filter_map(|(rs, re)| {
-                                    let overlap_start = (*rs).max(start);
-                                    let overlap_end = (*re).min(end);
-                                    if overlap_start < overlap_end {
-                                        Some((overlap_start - start, overlap_end - start))
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .collect()
-                        };
-
-                        if !dir_part.is_empty() {
-                            let dir_ranges = project_ranges(0, basename_start);
-                            spans.extend(App::search_spans_with_ranges(
-                                dir_part,
-                                &dir_ranges,
-                                base_style,
-                                match_style,
-                            ));
-                        }
-
-                        if let Some(icon) = icon_span.clone() {
-                            spans.push(icon);
-                        }
-
-                        let base_ranges = project_ranges(basename_start, rel_str.len());
-                        spans.extend(App::search_spans_with_ranges(
-                            base_part,
-                            &base_ranges,
-                            base_style,
-                            match_style,
-                        ));
-                    }
-                    InternalSearchResult::Content {
-                        rel_path,
-                        line_number,
-                        line_text,
-                        match_ranges,
-                    } => {
-                        let path_text = rel_path.display().to_string();
-                        let basename_start = path_text.rfind('/').map(|idx| idx + 1).unwrap_or(0);
-                        let (dir_part, base_part) = path_text.split_at(basename_start);
-                        if !dir_part.is_empty() {
-                            spans.push(Span::styled(
-                                dir_part.to_string(),
-                                base_style.fg(Color::Rgb(150, 190, 255)),
-                            ));
-                        }
-                        if let Some(icon) = icon_span {
-                            spans.push(icon);
-                        }
-                        spans.push(Span::styled(
-                            format!("{}:{}: ", base_part, line_number),
-                            base_style.fg(Color::Rgb(150, 190, 255)),
-                        ));
-                        spans.extend(App::search_spans_with_ranges(
-                            line_text,
-                            match_ranges,
-                            base_style,
-                            match_style,
-                        ));
-                    }
-                }
-
-                if is_selected {
-                    let used_w: usize = spans
-                        .iter()
-                        .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
-                        .sum();
-                    if row_inner_w > used_w {
-                        spans.push(Span::styled(
-                            " ".repeat(row_inner_w - used_w),
-                            base_style,
-                        ));
-                    }
-                }
-                spans.push(right_cap);
-
-                lines.push(Line::from(spans));
-            }
-        }
-
-        f.render_widget(Paragraph::new(lines), body_area);
-        if can_draw_search_scrollbar {
-            let sb_area = Rect::new(
-                popup_area.x + popup_area.width.saturating_sub(1),
-                body_area.y,
-                1,
-                body_area.height,
-            );
-            let track_h = sb_area.height as usize;
-            if track_h > 0 {
-                let thumb_h = ((max_rows * track_h + search_total_rows.saturating_sub(1)) / search_total_rows)
-                    .max(1)
-                    .min(track_h);
-                let scroll_space = track_h.saturating_sub(thumb_h);
-                let thumb_y = if search_max_scroll == 0 {
-                    0
-                } else {
-                    (search_scroll_offset * scroll_space + (search_max_scroll / 2)) / search_max_scroll
-                };
-
-                let mut sb_lines: Vec<Line> = Vec::with_capacity(track_h);
-                for row in 0..track_h {
-                    let in_thumb = row >= thumb_y && row < thumb_y + thumb_h;
-                    let (ch, color) = if in_thumb {
-                        ("┃", Color::Rgb(120, 240, 220))
-                    } else {
-                        ("│", Color::Rgb(80, 200, 180))
-                    };
-                    sb_lines.push(Line::from(Span::styled(ch, Style::default().fg(color))));
-                }
-                f.render_widget(Paragraph::new(sb_lines), sb_area);
-            }
-        }
-        let search_footer_entries: &[(&'static str, &'static str)] = &[
-            ("↑↓", "navigate"),
-            ("Enter", "open"),
-            ("Ctrl+T", "toggle scope"),
-            ("Regex", "re:pattern or /pattern/i"),
-            ("Tab", "switch tabs"),
-        ];
-        f.render_widget(
-            Paragraph::new(ui::panels::shortcut_footer_lines(
-                search_footer_entries,
-                app.active_theme,
-                app.nerd_font_active,
-            )),
-            footer_area,
-        );
-        app.footer_shortcut_zones.extend(ui::panels::footer_shortcut_zones(
-            search_footer_entries,
-            footer_area,
-            app.nerd_font_active,
-        ));
-
-        app.clamp_input_cursor();
-        let cursor_x = query_input_area.x
-            + UnicodeWidthStr::width(query_icon_prefix.as_str()) as u16
-            + app.input_cursor as u16;
-        let cursor_y = query_input_area.y;
-        f.set_cursor(
-            cursor_x.min(query_input_area.x + query_input_area.width.saturating_sub(1)),
-            cursor_y,
-        );
+        render_internal_search_overlay(f, app, ctx, tab_overlay_anchor);
     } else if app.mode == AppMode::DbPreview {
-        let popup_area = Rect::new(
-            tab_overlay_anchor.x,
-            tab_overlay_anchor.y,
-            tab_overlay_anchor.width,
-            tab_overlay_anchor.height,
-        );
-
-        let db_title = app
-            .db_preview_path
-            .as_ref()
-            .and_then(|p| crate::util::classify::path_file_name(p))
-            .unwrap_or_else(|| "SQLite Preview".to_string());
-
-        let mut lines: Vec<Line> = vec![
-            Line::from(Span::styled(
-                "←→:switch table  Home/End:jump  Esc:close",
-                Style::default().fg(active_theme.text_dim),
-            )),
-        ];
-
-        let mut table_spans: Vec<Span> = vec![Span::styled(
-            "Tables: ",
-            Style::default().fg(Color::Rgb(160, 160, 160)),
-        )];
-        if app.db_preview_tables.is_empty() {
-            table_spans.push(Span::styled(
-                "(none)",
-                Style::default().fg(Color::Rgb(180, 90, 90)),
-            ));
-        } else {
-            for (idx, table_name) in app.db_preview_tables.iter().enumerate() {
-                if idx > 0 {
-                    table_spans.push(Span::styled("  ", Style::default().fg(active_theme.text_dim)));
-                }
-                let display = if table_name.chars().count() > 20 {
-                    let mut t = table_name.chars().take(19).collect::<String>();
-                    t.push('…');
-                    t
-                } else {
-                    table_name.clone()
-                };
-                let style = if idx == app.db_preview_selected {
-                    Style::default()
-                        .fg(Color::Rgb(20, 20, 20))
-                        .bg(Color::Rgb(120, 220, 140))
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::Rgb(170, 210, 255))
-                };
-                table_spans.push(Span::styled(display, style));
-            }
-        }
-        lines.push(Line::from(table_spans));
-
-        if let Some(err) = &app.db_preview_error {
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                err.clone(),
-                Style::default().fg(Color::Rgb(255, 120, 120)),
-            )));
-        } else {
-            lines.push(Line::from(""));
-            if app.db_preview_output_lines.is_empty() {
-                lines.push(Line::from(Span::styled(
-                    "(no rows)",
-                    Style::default().fg(Color::Rgb(140, 140, 140)),
-                )));
-            } else {
-                let visible_w = popup_area.width.saturating_sub(4) as usize;
-                let clip_line = |text: &str| -> String {
-                    if text.chars().count() <= visible_w {
-                        return text.to_string();
-                    }
-                    if visible_w <= 1 {
-                        return "…".to_string();
-                    }
-                    let mut out = text.chars().take(visible_w - 1).collect::<String>();
-                    out.push('…');
-                    out
-                };
-
-                for row in &app.db_preview_output_lines {
-                    lines.push(Line::from(Span::styled(
-                        clip_line(row),
-                        Style::default().fg(Color::Rgb(210, 210, 210)),
-                    )));
-                }
-            }
-        }
-
-        f.render_widget(Clear, popup_area);
-        f.render_widget(
-            Paragraph::new(lines)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(format!(" SQLite: {} ", db_title))
-                        .title_style(Style::default().fg(active_theme.text_normal))
-                        .border_style(Style::default().fg(Color::Rgb(120, 200, 150))),
-                )
-                .wrap(Wrap { trim: true }),
-            popup_area,
-        );
+        render_db_preview_overlay(f, app, ctx, tab_overlay_anchor);
     } else if app.mode == AppMode::Help {
         let (max_off, clamped_off, logo_area) = ui::panels::render_help_overlay(
             f,
@@ -2281,119 +1778,7 @@ fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
         app.help_scroll_offset = clamped_off;
         app.help_logo_native_area = logo_area;
     } else if matches!(app.mode, AppMode::NewFile | AppMode::NewFolder) {
-        let area = f.size();
-        let title = " Create ";
-        let dialog_w = (area.width * 2 / 3).max(40).min(area.width.saturating_sub(4).max(1));
-
-        let lines: Vec<&str> = if app.input_buffer.is_empty() {
-            vec![""]
-        } else {
-            app.input_buffer.split('\n').collect()
-        };
-        let (cursor_line, cursor_col) = app.input_cursor_line_col();
-        let max_content_lines = area.height.saturating_sub(7).max(1) as usize;
-        let content_lines = lines.len().max(1).min(max_content_lines);
-        let window_start = cursor_line.saturating_sub(content_lines.saturating_sub(1));
-        let window_end = (window_start + content_lines).min(lines.len().max(1));
-        let shown_lines = &lines[window_start..window_end];
-
-        let dialog_h = (shown_lines.len() as u16 + 3).max(4).min(area.height.saturating_sub(2).max(1));
-        let create_area = Rect::new(
-            (area.width.saturating_sub(dialog_w)) / 2,
-            (area.height.saturating_sub(dialog_h)) / 2,
-            dialog_w,
-            dialog_h,
-        );
-
-        f.render_widget(Clear, create_area);
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .title(title)
-            .title_style(Style::default().fg(active_theme.text_normal))
-            .border_style(Style::default().fg(active_theme.border));
-        let input_area = block.inner(create_area);
-        f.render_widget(block, create_area);
-
-        let create_chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Min(1),
-                Constraint::Length(1),
-            ])
-            .split(input_area);
-        let list_area = create_chunks[0];
-        let help_area = create_chunks[1];
-
-        let mut rendered_lines: Vec<Line> = Vec::new();
-        for line in shown_lines {
-            let is_dir = if app.mode == AppMode::NewFolder {
-                true
-            } else {
-                line.trim_start().starts_with('/')
-            };
-            let icon_name = if is_dir {
-                line.trim_start().trim_start_matches('/').trim()
-            } else {
-                line.trim()
-            };
-            let (icon_glyph, icon_style) = App::icon_for_name(
-                icon_name,
-                is_dir,
-                app.show_icons,
-                app.nerd_font_active,
-                false,
-                app.active_theme,
-            );
-            let mut spans = Vec::new();
-            if app.show_icons && !icon_glyph.is_empty() {
-                spans.push(Span::styled(format!("{} ", icon_glyph), icon_style));
-            }
-            spans.push(Span::styled(*line, Style::default().fg(Color::Rgb(230, 230, 230))));
-            rendered_lines.push(Line::from(spans));
-        }
-        f.render_widget(Paragraph::new(rendered_lines), list_area);
-        f.render_widget(
-            Paragraph::new(Line::from(Span::styled(
-                "(/name = folder, name = file)  Alt+Enter: new line",
-                Style::default().fg(active_theme.text_dim),
-            ))),
-            help_area,
-        );
-
-        let active_line_text = app.active_input_line_text();
-        let active_is_dir = if app.mode == AppMode::NewFolder {
-            true
-        } else {
-            active_line_text.trim_start().starts_with('/')
-        };
-        let active_icon_name = if active_is_dir {
-            active_line_text.trim_start().trim_start_matches('/').trim()
-        } else {
-            active_line_text.trim()
-        };
-        let (active_icon_glyph, _) = App::icon_for_name(
-            active_icon_name,
-            active_is_dir,
-            app.show_icons,
-            app.nerd_font_active,
-            false,
-            app.active_theme,
-        );
-        let icon_prefix_width = if app.show_icons && !active_icon_glyph.is_empty() {
-            UnicodeWidthStr::width(format!("{} ", active_icon_glyph).as_str()) as u16
-        } else {
-            0
-        };
-
-        app.clamp_input_cursor();
-        let visible_cursor_line = cursor_line.saturating_sub(window_start);
-        let cursor_x = list_area.x + icon_prefix_width + cursor_col as u16;
-        let cursor_y = list_area.y + visible_cursor_line as u16;
-        f.set_cursor(
-            cursor_x.min(list_area.x + list_area.width.saturating_sub(1)),
-            cursor_y.min(list_area.y + list_area.height.saturating_sub(1)),
-        );
+        render_new_entry_overlay(f, app, ctx);
     } else if app.mode == AppMode::Renaming {
         let area = f.size();
         let selected_entry = app.entries.get(app.selected_index);
@@ -2641,178 +2026,7 @@ fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             &mut app.footer_shortcut_zones,
         );
     } else if app.mode == AppMode::SshPicker {
-        let ssh_popup_w = tab_overlay_anchor.width;
-        let ssh_content_w = ssh_popup_w.saturating_sub(2) as usize;
-        let ssh_row_inner_w = ssh_content_w.saturating_sub(2);
-        let content_w = ssh_popup_w.saturating_sub(4) as usize;
-        let type_w = 6usize;
-        let mounted_w = 10usize;
-        let available_for_alias_and_detail = content_w.saturating_sub(type_w + mounted_w + 3);
-        let alias_w = if available_for_alias_and_detail >= 12 {
-            available_for_alias_and_detail.min(22)
-        } else {
-            available_for_alias_and_detail
-        };
-        let detail_w = available_for_alias_and_detail.saturating_sub(alias_w);
-        let trunc = |s: &str, max: usize| -> String {
-            if max == 0 {
-                return String::new();
-            }
-            if s.chars().count() <= max {
-                return s.to_string();
-            }
-            if max == 1 {
-                return "…".to_string();
-            }
-            let mut out = String::new();
-            for ch in s.chars().take(max - 1) {
-                out.push(ch);
-            }
-            out.push('…');
-            out
-        };
-
-        let mut lines: Vec<Line> = vec![Line::from("")];
-        if app.remote_entries.is_empty() {
-            lines.push(Line::from(Span::styled(" No SSH/rclone/media mounts or mounted archives found", Style::default().fg(Color::Rgb(180, 80, 80)))));
-        } else {
-            let mounted_aliases: HashSet<String> = app.ssh_mounts
-                .iter()
-                .map(|m| m.host_alias.clone())
-                .collect();
-            for (i, entry) in app.remote_entries.iter().enumerate() {
-                let is_selected = i == app.ssh_picker_selection;
-                let is_mounted = match entry {
-                    RemoteEntry::ArchiveMount { .. } | RemoteEntry::LocalMount { .. } => true,
-                    _ => mounted_aliases.contains(entry.alias()),
-                };
-                let mount_tag = if is_mounted { "  \u{25cf} mounted" } else { "" };
-                let (type_tag, detail) = match entry {
-                    RemoteEntry::Ssh(h) => {
-                        let user_at_host = match &h.user {
-                            Some(u) => format!("{}@{}", u, h.hostname),
-                            None => h.hostname.clone(),
-                        };
-                        let port_str = h.port.map(|p| format!(":{}", p)).unwrap_or_default();
-                        ("ssh", format!("{}{}", user_at_host, port_str))
-                    }
-                    RemoteEntry::Rclone { rtype, .. } => ("rclone", rtype.clone()),
-                    RemoteEntry::ArchiveMount { mount_path, .. } => ("zip", mount_path.to_string_lossy().into_owned()),
-                    RemoteEntry::LocalMount { mount_path, source, .. } => ("mount", format!("{}: {}", source, mount_path.to_string_lossy())),
-                };
-                let type_col = format!("{:<width$}", type_tag, width = type_w);
-                let alias_col = format!(
-                    "{:<width$}",
-                    trunc(entry.alias(), alias_w),
-                    width = alias_w
-                );
-                let detail_col = trunc(&detail, detail_w);
-                let label = format!(" {} {} {}{}", type_col, alias_col, detail_col, mount_tag);
-                let label = if is_selected {
-                    let used_w = UnicodeWidthStr::width(label.as_str());
-                    if ssh_row_inner_w > used_w {
-                        format!("{}{}", label, " ".repeat(ssh_row_inner_w - used_w))
-                    } else {
-                        label
-                    }
-                } else {
-                    label
-                };
-                let style = if is_selected {
-                    Style::default()
-                        .fg(active_theme.text_normal)
-                        .bg(active_theme.bg_selected)
-                        .add_modifier(Modifier::BOLD)
-                } else if is_mounted {
-                    Style::default().fg(Color::Rgb(80, 220, 160))
-                } else {
-                    Style::default().fg(Color::Rgb(200, 200, 200))
-                };
-                let (left_cap, right_cap) = if is_selected {
-                    if app.nerd_font_active {
-                        (
-                            Span::styled(
-                                "",
-                                Style::default()
-                                    .fg(active_theme.bg_selected)
-                                    .bg(active_theme.bg_panel),
-                            ),
-                            Span::styled(
-                                "",
-                                Style::default()
-                                    .fg(active_theme.bg_selected)
-                                    .bg(active_theme.bg_panel),
-                            ),
-                        )
-                    } else {
-                        (
-                            Span::styled(" ", Style::default().bg(active_theme.bg_selected)),
-                            Span::styled(" ", Style::default().bg(active_theme.bg_selected)),
-                        )
-                    }
-                } else {
-                    (
-                        Span::styled(" ", Style::default().bg(active_theme.bg_panel)),
-                        Span::styled(" ", Style::default().bg(active_theme.bg_panel)),
-                    )
-                };
-                lines.push(Line::from(vec![
-                    left_cap,
-                    Span::styled(label, style),
-                    right_cap,
-                ]));
-            }
-        }
-        let ssh_h = (lines.len() as u16 + 4).max(8).min(tab_overlay_anchor.height);
-        let ssh_area = Rect::new(
-            tab_overlay_anchor.x,
-            tab_overlay_anchor.y,
-            ssh_popup_w,
-            ssh_h,
-        );
-        f.render_widget(Clear, ssh_area);
-        let ssh_block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .title(App::panel_tab_bar_line(app.panel_tab, app.active_theme, app.nerd_font_active, ssh_area.width.saturating_sub(3)))
-            .title_style(Style::default().fg(active_theme.text_normal))
-            .style(Style::default().bg(active_theme.bg_panel).fg(active_theme.text_normal))
-            .border_style(Style::default().fg(active_theme.divider));
-        let ssh_inner = ssh_block.inner(ssh_area);
-        f.render_widget(ssh_block, ssh_area);
-        f.render_widget(
-            Paragraph::new(Span::styled(
-                "x",
-                Style::default().fg(active_theme.text_normal),
-            )),
-            App::tabbed_overlay_close_area(ssh_area),
-        );
-        let ssh_chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Min(1), Constraint::Length(2)])
-            .split(ssh_inner);
-        f.render_widget(Paragraph::new(lines), ssh_chunks[0]);
-        let ssh_footer_entries: &[(&'static str, &'static str)] = &[
-            ("↑↓", "navigate"),
-            ("Enter/→", "open or mount"),
-            ("s", "ssh shell"),
-            ("u/Delete", "unmount"),
-            ("Tab", "switch tabs"),
-            ("Esc", "close"),
-        ];
-        f.render_widget(
-            Paragraph::new(ui::panels::shortcut_footer_lines(
-                ssh_footer_entries,
-                app.active_theme,
-                app.nerd_font_active,
-            )),
-            ssh_chunks[1],
-        );
-        app.footer_shortcut_zones.extend(ui::panels::footer_shortcut_zones(
-            ssh_footer_entries,
-            ssh_chunks[1],
-            app.nerd_font_active,
-        ));
+        render_ssh_picker_overlay(f, app, ctx, tab_overlay_anchor);
     } else if app.mode == AppMode::ConfirmExtract {
         let area = f.size();
         let to_extract = &app.archive_extract_targets;
@@ -3431,4 +2645,820 @@ pub(crate) fn run_tui_body(
 
     Ok(())
 
+}
+
+fn render_internal_search_overlay(f: &mut Frame, app: &mut App, ctx: &RenderCtx, tab_overlay_anchor: Rect) {
+    let active_theme = ctx.theme;
+        let popup_area = Rect::new(
+            tab_overlay_anchor.x,
+            tab_overlay_anchor.y,
+            tab_overlay_anchor.width,
+            tab_overlay_anchor.height,
+        );
+
+        f.render_widget(Clear, popup_area);
+        let popup_block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .title(App::panel_tab_bar_line(app.panel_tab, app.active_theme, app.nerd_font_active, popup_area.width.saturating_sub(3)))
+            .title_style(Style::default().fg(active_theme.text_normal))
+            .style(Style::default().bg(active_theme.bg_panel).fg(active_theme.text_normal))
+            .border_style(Style::default().fg(active_theme.divider));
+        let popup_inner = popup_block.inner(popup_area);
+        f.render_widget(popup_block, popup_area);
+        f.render_widget(
+            Paragraph::new(Span::styled(
+                "x",
+                Style::default().fg(active_theme.text_normal),
+            )),
+            App::tabbed_overlay_close_area(popup_area),
+        );
+
+        let search_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),
+                Constraint::Min(1),
+                Constraint::Length(2),
+            ])
+            .split(popup_inner);
+        let query_box_area = search_layout[0];
+        let body_area = search_layout[1];
+        let footer_area = search_layout[2];
+
+        let query_box_block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Rgb(95, 95, 95)));
+        let query_inner = query_box_block.inner(query_box_area);
+        f.render_widget(query_box_block, query_box_area);
+
+        let (mode_text, mode_style) = if app.internal_search_scope == InternalSearchScope::Content {
+            (
+                "Scope: Content".to_string(),
+                Style::default().fg(Color::Rgb(120, 220, 180)),
+            )
+        } else {
+            (
+                "Scope: Filename".to_string(),
+                Style::default().fg(Color::Rgb(120, 170, 255)),
+            )
+        };
+        let mode_width = UnicodeWidthStr::width(mode_text.as_str()) as u16;
+        let query_row = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(1), Constraint::Length(mode_width + 1)])
+            .split(query_inner);
+        let query_input_area = query_row[0];
+        let query_mode_area = query_row[1];
+
+        let query_icon = if app.show_icons && app.nerd_font_active { "\u{f002}" } else { "/" };
+        let query_icon_prefix = format!(" {}  ", query_icon);
+        let query_line = Line::from(vec![
+            Span::styled(query_icon_prefix.clone(), Style::default().fg(Color::Rgb(120, 180, 255))),
+            Span::styled(app.input_buffer.as_str(), Style::default().fg(Color::Rgb(255, 220, 120))),
+        ]);
+        f.render_widget(Paragraph::new(query_line), query_input_area);
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(mode_text.clone(), mode_style))).alignment(Alignment::Right),
+            query_mode_area,
+        );
+
+        let mut lines: Vec<Line> = Vec::new();
+
+        if app.internal_search_candidates_pending {
+            lines.push(Line::from(Span::styled(
+                "Indexing files asynchronously...",
+                Style::default().fg(active_theme.overlay_section),
+            )));
+        } else if app.internal_search_candidates_truncated {
+            lines.push(Line::from(Span::styled(
+                "Indexed first 20000 files (refine query to narrow results)",
+                Style::default().fg(Color::Rgb(160, 160, 160)),
+            )));
+        }
+
+        if app.internal_search_scope == InternalSearchScope::Content {
+            let limits = app.internal_search_content_limits;
+            lines.push(Line::from(Span::styled(
+                format!(
+                    " Limits: files={}  hits={}  max-file={}",
+                    limits.max_files,
+                    limits.max_hits,
+                    App::format_size(limits.max_file_bytes as u64)
+                ),
+                Style::default().fg(Color::Rgb(160, 160, 160)),
+            )));
+
+            if app.internal_search_limits_menu_open {
+                let selected_style = Style::default().fg(Color::Rgb(255, 220, 120)).add_modifier(Modifier::BOLD);
+                let normal_style = Style::default().fg(Color::Rgb(180, 180, 180));
+                let item_line = |idx: usize, label: &str, value: String| {
+                    let marker = if idx == app.internal_search_limits_selected { ">" } else { " " };
+                    let style = if idx == app.internal_search_limits_selected {
+                        selected_style
+                    } else {
+                        normal_style
+                    };
+                    Line::from(Span::styled(format!("{} {}: {}", marker, label, value), style))
+                };
+                lines.push(item_line(0, "Max files", limits.max_files.to_string()));
+                lines.push(item_line(1, "Max hits", limits.max_hits.to_string()));
+                lines.push(item_line(2, "Max file size", App::format_size(limits.max_file_bytes as u64)));
+                lines.push(Line::from(Span::styled(
+                    "Editor: Up/Down select  Left/Right or +/- adjust  Shift=10x  r reset  Ctrl+L close",
+                    Style::default().fg(active_theme.text_dim),
+                )));
+            } else {
+                lines.push(Line::from(Span::styled(
+                    " Ctrl+L open limits editor",
+                    Style::default().fg(active_theme.text_dim),
+                )));
+            }
+
+            if app.internal_search_content_pending {
+                lines.push(Line::from(Span::styled(
+                    " Scanning content asynchronously...",
+                    Style::default().fg(active_theme.overlay_section),
+                )));
+            }
+            if let Some(note) = &app.internal_search_content_limit_note {
+                lines.push(Line::from(Span::styled(
+                    note.clone(),
+                    Style::default().fg(Color::Rgb(160, 160, 160)),
+                )));
+            }
+        }
+
+        let selected = app.internal_search_selected;
+        let body_content_w = body_area.width as usize;
+        let visible_rows = body_area.height as usize;
+        let header_rows = lines.len();
+        let max_rows = visible_rows.saturating_sub(header_rows).max(1);
+        let offset = if selected >= max_rows {
+            selected + 1 - max_rows
+        } else {
+            0
+        };
+        let search_total_rows = app.internal_search_results.len();
+        let search_max_scroll = search_total_rows.saturating_sub(max_rows);
+        let search_scroll_offset = offset.min(search_max_scroll);
+        let can_draw_search_scrollbar = body_area.width > 2 && search_total_rows > max_rows;
+
+        if let Some(err) = &app.internal_search_regex_error {
+            lines.push(Line::from(Span::styled(
+                format!("Regex error: {}", err),
+                Style::default().fg(Color::Rgb(255, 120, 120)),
+            )));
+        }
+
+        if app.internal_search_results.is_empty() {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                " No matches",
+                Style::default().fg(Color::Rgb(180, 90, 90)),
+            )));
+        } else {
+            for (display_idx, result_idx) in app
+                .internal_search_results
+                .iter()
+                .skip(offset)
+                .take(max_rows)
+                .enumerate()
+            {
+                let absolute_idx = offset + display_idx;
+                let is_selected = absolute_idx == selected;
+                let row_inner_w = body_content_w.saturating_sub(2);
+                let (left_cap, right_cap) = if is_selected {
+                    if app.nerd_font_active {
+                        (
+                            Span::styled(
+                                "",
+                                Style::default()
+                                    .fg(active_theme.bg_selected)
+                                    .bg(active_theme.bg_panel),
+                            ),
+                            Span::styled(
+                                "",
+                                Style::default()
+                                    .fg(active_theme.bg_selected)
+                                    .bg(active_theme.bg_panel),
+                            ),
+                        )
+                    } else {
+                        (
+                            Span::styled(" ", Style::default().bg(active_theme.bg_selected)),
+                            Span::styled(" ", Style::default().bg(active_theme.bg_selected)),
+                        )
+                    }
+                } else {
+                    (
+                        Span::styled(" ", Style::default().bg(active_theme.bg_panel)),
+                        Span::styled(" ", Style::default().bg(active_theme.bg_panel)),
+                    )
+                };
+                let base_style = if is_selected {
+                    Style::default()
+                        .fg(active_theme.text_normal)
+                        .bg(active_theme.bg_selected)
+                } else {
+                    Style::default().fg(Color::Rgb(200, 200, 200))
+                };
+                let match_style = if is_selected {
+                    Style::default()
+                        .fg(active_theme.warning)
+                        .bg(active_theme.bg_selected)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                        .fg(Color::Rgb(255, 220, 120))
+                        .add_modifier(Modifier::BOLD)
+                };
+                let mut spans: Vec<Span> = vec![left_cap];
+
+                let rel_path_for_icon = match result_idx {
+                    InternalSearchResult::Filename { rel_path, .. } => rel_path,
+                    InternalSearchResult::Content { rel_path, .. } => rel_path,
+                };
+                let abs_path = app.current_dir.join(rel_path_for_icon);
+                let is_symlink = crate::util::classify::is_symlink(&abs_path);
+                let is_dir = abs_path.is_dir();
+                let icon_name = rel_path_for_icon
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|name| name.to_string())
+                    .unwrap_or_else(|| rel_path_for_icon.to_string_lossy().into_owned());
+                let (icon_glyph, icon_style) = App::icon_for_name(
+                    icon_name.as_str(),
+                    is_dir,
+                    app.show_icons,
+                    app.nerd_font_active,
+                    is_symlink,
+                    app.active_theme,
+                );
+                let icon_span = if app.show_icons && !icon_glyph.is_empty() {
+                    let adjusted_icon_style = if is_selected {
+                        icon_style.bg(active_theme.bg_selected)
+                    } else {
+                        icon_style
+                    };
+                    Some(Span::styled(format!("{} ", icon_glyph), adjusted_icon_style))
+                } else {
+                    None
+                };
+
+                match result_idx {
+                    InternalSearchResult::Filename { rel_path, match_ranges } => {
+                        let rel_str = rel_path.to_string_lossy().into_owned();
+                        let basename_start = rel_str.rfind('/').map(|idx| idx + 1).unwrap_or(0);
+                        let (dir_part, base_part) = rel_str.split_at(basename_start);
+
+                        let project_ranges = |start: usize, end: usize| -> Vec<(usize, usize)> {
+                            match_ranges
+                                .iter()
+                                .filter_map(|(rs, re)| {
+                                    let overlap_start = (*rs).max(start);
+                                    let overlap_end = (*re).min(end);
+                                    if overlap_start < overlap_end {
+                                        Some((overlap_start - start, overlap_end - start))
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect()
+                        };
+
+                        if !dir_part.is_empty() {
+                            let dir_ranges = project_ranges(0, basename_start);
+                            spans.extend(App::search_spans_with_ranges(
+                                dir_part,
+                                &dir_ranges,
+                                base_style,
+                                match_style,
+                            ));
+                        }
+
+                        if let Some(icon) = icon_span.clone() {
+                            spans.push(icon);
+                        }
+
+                        let base_ranges = project_ranges(basename_start, rel_str.len());
+                        spans.extend(App::search_spans_with_ranges(
+                            base_part,
+                            &base_ranges,
+                            base_style,
+                            match_style,
+                        ));
+                    }
+                    InternalSearchResult::Content {
+                        rel_path,
+                        line_number,
+                        line_text,
+                        match_ranges,
+                    } => {
+                        let path_text = rel_path.display().to_string();
+                        let basename_start = path_text.rfind('/').map(|idx| idx + 1).unwrap_or(0);
+                        let (dir_part, base_part) = path_text.split_at(basename_start);
+                        if !dir_part.is_empty() {
+                            spans.push(Span::styled(
+                                dir_part.to_string(),
+                                base_style.fg(Color::Rgb(150, 190, 255)),
+                            ));
+                        }
+                        if let Some(icon) = icon_span {
+                            spans.push(icon);
+                        }
+                        spans.push(Span::styled(
+                            format!("{}:{}: ", base_part, line_number),
+                            base_style.fg(Color::Rgb(150, 190, 255)),
+                        ));
+                        spans.extend(App::search_spans_with_ranges(
+                            line_text,
+                            match_ranges,
+                            base_style,
+                            match_style,
+                        ));
+                    }
+                }
+
+                if is_selected {
+                    let used_w: usize = spans
+                        .iter()
+                        .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
+                        .sum();
+                    if row_inner_w > used_w {
+                        spans.push(Span::styled(
+                            " ".repeat(row_inner_w - used_w),
+                            base_style,
+                        ));
+                    }
+                }
+                spans.push(right_cap);
+
+                lines.push(Line::from(spans));
+            }
+        }
+
+        f.render_widget(Paragraph::new(lines), body_area);
+        if can_draw_search_scrollbar {
+            let sb_area = Rect::new(
+                popup_area.x + popup_area.width.saturating_sub(1),
+                body_area.y,
+                1,
+                body_area.height,
+            );
+            let track_h = sb_area.height as usize;
+            if track_h > 0 {
+                let thumb_h = ((max_rows * track_h + search_total_rows.saturating_sub(1)) / search_total_rows)
+                    .max(1)
+                    .min(track_h);
+                let scroll_space = track_h.saturating_sub(thumb_h);
+                let thumb_y = if search_max_scroll == 0 {
+                    0
+                } else {
+                    (search_scroll_offset * scroll_space + (search_max_scroll / 2)) / search_max_scroll
+                };
+
+                let mut sb_lines: Vec<Line> = Vec::with_capacity(track_h);
+                for row in 0..track_h {
+                    let in_thumb = row >= thumb_y && row < thumb_y + thumb_h;
+                    let (ch, color) = if in_thumb {
+                        ("┃", Color::Rgb(120, 240, 220))
+                    } else {
+                        ("│", Color::Rgb(80, 200, 180))
+                    };
+                    sb_lines.push(Line::from(Span::styled(ch, Style::default().fg(color))));
+                }
+                f.render_widget(Paragraph::new(sb_lines), sb_area);
+            }
+        }
+        let search_footer_entries: &[(&'static str, &'static str)] = &[
+            ("↑↓", "navigate"),
+            ("Enter", "open"),
+            ("Ctrl+T", "toggle scope"),
+            ("Regex", "re:pattern or /pattern/i"),
+            ("Tab", "switch tabs"),
+        ];
+        f.render_widget(
+            Paragraph::new(ui::panels::shortcut_footer_lines(
+                search_footer_entries,
+                app.active_theme,
+                app.nerd_font_active,
+            )),
+            footer_area,
+        );
+        app.footer_shortcut_zones.extend(ui::panels::footer_shortcut_zones(
+            search_footer_entries,
+            footer_area,
+            app.nerd_font_active,
+        ));
+
+        app.clamp_input_cursor();
+        let cursor_x = query_input_area.x
+            + UnicodeWidthStr::width(query_icon_prefix.as_str()) as u16
+            + app.input_cursor as u16;
+        let cursor_y = query_input_area.y;
+        f.set_cursor(
+            cursor_x.min(query_input_area.x + query_input_area.width.saturating_sub(1)),
+            cursor_y,
+        );
+}
+
+fn render_db_preview_overlay(f: &mut Frame, app: &mut App, ctx: &RenderCtx, tab_overlay_anchor: Rect) {
+    let active_theme = ctx.theme;
+        let popup_area = Rect::new(
+            tab_overlay_anchor.x,
+            tab_overlay_anchor.y,
+            tab_overlay_anchor.width,
+            tab_overlay_anchor.height,
+        );
+
+        let db_title = app
+            .db_preview_path
+            .as_ref()
+            .and_then(|p| crate::util::classify::path_file_name(p))
+            .unwrap_or_else(|| "SQLite Preview".to_string());
+
+        let mut lines: Vec<Line> = vec![
+            Line::from(Span::styled(
+                "←→:switch table  Home/End:jump  Esc:close",
+                Style::default().fg(active_theme.text_dim),
+            )),
+        ];
+
+        let mut table_spans: Vec<Span> = vec![Span::styled(
+            "Tables: ",
+            Style::default().fg(Color::Rgb(160, 160, 160)),
+        )];
+        if app.db_preview_tables.is_empty() {
+            table_spans.push(Span::styled(
+                "(none)",
+                Style::default().fg(Color::Rgb(180, 90, 90)),
+            ));
+        } else {
+            for (idx, table_name) in app.db_preview_tables.iter().enumerate() {
+                if idx > 0 {
+                    table_spans.push(Span::styled("  ", Style::default().fg(active_theme.text_dim)));
+                }
+                let display = if table_name.chars().count() > 20 {
+                    let mut t = table_name.chars().take(19).collect::<String>();
+                    t.push('…');
+                    t
+                } else {
+                    table_name.clone()
+                };
+                let style = if idx == app.db_preview_selected {
+                    Style::default()
+                        .fg(Color::Rgb(20, 20, 20))
+                        .bg(Color::Rgb(120, 220, 140))
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Rgb(170, 210, 255))
+                };
+                table_spans.push(Span::styled(display, style));
+            }
+        }
+        lines.push(Line::from(table_spans));
+
+        if let Some(err) = &app.db_preview_error {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                err.clone(),
+                Style::default().fg(Color::Rgb(255, 120, 120)),
+            )));
+        } else {
+            lines.push(Line::from(""));
+            if app.db_preview_output_lines.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    "(no rows)",
+                    Style::default().fg(Color::Rgb(140, 140, 140)),
+                )));
+            } else {
+                let visible_w = popup_area.width.saturating_sub(4) as usize;
+                let clip_line = |text: &str| -> String {
+                    if text.chars().count() <= visible_w {
+                        return text.to_string();
+                    }
+                    if visible_w <= 1 {
+                        return "…".to_string();
+                    }
+                    let mut out = text.chars().take(visible_w - 1).collect::<String>();
+                    out.push('…');
+                    out
+                };
+
+                for row in &app.db_preview_output_lines {
+                    lines.push(Line::from(Span::styled(
+                        clip_line(row),
+                        Style::default().fg(Color::Rgb(210, 210, 210)),
+                    )));
+                }
+            }
+        }
+
+        f.render_widget(Clear, popup_area);
+        f.render_widget(
+            Paragraph::new(lines)
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(format!(" SQLite: {} ", db_title))
+                        .title_style(Style::default().fg(active_theme.text_normal))
+                        .border_style(Style::default().fg(Color::Rgb(120, 200, 150))),
+                )
+                .wrap(Wrap { trim: true }),
+            popup_area,
+        );
+}
+
+fn render_new_entry_overlay(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
+    let active_theme = ctx.theme;
+        let area = f.size();
+        let title = " Create ";
+        let dialog_w = (area.width * 2 / 3).max(40).min(area.width.saturating_sub(4).max(1));
+
+        let lines: Vec<&str> = if app.input_buffer.is_empty() {
+            vec![""]
+        } else {
+            app.input_buffer.split('\n').collect()
+        };
+        let (cursor_line, cursor_col) = app.input_cursor_line_col();
+        let max_content_lines = area.height.saturating_sub(7).max(1) as usize;
+        let content_lines = lines.len().max(1).min(max_content_lines);
+        let window_start = cursor_line.saturating_sub(content_lines.saturating_sub(1));
+        let window_end = (window_start + content_lines).min(lines.len().max(1));
+        let shown_lines = &lines[window_start..window_end];
+
+        let dialog_h = (shown_lines.len() as u16 + 3).max(4).min(area.height.saturating_sub(2).max(1));
+        let create_area = Rect::new(
+            (area.width.saturating_sub(dialog_w)) / 2,
+            (area.height.saturating_sub(dialog_h)) / 2,
+            dialog_w,
+            dialog_h,
+        );
+
+        f.render_widget(Clear, create_area);
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .title(title)
+            .title_style(Style::default().fg(active_theme.text_normal))
+            .border_style(Style::default().fg(active_theme.border));
+        let input_area = block.inner(create_area);
+        f.render_widget(block, create_area);
+
+        let create_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(1),
+                Constraint::Length(1),
+            ])
+            .split(input_area);
+        let list_area = create_chunks[0];
+        let help_area = create_chunks[1];
+
+        let mut rendered_lines: Vec<Line> = Vec::new();
+        for line in shown_lines {
+            let is_dir = if app.mode == AppMode::NewFolder {
+                true
+            } else {
+                line.trim_start().starts_with('/')
+            };
+            let icon_name = if is_dir {
+                line.trim_start().trim_start_matches('/').trim()
+            } else {
+                line.trim()
+            };
+            let (icon_glyph, icon_style) = App::icon_for_name(
+                icon_name,
+                is_dir,
+                app.show_icons,
+                app.nerd_font_active,
+                false,
+                app.active_theme,
+            );
+            let mut spans = Vec::new();
+            if app.show_icons && !icon_glyph.is_empty() {
+                spans.push(Span::styled(format!("{} ", icon_glyph), icon_style));
+            }
+            spans.push(Span::styled(*line, Style::default().fg(Color::Rgb(230, 230, 230))));
+            rendered_lines.push(Line::from(spans));
+        }
+        f.render_widget(Paragraph::new(rendered_lines), list_area);
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                "(/name = folder, name = file)  Alt+Enter: new line",
+                Style::default().fg(active_theme.text_dim),
+            ))),
+            help_area,
+        );
+
+        let active_line_text = app.active_input_line_text();
+        let active_is_dir = if app.mode == AppMode::NewFolder {
+            true
+        } else {
+            active_line_text.trim_start().starts_with('/')
+        };
+        let active_icon_name = if active_is_dir {
+            active_line_text.trim_start().trim_start_matches('/').trim()
+        } else {
+            active_line_text.trim()
+        };
+        let (active_icon_glyph, _) = App::icon_for_name(
+            active_icon_name,
+            active_is_dir,
+            app.show_icons,
+            app.nerd_font_active,
+            false,
+            app.active_theme,
+        );
+        let icon_prefix_width = if app.show_icons && !active_icon_glyph.is_empty() {
+            UnicodeWidthStr::width(format!("{} ", active_icon_glyph).as_str()) as u16
+        } else {
+            0
+        };
+
+        app.clamp_input_cursor();
+        let visible_cursor_line = cursor_line.saturating_sub(window_start);
+        let cursor_x = list_area.x + icon_prefix_width + cursor_col as u16;
+        let cursor_y = list_area.y + visible_cursor_line as u16;
+        f.set_cursor(
+            cursor_x.min(list_area.x + list_area.width.saturating_sub(1)),
+            cursor_y.min(list_area.y + list_area.height.saturating_sub(1)),
+        );
+}
+
+fn render_ssh_picker_overlay(f: &mut Frame, app: &mut App, ctx: &RenderCtx, tab_overlay_anchor: Rect) {
+    let active_theme = ctx.theme;
+        let ssh_popup_w = tab_overlay_anchor.width;
+        let ssh_content_w = ssh_popup_w.saturating_sub(2) as usize;
+        let ssh_row_inner_w = ssh_content_w.saturating_sub(2);
+        let content_w = ssh_popup_w.saturating_sub(4) as usize;
+        let type_w = 6usize;
+        let mounted_w = 10usize;
+        let available_for_alias_and_detail = content_w.saturating_sub(type_w + mounted_w + 3);
+        let alias_w = if available_for_alias_and_detail >= 12 {
+            available_for_alias_and_detail.min(22)
+        } else {
+            available_for_alias_and_detail
+        };
+        let detail_w = available_for_alias_and_detail.saturating_sub(alias_w);
+        let trunc = |s: &str, max: usize| -> String {
+            if max == 0 {
+                return String::new();
+            }
+            if s.chars().count() <= max {
+                return s.to_string();
+            }
+            if max == 1 {
+                return "…".to_string();
+            }
+            let mut out = String::new();
+            for ch in s.chars().take(max - 1) {
+                out.push(ch);
+            }
+            out.push('…');
+            out
+        };
+
+        let mut lines: Vec<Line> = vec![Line::from("")];
+        if app.remote_entries.is_empty() {
+            lines.push(Line::from(Span::styled(" No SSH/rclone/media mounts or mounted archives found", Style::default().fg(Color::Rgb(180, 80, 80)))));
+        } else {
+            let mounted_aliases: HashSet<String> = app.ssh_mounts
+                .iter()
+                .map(|m| m.host_alias.clone())
+                .collect();
+            for (i, entry) in app.remote_entries.iter().enumerate() {
+                let is_selected = i == app.ssh_picker_selection;
+                let is_mounted = match entry {
+                    RemoteEntry::ArchiveMount { .. } | RemoteEntry::LocalMount { .. } => true,
+                    _ => mounted_aliases.contains(entry.alias()),
+                };
+                let mount_tag = if is_mounted { "  \u{25cf} mounted" } else { "" };
+                let (type_tag, detail) = match entry {
+                    RemoteEntry::Ssh(h) => {
+                        let user_at_host = match &h.user {
+                            Some(u) => format!("{}@{}", u, h.hostname),
+                            None => h.hostname.clone(),
+                        };
+                        let port_str = h.port.map(|p| format!(":{}", p)).unwrap_or_default();
+                        ("ssh", format!("{}{}", user_at_host, port_str))
+                    }
+                    RemoteEntry::Rclone { rtype, .. } => ("rclone", rtype.clone()),
+                    RemoteEntry::ArchiveMount { mount_path, .. } => ("zip", mount_path.to_string_lossy().into_owned()),
+                    RemoteEntry::LocalMount { mount_path, source, .. } => ("mount", format!("{}: {}", source, mount_path.to_string_lossy())),
+                };
+                let type_col = format!("{:<width$}", type_tag, width = type_w);
+                let alias_col = format!(
+                    "{:<width$}",
+                    trunc(entry.alias(), alias_w),
+                    width = alias_w
+                );
+                let detail_col = trunc(&detail, detail_w);
+                let label = format!(" {} {} {}{}", type_col, alias_col, detail_col, mount_tag);
+                let label = if is_selected {
+                    let used_w = UnicodeWidthStr::width(label.as_str());
+                    if ssh_row_inner_w > used_w {
+                        format!("{}{}", label, " ".repeat(ssh_row_inner_w - used_w))
+                    } else {
+                        label
+                    }
+                } else {
+                    label
+                };
+                let style = if is_selected {
+                    Style::default()
+                        .fg(active_theme.text_normal)
+                        .bg(active_theme.bg_selected)
+                        .add_modifier(Modifier::BOLD)
+                } else if is_mounted {
+                    Style::default().fg(Color::Rgb(80, 220, 160))
+                } else {
+                    Style::default().fg(Color::Rgb(200, 200, 200))
+                };
+                let (left_cap, right_cap) = if is_selected {
+                    if app.nerd_font_active {
+                        (
+                            Span::styled(
+                                "",
+                                Style::default()
+                                    .fg(active_theme.bg_selected)
+                                    .bg(active_theme.bg_panel),
+                            ),
+                            Span::styled(
+                                "",
+                                Style::default()
+                                    .fg(active_theme.bg_selected)
+                                    .bg(active_theme.bg_panel),
+                            ),
+                        )
+                    } else {
+                        (
+                            Span::styled(" ", Style::default().bg(active_theme.bg_selected)),
+                            Span::styled(" ", Style::default().bg(active_theme.bg_selected)),
+                        )
+                    }
+                } else {
+                    (
+                        Span::styled(" ", Style::default().bg(active_theme.bg_panel)),
+                        Span::styled(" ", Style::default().bg(active_theme.bg_panel)),
+                    )
+                };
+                lines.push(Line::from(vec![
+                    left_cap,
+                    Span::styled(label, style),
+                    right_cap,
+                ]));
+            }
+        }
+        let ssh_h = (lines.len() as u16 + 4).max(8).min(tab_overlay_anchor.height);
+        let ssh_area = Rect::new(
+            tab_overlay_anchor.x,
+            tab_overlay_anchor.y,
+            ssh_popup_w,
+            ssh_h,
+        );
+        f.render_widget(Clear, ssh_area);
+        let ssh_block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .title(App::panel_tab_bar_line(app.panel_tab, app.active_theme, app.nerd_font_active, ssh_area.width.saturating_sub(3)))
+            .title_style(Style::default().fg(active_theme.text_normal))
+            .style(Style::default().bg(active_theme.bg_panel).fg(active_theme.text_normal))
+            .border_style(Style::default().fg(active_theme.divider));
+        let ssh_inner = ssh_block.inner(ssh_area);
+        f.render_widget(ssh_block, ssh_area);
+        f.render_widget(
+            Paragraph::new(Span::styled(
+                "x",
+                Style::default().fg(active_theme.text_normal),
+            )),
+            App::tabbed_overlay_close_area(ssh_area),
+        );
+        let ssh_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(2)])
+            .split(ssh_inner);
+        f.render_widget(Paragraph::new(lines), ssh_chunks[0]);
+        let ssh_footer_entries: &[(&'static str, &'static str)] = &[
+            ("↑↓", "navigate"),
+            ("Enter/→", "open or mount"),
+            ("s", "ssh shell"),
+            ("u/Delete", "unmount"),
+            ("Tab", "switch tabs"),
+            ("Esc", "close"),
+        ];
+        f.render_widget(
+            Paragraph::new(ui::panels::shortcut_footer_lines(
+                ssh_footer_entries,
+                app.active_theme,
+                app.nerd_font_active,
+            )),
+            ssh_chunks[1],
+        );
+        app.footer_shortcut_zones.extend(ui::panels::footer_shortcut_zones(
+            ssh_footer_entries,
+            ssh_chunks[1],
+            app.nerd_font_active,
+        ));
 }
