@@ -261,7 +261,7 @@ impl App {
     }
 
     pub(crate) fn run_zip_action(&mut self) {
-        if self.archive_rx.is_some() {
+        if self.archive.rx.is_some() {
             self.set_status("archive creation already in progress");
             return;
         }
@@ -280,7 +280,7 @@ impl App {
                 return;
             }
 
-            self.archive_extract_targets = targets;
+            self.archive.extract_targets = targets;
             self.mode = AppMode::ConfirmExtract;
             self.set_status("confirm extraction: press y to continue");
             return;
@@ -307,13 +307,13 @@ impl App {
             n += 1;
         }
 
-        self.archive_create_targets = targets;
+        self.archive.create_targets = targets;
         self.begin_input_edit(AppMode::ArchiveCreate, archive_name);
         self.set_status("confirm archive name and press Enter");
     }
 
     pub(crate) fn create_archive_from_input(&mut self) {
-        if self.archive_rx.is_some() {
+        if self.archive.rx.is_some() {
             self.set_status("archive creation already in progress");
             return;
         }
@@ -327,7 +327,7 @@ impl App {
             archive_name.push_str(".zip");
         }
 
-        let targets = self.archive_create_targets.clone();
+        let targets = self.archive.create_targets.clone();
         if targets.is_empty() {
             self.mode = AppMode::Browsing;
             self.clear_input_edit();
@@ -348,20 +348,20 @@ impl App {
         }
         if item_names.is_empty() {
             self.mode = AppMode::Browsing;
-            self.archive_create_targets.clear();
+            self.archive.create_targets.clear();
             self.clear_input_edit();
             self.set_status("nothing to archive");
             return;
         }
 
         self.mode = AppMode::Browsing;
-        let targets = std::mem::take(&mut self.archive_create_targets);
+        let targets = std::mem::take(&mut self.archive.create_targets);
         self.clear_input_edit();
         self.start_archive_job(archive_name, targets);
     }
 
     pub(crate) fn extract_archives_confirmed(&mut self) {
-        let targets = std::mem::take(&mut self.archive_extract_targets);
+        let targets = std::mem::take(&mut self.archive.extract_targets);
         if targets.is_empty() {
             self.set_status("no archives selected");
             return;
@@ -463,12 +463,12 @@ impl App {
     }
 
     pub(crate) fn update_archive_status(&mut self) {
-        if self.archive_name.is_empty() {
+        if self.archive.name.is_empty() {
             return;
         }
 
-        let total = self.archive_total_bytes;
-        let done = self.archive_done_bytes;
+        let total = self.archive.total_bytes;
+        let done = self.archive.done_bytes;
         let scanning = total == 0 && done == 0;
         let display_total = total.max(done).max(1);
         let percent = if total == 0 {
@@ -480,7 +480,7 @@ impl App {
         let bar = crate::util::format::progress_bar(percent, 20);
 
         let elapsed = self
-            .archive_started_at
+            .archive.started_at
             .map(|t| t.elapsed().as_secs_f64())
             .unwrap_or(0.0)
             .max(0.001);
@@ -512,7 +512,7 @@ impl App {
             total_label,
             speed_str,
             eta,
-            self.archive_name,
+            self.archive.name,
             scan_suffix
         ));
     }
@@ -531,13 +531,13 @@ impl App {
 
         let cwd = self.current_dir.clone();
         let archive_path = cwd.join(&archive_name);
-        self.archive_total_bytes = 0;
-        self.archive_done_bytes = 0;
-        self.archive_started_at = Some(Instant::now());
-        self.archive_name = archive_name.clone();
+        self.archive.total_bytes = 0;
+        self.archive.done_bytes = 0;
+        self.archive.started_at = Some(Instant::now());
+        self.archive.name = archive_name.clone();
         self.update_archive_status();
 
-        self.archive_rx = Some(spawn_worker(move |tx| {
+        self.archive.rx = Some(spawn_worker(move |tx| {
             let total_bytes = targets
                 .iter()
                 .filter_map(|p| Self::compute_total_bytes(p).ok())
@@ -586,22 +586,22 @@ impl App {
 
     pub(crate) fn pump_archive_progress(&mut self) {
         let mut finished: Option<Result<String, String>> = None;
-        for msg in drain_channel(&mut self.archive_rx) {
+        for msg in drain_channel(&mut self.archive.rx) {
             match msg {
-                ArchiveProgressMsg::TotalBytes(total) => self.archive_total_bytes = total,
-                ArchiveProgressMsg::Progress(done) => self.archive_done_bytes = done,
+                ArchiveProgressMsg::TotalBytes(total) => self.archive.total_bytes = total,
+                ArchiveProgressMsg::Progress(done) => self.archive.done_bytes = done,
                 ArchiveProgressMsg::Finished(result) => {
                     finished = Some(result);
-                    self.archive_rx = None;
+                    self.archive.rx = None;
                 }
             }
         }
 
         if let Some(result) = finished {
-            self.archive_started_at = None;
-            self.archive_total_bytes = 0;
-            self.archive_done_bytes = 0;
-            self.archive_name.clear();
+            self.archive.started_at = None;
+            self.archive.total_bytes = 0;
+            self.archive.done_bytes = 0;
+            self.archive.name.clear();
             match result {
                 Ok(name) => {
                     self.refresh_entries_or_status();
@@ -613,7 +613,7 @@ impl App {
                     self.set_status(format!("archive create failed: {}", e));
                 }
             }
-        } else if self.archive_rx.is_some() {
+        } else if self.archive.rx.is_some() {
             self.update_archive_status();
         }
     }

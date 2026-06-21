@@ -1,4 +1,6 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::Arc;
 
 /// Spawn a background worker thread wired to a fresh channel.
 ///
@@ -56,4 +58,63 @@ pub fn drain_channel<T>(rx: &mut Option<Receiver<T>>) -> Vec<T> {
         *rx = Some(taken);
     }
     messages
+}
+
+/// Lifecycle state for a cancellable background job that streams results back
+/// over a channel.
+///
+/// Bundles the three values every such job used to track as separate fields:
+/// the [`Receiver`], a monotonically increasing `scan_id` used to discard
+/// results from superseded scans, and an optional cooperative-cancel token.
+/// Pair it with [`drain_channel`] on `&mut self.<job>.rx`.
+pub struct AsyncJobState<T> {
+    pub rx: Option<Receiver<T>>,
+    pub scan_id: u64,
+    pub cancel: Option<Arc<AtomicBool>>,
+}
+
+impl<T> Default for AsyncJobState<T> {
+    fn default() -> Self {
+        Self {
+            rx: None,
+            scan_id: 0,
+            cancel: None,
+        }
+    }
+}
+
+impl<T> AsyncJobState<T> {
+    /// Bump the scan id and return the new value; tag worker messages with it.
+    pub fn next_scan_id(&mut self) -> u64 {
+        self.scan_id = self.scan_id.wrapping_add(1);
+        self.scan_id
+    }
+
+    /// True when `id` matches the current scan (i.e. the message is not stale).
+    pub fn is_current(&self, id: u64) -> bool {
+        id == self.scan_id
+    }
+
+    /// Cancel any in-flight worker and install a fresh token for the next one.
+    ///
+    /// Flips the old token (if any) to `true` so a still-running walk bails out
+    /// early, then returns a new token to clone into the new worker.
+    pub fn renew_cancel(&mut self) -> Arc<AtomicBool> {
+        self.abort_cancel();
+        let token = Arc::new(AtomicBool::new(false));
+        self.cancel = Some(token.clone());
+        token
+    }
+
+    /// Signal the in-flight worker to stop without starting a new one.
+    pub fn abort_cancel(&mut self) {
+        if let Some(old) = self.cancel.take() {
+            old.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// Drop the receiver (stop polling) without touching the cancel token.
+    pub fn clear_rx(&mut self) {
+        self.rx = None;
+    }
 }

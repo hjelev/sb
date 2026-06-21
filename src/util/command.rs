@@ -10,7 +10,7 @@
 
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 /// Spawn `cmd` with its stdout piped into `less -R`, returning whether the pager
@@ -34,6 +34,32 @@ pub fn pipe_to_pager(mut cmd: Command) -> bool {
     }
     let _ = child.wait();
     shown
+}
+
+/// Page `cmd`'s output through `less -R`, falling back to paging `path` directly
+/// when the tool can't be spawned.
+///
+/// Centralizes the "run viewer → pipe into less → otherwise just `less` the
+/// file" idiom repeated by the hexyl / pdftotext viewers.
+pub fn pipe_to_pager_or_less(cmd: Command, path: &Path) {
+    if !pipe_to_pager(cmd) {
+        let _ = Command::new("less").arg("-R").arg(path).status();
+    }
+}
+
+/// Spawn `program path [args…]` fully detached (all stdio set to null) and
+/// return the [`Child`] so the caller can wait on or kill it.
+///
+/// Centralizes the duplicated null-stdio spawn used by the audio players
+/// (`play` / `sox`).
+pub fn spawn_detached(program: &str, path: &Path, args: &[&str]) -> io::Result<Child> {
+    Command::new(program)
+        .arg(path)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
 }
 
 /// The user's preferred terminal editor program.

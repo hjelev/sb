@@ -32,11 +32,7 @@ use std::{
     io,
     path::PathBuf,
     process::Command,
-    sync::{
-        atomic::AtomicBool,
-        mpsc::{self, Receiver},
-        Arc,
-    },
+    sync::mpsc::{self, Receiver},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 mod integration;
@@ -69,6 +65,7 @@ mod util;
 mod run;
 
 use integration::rows::IntegrationRow;
+use util::background::AsyncJobState;
 
 struct PanelState {
     dir: PathBuf,
@@ -84,11 +81,68 @@ struct PanelState {
     list_scroll_grab_offset: u16,
     list_last_click: Option<(PathBuf, usize, Instant)>,
     tree_row_prefixes: Vec<String>,
-    selected_total_size_rx: Option<Receiver<SelectedTotalSizeMsg>>,
-    selected_total_size_scan_id: u64,
+    selected_total_size: AsyncJobState<SelectedTotalSizeMsg>,
     selected_total_size_pending: bool,
     selected_total_size_bytes: Option<u64>,
     selected_total_size_items: usize,
+}
+
+/// Progress and bookkeeping for an in-flight copy/move transfer.
+///
+/// Grouped out of `App` so all the parallel `copy_*` fields live together and
+/// can be reset as a unit.
+#[derive(Default)]
+struct CopyOperation {
+    rx: Option<Receiver<CopyProgressMsg>>,
+    total_rx: Option<Receiver<u64>>,
+    total_bytes: u64,
+    done_bytes: u64,
+    job_total_bytes: u64,
+    done_before_job: u64,
+    started_at: Option<Instant>,
+    item_name: String,
+    current_src: Option<PathBuf>,
+    from_remote: bool,
+}
+
+/// All state for the built-in incremental search overlay: candidate/result
+/// lists, the async candidate + content scan channels, regex mode, and the
+/// content-scan limits menu. Grouped out of `App` (was ~18 `internal_search_*`
+/// fields).
+struct SearchState {
+    candidates: Vec<PathBuf>,
+    results: Vec<InternalSearchResult>,
+    selected: usize,
+    scope: InternalSearchScope,
+    candidates_rx: Option<Receiver<InternalSearchCandidatesMsg>>,
+    candidates_scan_id: u64,
+    candidates_pending: bool,
+    candidates_truncated: bool,
+    content_rx: Option<Receiver<InternalSearchContentMsg>>,
+    content_request_id: u64,
+    content_pending: bool,
+    content_limit_note: Option<String>,
+    content_limits: InternalSearchContentLimits,
+    limits_menu_open: bool,
+    limits_selected: usize,
+    regex_mode: bool,
+    regex: Option<Regex>,
+    regex_error: Option<String>,
+}
+
+/// Inputs and progress for an in-flight archive create/extract job.
+///
+/// Note: this is distinct from `App::archive_mounts`, which tracks mounted
+/// archive filesystems rather than a running create/extract operation.
+#[derive(Default)]
+struct ArchiveOperation {
+    create_targets: Vec<PathBuf>,
+    extract_targets: Vec<PathBuf>,
+    rx: Option<Receiver<ArchiveProgressMsg>>,
+    total_bytes: u64,
+    done_bytes: u64,
+    started_at: Option<Instant>,
+    name: String,
 }
 
 struct App {
@@ -117,16 +171,7 @@ struct App {
     ssh_mounts: Vec<SshMount>,
     remote_entries: Vec<RemoteEntry>,
     ssh_picker_selection: usize,
-    copy_rx: Option<Receiver<CopyProgressMsg>>,
-    copy_total_rx: Option<Receiver<u64>>,
-    copy_total_bytes: u64,
-    copy_done_bytes: u64,
-    copy_job_total_bytes: u64,
-    copy_done_before_job: u64,
-    copy_started_at: Option<Instant>,
-    copy_item_name: String,
-    copy_current_src: Option<PathBuf>,
-    copy_from_remote: bool,
+    copy: CopyOperation,
     download_rx: Option<Receiver<DownloadProgressMsg>>,
     download_pending_url: Option<String>,
     download_pending_name: Option<String>,
@@ -135,13 +180,7 @@ struct App {
     paste_total_items: usize,
     paste_ok_items: usize,
     paste_failed_items: usize,
-    archive_create_targets: Vec<PathBuf>,
-    archive_extract_targets: Vec<PathBuf>,
-    archive_rx: Option<Receiver<ArchiveProgressMsg>>,
-    archive_total_bytes: u64,
-    archive_done_bytes: u64,
-    archive_started_at: Option<Instant>,
-    archive_name: String,
+    archive: ArchiveOperation,
     nerd_font_active: bool,
     filename_color_mode: FilenameColorMode,
     os_icon: Option<(&'static str, ratatui::style::Color)>,
@@ -175,25 +214,18 @@ struct App {
     /// (without the recursive folder-size prefix). Persisted to config.
     disable_clock: bool,
     folder_size_cache: HashMap<PathBuf, u64>,
-    folder_size_rx: Option<Receiver<FolderSizeMsg>>,
-    folder_size_scan_id: u64,
-    folder_size_cancel: Option<Arc<AtomicBool>>,
+    folder_size: AsyncJobState<FolderSizeMsg>,
     tree_expansion_levels: HashMap<PathBuf, usize>,
     tree_last_tap: Option<(char, Instant)>,
     main_list_last_click: Option<(PathBuf, usize, Instant)>,
     tree_row_prefixes: Vec<String>,
-    current_dir_total_size_rx: Option<Receiver<CurrentDirTotalSizeMsg>>,
-    current_dir_total_size_scan_id: u64,
-    current_dir_total_size_cancel: Option<Arc<AtomicBool>>,
+    current_dir_total_size: AsyncJobState<CurrentDirTotalSizeMsg>,
     current_dir_total_size_pending: bool,
     current_dir_total_size_bytes: Option<u64>,
     current_dir_total_space_bytes: Option<u64>,
     current_dir_free_bytes: Option<u64>,
-    recursive_mtime_rx: Option<Receiver<RecursiveMtimeMsg>>,
-    recursive_mtime_scan_id: u64,
-    recursive_mtime_cancel: Option<Arc<AtomicBool>>,
-    selected_total_size_rx: Option<Receiver<SelectedTotalSizeMsg>>,
-    selected_total_size_scan_id: u64,
+    recursive_mtime: AsyncJobState<RecursiveMtimeMsg>,
+    selected_total_size: AsyncJobState<SelectedTotalSizeMsg>,
     selected_total_size_pending: bool,
     selected_total_size_bytes: Option<u64>,
     selected_total_size_items: usize,
@@ -210,24 +242,7 @@ struct App {
     theme_panel_color_selected: bool,
     /// True when the Themes panel's "Disable clock" toggle row is the selected row.
     theme_panel_clock_selected: bool,
-    internal_search_candidates: Vec<PathBuf>,
-    internal_search_results: Vec<InternalSearchResult>,
-    internal_search_selected: usize,
-    internal_search_scope: InternalSearchScope,
-    internal_search_candidates_rx: Option<Receiver<InternalSearchCandidatesMsg>>,
-    internal_search_candidates_scan_id: u64,
-    internal_search_candidates_pending: bool,
-    internal_search_candidates_truncated: bool,
-    internal_search_content_rx: Option<Receiver<InternalSearchContentMsg>>,
-    internal_search_content_request_id: u64,
-    internal_search_content_pending: bool,
-    internal_search_content_limit_note: Option<String>,
-    internal_search_content_limits: InternalSearchContentLimits,
-    internal_search_limits_menu_open: bool,
-    internal_search_limits_selected: usize,
-    internal_search_regex_mode: bool,
-    internal_search_regex: Option<Regex>,
-    internal_search_regex_error: Option<String>,
+    search: SearchState,
     notes_by_name: HashMap<String, String>,
     notes_rx: Option<Receiver<NotesLoadMsg>>,
     notes_scan_id: u64,
@@ -351,16 +366,7 @@ impl App {
             ssh_mounts: Vec::new(),
             remote_entries: Vec::new(),
             ssh_picker_selection: 0,
-            copy_rx: None,
-            copy_total_rx: None,
-            copy_total_bytes: 0,
-            copy_done_bytes: 0,
-            copy_job_total_bytes: 0,
-            copy_done_before_job: 0,
-            copy_started_at: None,
-            copy_item_name: String::new(),
-            copy_current_src: None,
-            copy_from_remote: false,
+            copy: CopyOperation::default(),
             download_rx: None,
             download_pending_url: None,
             download_pending_name: None,
@@ -369,13 +375,7 @@ impl App {
             paste_total_items: 0,
             paste_ok_items: 0,
             paste_failed_items: 0,
-            archive_create_targets: Vec::new(),
-            archive_extract_targets: Vec::new(),
-            archive_rx: None,
-            archive_total_bytes: 0,
-            archive_done_bytes: 0,
-            archive_started_at: None,
-            archive_name: String::new(),
+            archive: ArchiveOperation::default(),
             nerd_font_active: env::var("NERD_FONT_ACTIVE").map(|v| v == "1").unwrap_or(false),
             filename_color_mode: FilenameColorMode::Full,
             os_icon: ui::icons::os_nerd_icon().map(|(g, _)| {
@@ -409,25 +409,18 @@ impl App {
             folder_size_enabled: false,
             disable_clock: false,
             folder_size_cache: HashMap::new(),
-            folder_size_rx: None,
-            folder_size_scan_id: 0,
-            folder_size_cancel: None,
+            folder_size: AsyncJobState::default(),
             tree_expansion_levels: HashMap::new(),
             tree_last_tap: None,
             main_list_last_click: None,
             tree_row_prefixes: Vec::new(),
-            current_dir_total_size_rx: None,
-            current_dir_total_size_scan_id: 0,
-            current_dir_total_size_cancel: None,
+            current_dir_total_size: AsyncJobState::default(),
             current_dir_total_size_pending: false,
             current_dir_total_size_bytes: None,
             current_dir_total_space_bytes: None,
             current_dir_free_bytes: None,
-            recursive_mtime_rx: None,
-            recursive_mtime_scan_id: 0,
-            recursive_mtime_cancel: None,
-            selected_total_size_rx: None,
-            selected_total_size_scan_id: 0,
+            recursive_mtime: AsyncJobState::default(),
+            selected_total_size: AsyncJobState::default(),
             selected_total_size_pending: false,
             selected_total_size_bytes: None,
             selected_total_size_items: 0,
@@ -439,24 +432,26 @@ impl App {
             theme_panel_nerd_selected: false,
             theme_panel_color_selected: false,
             theme_panel_clock_selected: false,
-            internal_search_candidates: Vec::new(),
-            internal_search_results: Vec::new(),
-            internal_search_selected: 0,
-            internal_search_scope: InternalSearchScope::Filename,
-            internal_search_candidates_rx: None,
-            internal_search_candidates_scan_id: 0,
-            internal_search_candidates_pending: false,
-            internal_search_candidates_truncated: false,
-            internal_search_content_rx: None,
-            internal_search_content_request_id: 0,
-            internal_search_content_pending: false,
-            internal_search_content_limit_note: None,
-            internal_search_content_limits,
-            internal_search_limits_menu_open: false,
-            internal_search_limits_selected: 0,
-            internal_search_regex_mode: false,
-            internal_search_regex: None,
-            internal_search_regex_error: None,
+            search: SearchState {
+                candidates: Vec::new(),
+                results: Vec::new(),
+                selected: 0,
+                scope: InternalSearchScope::Filename,
+                candidates_rx: None,
+                candidates_scan_id: 0,
+                candidates_pending: false,
+                candidates_truncated: false,
+                content_rx: None,
+                content_request_id: 0,
+                content_pending: false,
+                content_limit_note: None,
+                content_limits: internal_search_content_limits,
+                limits_menu_open: false,
+                limits_selected: 0,
+                regex_mode: false,
+                regex: None,
+                regex_error: None,
+            },
             notes_by_name: HashMap::new(),
             notes_rx: None,
             notes_scan_id: 0,
@@ -510,8 +505,7 @@ impl App {
                 list_scroll_grab_offset: 0,
                 list_last_click: None,
                 tree_row_prefixes: Vec::new(),
-                selected_total_size_rx: None,
-                selected_total_size_scan_id: 0,
+                selected_total_size: AsyncJobState::default(),
                 selected_total_size_pending: false,
                 selected_total_size_bytes: None,
                 selected_total_size_items: 0,
@@ -578,7 +572,7 @@ impl App {
     fn refresh_entries_or_status(&mut self) -> bool {
         match self.refresh_entries() {
             Ok(()) => {
-                if self.copy_rx.is_none() && self.archive_rx.is_none() {
+                if self.copy.rx.is_none() && self.archive.rx.is_none() {
                     self.status_message.clear();
                 }
                 true
@@ -1094,9 +1088,9 @@ impl App {
         self.apply_cached_folder_size_columns();
         self.refresh_meta_identity_widths();
         self.refresh_current_dir_free_space();
-        self.folder_size_scan_id = self.folder_size_scan_id.wrapping_add(1);
-        self.folder_size_rx = None;
-        self.recursive_mtime_rx = None;
+        self.folder_size.next_scan_id();
+        self.folder_size.clear_rx();
+        self.recursive_mtime.clear_rx();
         self.clear_current_dir_total_size_state();
         self.clear_selected_total_size_state();
         self.marked_indices.clear();
@@ -1331,7 +1325,7 @@ impl App {
                 self.extract_archives_confirmed();
             }
             KeyCode::Char('n') | KeyCode::Esc => {
-                self.archive_extract_targets.clear();
+                self.archive.extract_targets.clear();
                 self.mode = AppMode::Browsing;
                 self.set_status("extract cancelled");
             }

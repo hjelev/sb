@@ -4,6 +4,17 @@
 use crate::ui;
 use crate::{App, DualPanelSide, EntryRenderConfig};
 
+/// Which cached state a changed display setting needs to invalidate before it is
+/// persisted. Used by [`App::apply_setting_change`].
+enum SettingInvalidation {
+    /// Rebuild the file-list render caches (icons, colors, columns).
+    RenderCaches,
+    /// Refresh the cached free-disk-space figures shown in the header pill.
+    FreeSpace,
+    /// Rebuild render caches and drop memoized previews (colors are baked in).
+    RenderCachesAndPreview,
+}
+
 impl App {
     pub(crate) fn set_active_theme(&mut self, theme_id: ui::theme::ThemeId) {
         self.active_theme = theme_id;
@@ -46,13 +57,38 @@ impl App {
         }
     }
 
+    /// Refresh whatever cached state a just-changed display setting affects, then
+    /// persist the change. Centralizes the invalidate→persist contract shared by
+    /// every Themes-panel toggle so each toggle only states *what* it changed.
+    fn apply_setting_change(
+        &mut self,
+        invalidate: SettingInvalidation,
+        persist: impl FnOnce(&mut crate::util::config::SbPersistConfig),
+    ) {
+        match invalidate {
+            SettingInvalidation::RenderCaches => self.rebuild_render_caches(),
+            SettingInvalidation::FreeSpace => self.refresh_current_dir_free_space(),
+            SettingInvalidation::RenderCachesAndPreview => {
+                self.rebuild_render_caches();
+                // Folder previews bake the colors into their cached lines, so drop
+                // the memoized previews and rebuild the current one (no-op unless
+                // visible).
+                self.preview_cache.clear();
+                self.preview_target_path = None;
+                self.request_preview_for_selected();
+            }
+        }
+        crate::util::config::SbPersistConfig::update(persist);
+    }
+
     /// Flip Nerd Font glyph mode, re-render the file list, and persist the
     /// choice to `~/.config/sb/config` (overriding the env var on next launch).
     pub(crate) fn toggle_nerd_font(&mut self) {
         self.nerd_font_active = !self.nerd_font_active;
-        self.rebuild_render_caches();
-        let nerd_font_active = self.nerd_font_active;
-        crate::util::config::SbPersistConfig::update(|cfg| cfg.nerd_font = Some(nerd_font_active));
+        let v = self.nerd_font_active;
+        self.apply_setting_change(SettingInvalidation::RenderCaches, move |cfg| {
+            cfg.nerd_font = Some(v)
+        });
     }
 
     /// Flip the "disable clock" setting and persist it. When enabled, the
@@ -60,23 +96,20 @@ impl App {
     /// the disk space so the pill has data to show immediately.
     pub(crate) fn toggle_disable_clock(&mut self) {
         self.disable_clock = !self.disable_clock;
-        self.refresh_current_dir_free_space();
-        let disable_clock = self.disable_clock;
-        crate::util::config::SbPersistConfig::update(|cfg| cfg.disable_clock = Some(disable_clock));
+        let v = self.disable_clock;
+        self.apply_setting_change(SettingInvalidation::FreeSpace, move |cfg| {
+            cfg.disable_clock = Some(v)
+        });
     }
 
     /// Cycle the filename-color mode (Full → Less → White), re-render the file
     /// list, and persist the choice to `~/.config/sb/config`.
     pub(crate) fn cycle_filename_color_mode(&mut self) {
         self.filename_color_mode = self.filename_color_mode.next();
-        self.rebuild_render_caches();
-        // Folder previews bake the colors into their cached lines, so drop the
-        // memoized previews and rebuild the current one (no-op unless visible).
-        self.preview_cache.clear();
-        self.preview_target_path = None;
-        self.request_preview_for_selected();
-        let filename_color_mode = self.filename_color_mode;
-        crate::util::config::SbPersistConfig::update(|cfg| cfg.filename_color_mode = filename_color_mode);
+        let v = self.filename_color_mode;
+        self.apply_setting_change(SettingInvalidation::RenderCachesAndPreview, move |cfg| {
+            cfg.filename_color_mode = v
+        });
     }
 
     pub(crate) fn set_status(&mut self, msg: impl Into<String>) {

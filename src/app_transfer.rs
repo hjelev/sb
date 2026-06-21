@@ -34,11 +34,11 @@ impl App {
             self.set_status("no selected item");
             return;
         }
-        if self.archive_rx.is_some() {
+        if self.archive.rx.is_some() {
             self.set_status("archive creation in progress");
             return;
         }
-        if self.copy_rx.is_some() {
+        if self.copy.rx.is_some() {
             self.set_status("copy already in progress");
             return;
         }
@@ -49,19 +49,19 @@ impl App {
         self.paste_total_items = sources.len();
         self.paste_ok_items = 0;
         self.paste_failed_items = 0;
-        self.copy_total_rx = Some(spawn_worker(move |tx_total| {
+        self.copy.total_rx = Some(spawn_worker(move |tx_total| {
             let total = sources
                 .iter()
                 .filter_map(|src| App::compute_total_bytes(src).ok())
                 .fold(0u64, |acc, v| acc.saturating_add(v));
             let _ = tx_total.send(total);
         }));
-        self.copy_total_bytes = 0;
-        self.copy_done_bytes = 0;
-        self.copy_done_before_job = 0;
-        self.copy_job_total_bytes = 0;
-        self.copy_started_at = Some(Instant::now());
-        self.copy_current_src = None;
+        self.copy.total_bytes = 0;
+        self.copy.done_bytes = 0;
+        self.copy.done_before_job = 0;
+        self.copy.job_total_bytes = 0;
+        self.copy.started_at = Some(Instant::now());
+        self.copy.current_src = None;
         self.advance_paste_queue();
     }
 
@@ -118,18 +118,18 @@ impl App {
     }
 
     pub(crate) fn pump_copy_total_prescan(&mut self) {
-        let Some(rx) = self.copy_total_rx.take() else {
+        let Some(rx) = self.copy.total_rx.take() else {
             return;
         };
         match rx.try_recv() {
             Ok(total) => {
-                self.copy_total_bytes = total;
+                self.copy.total_bytes = total;
             }
             Err(mpsc::TryRecvError::Empty) => {
-                self.copy_total_rx = Some(rx);
+                self.copy.total_rx = Some(rx);
             }
             Err(mpsc::TryRecvError::Disconnected) => {
-                self.copy_total_rx = None;
+                self.copy.total_rx = None;
             }
         }
     }
@@ -347,30 +347,30 @@ impl App {
     }
 
     pub(crate) fn update_copy_status(&mut self) {
-        if self.copy_item_name.is_empty() {
+        if self.copy.item_name.is_empty() {
             return;
         }
-        let total = self.copy_total_bytes;
-        let scanning = total == 0 && self.copy_total_rx.is_some();
+        let total = self.copy.total_bytes;
+        let scanning = total == 0 && self.copy.total_rx.is_some();
         let done = if total == 0 {
-            self.copy_done_bytes
+            self.copy.done_bytes
         } else {
-            self.copy_done_bytes.min(total)
+            self.copy.done_bytes.min(total)
         };
         let effective_total = if total == 0 {
             done
-                .saturating_add(self.copy_job_total_bytes)
+                .saturating_add(self.copy.job_total_bytes)
                 .max(1)
         } else {
             total.max(1)
         };
         let percent = if total == 0 {
-            if self.copy_total_rx.is_some() { 0.0 } else { 100.0 }
+            if self.copy.total_rx.is_some() { 0.0 } else { 100.0 }
         } else {
             (done as f64 * 100.0) / effective_total as f64
         };
         let elapsed_secs = self
-            .copy_started_at
+            .copy.started_at
             .map(|t| t.elapsed().as_secs_f64())
             .unwrap_or(0.0)
             .max(0.001);
@@ -382,7 +382,7 @@ impl App {
             0
         };
         let bar = crate::util::format::progress_bar(percent, 14);
-        let total_label = if total == 0 && self.copy_total_rx.is_some() {
+        let total_label = if total == 0 && self.copy.total_rx.is_some() {
             "?".to_string()
         } else {
             Self::format_size(effective_total)
@@ -390,7 +390,7 @@ impl App {
         let eta_label = if total == 0 { "-".to_string() } else { Self::format_eta(eta_secs) };
         let scan_suffix = if scanning { " scanning size..." } else { "" };
         let current_idx = (self.paste_ok_items + self.paste_failed_items + 1).min(self.paste_total_items.max(1));
-        let scope = if self.copy_from_remote { "remote " } else { "" };
+        let scope = if self.copy.from_remote { "remote " } else { "" };
         self.set_status(format!(
             "{}copy [{}] {:>3.0}% {}/{} {}/s eta {} ({}/{}) {}{}",
             scope,
@@ -402,20 +402,20 @@ impl App {
             eta_label,
             current_idx,
             self.paste_total_items,
-            self.copy_item_name,
+            self.copy.item_name,
             scan_suffix
         ));
     }
 
     pub(crate) fn start_copy_job(&mut self, src: PathBuf, dest: PathBuf, display_name: String) {
-        self.copy_done_before_job = self.copy_done_bytes;
-        self.copy_job_total_bytes = 0;
-        self.copy_item_name = display_name;
-        self.copy_current_src = Some(src.clone());
-        self.copy_from_remote = self.is_path_inside_remote_mount(&src);
+        self.copy.done_before_job = self.copy.done_bytes;
+        self.copy.job_total_bytes = 0;
+        self.copy.item_name = display_name;
+        self.copy.current_src = Some(src.clone());
+        self.copy.from_remote = self.is_path_inside_remote_mount(&src);
         self.update_copy_status();
 
-        self.copy_rx = Some(spawn_worker(move |tx| {
+        self.copy.rx = Some(spawn_worker(move |tx| {
             let total = Self::compute_total_bytes(&src).unwrap_or(0);
             let _ = tx.send(CopyProgressMsg::TotalBytes(total));
             let mut copied = 0u64;
@@ -426,7 +426,7 @@ impl App {
     }
 
     pub(crate) fn pump_copy_progress(&mut self) {
-        let Some(rx) = self.copy_rx.take() else {
+        let Some(rx) = self.copy.rx.take() else {
             return;
         };
 
@@ -434,10 +434,10 @@ impl App {
         loop {
             match rx.try_recv() {
                 Ok(CopyProgressMsg::TotalBytes(total)) => {
-                    self.copy_job_total_bytes = total;
+                    self.copy.job_total_bytes = total;
                 }
                 Ok(CopyProgressMsg::CopiedBytes(done)) => {
-                    self.copy_done_bytes = self.copy_done_before_job.saturating_add(done);
+                    self.copy.done_bytes = self.copy.done_before_job.saturating_add(done);
                 }
                 Ok(CopyProgressMsg::Finished(result)) => {
                     done_result = Some(result);
@@ -457,7 +457,7 @@ impl App {
             match result {
                 Ok(()) => {
                     if self.paste_move_mode
-                        && let Some(src) = self.copy_current_src.take() {
+                        && let Some(src) = self.copy.current_src.take() {
                             let delete_res = if src.is_dir() {
                                 fs::remove_dir_all(&src)
                             } else {
@@ -465,11 +465,11 @@ impl App {
                             };
                             if let Err(e) = delete_res {
                                 self.paste_failed_items += 1;
-                                self.set_status(format!("move cleanup failed for {}: {}", self.copy_item_name, e));
-                                self.copy_job_total_bytes = 0;
-                                self.copy_done_before_job = self.copy_done_bytes;
-                                self.copy_item_name.clear();
-                                self.copy_from_remote = false;
+                                self.set_status(format!("move cleanup failed for {}: {}", self.copy.item_name, e));
+                                self.copy.job_total_bytes = 0;
+                                self.copy.done_before_job = self.copy.done_bytes;
+                                self.copy.item_name.clear();
+                                self.copy.from_remote = false;
                                 let _ = self.refresh_entries();
                                 if self.is_dual_panel_mode() {
                                     let _ = self.refresh_right_panel_entries();
@@ -479,27 +479,27 @@ impl App {
                             }
                         }
                     self.paste_ok_items += 1;
-                    self.copy_done_bytes = self
-                        .copy_done_before_job
-                        .saturating_add(self.copy_job_total_bytes);
+                    self.copy.done_bytes = self
+                        .copy.done_before_job
+                        .saturating_add(self.copy.job_total_bytes);
                 }
                 Err(e) => {
                     self.paste_failed_items += 1;
-                    self.set_status(format!("paste failed for {}: {}", self.copy_item_name, e));
+                    self.set_status(format!("paste failed for {}: {}", self.copy.item_name, e));
                 }
             }
-            self.copy_job_total_bytes = 0;
-            self.copy_done_before_job = self.copy_done_bytes;
-            self.copy_item_name.clear();
-            self.copy_current_src = None;
-            self.copy_from_remote = false;
+            self.copy.job_total_bytes = 0;
+            self.copy.done_before_job = self.copy.done_bytes;
+            self.copy.item_name.clear();
+            self.copy.current_src = None;
+            self.copy.from_remote = false;
             let _ = self.refresh_entries();
             if self.is_dual_panel_mode() {
                 let _ = self.refresh_right_panel_entries();
             }
             self.advance_paste_queue();
         } else {
-            self.copy_rx = Some(rx);
+            self.copy.rx = Some(rx);
             self.update_copy_status();
         }
     }
@@ -509,7 +509,7 @@ impl App {
     }
 
     pub(crate) fn advance_paste_queue(&mut self) {
-        if self.copy_rx.is_some() {
+        if self.copy.rx.is_some() {
             return;
         }
         while let Some(src) = self.paste_queue.pop_front() {
@@ -549,9 +549,9 @@ impl App {
         self.paste_target_dir = None;
         self.clear_input_edit();
         self.mode = AppMode::Browsing;
-        self.copy_started_at = None;
-        self.copy_total_rx = None;
-        self.copy_current_src = None;
+        self.copy.started_at = None;
+        self.copy.total_rx = None;
+        self.copy.current_src = None;
         self.refresh_entries_or_status();
         if self.is_dual_panel_mode() {
             let _ = self.refresh_right_panel_entries();
