@@ -1,7 +1,6 @@
 use std::{
     io::{self, Write},
     path::PathBuf,
-    process::{Command, Stdio},
     sync::mpsc,
     time::{Duration, Instant},
 };
@@ -201,8 +200,9 @@ impl App {
         let delta_available = self.integration_active("delta");
         if delta_available {
             println!("$ git -c core.pager=delta -c delta.side-by-side=true -c delta.features=side-by-side diff");
-            let _ = Command::new("git")
-                .args([
+            CommandBuilder::git_interactive(
+                &self.current_dir,
+                &[
                     "-c",
                     "core.pager=delta",
                     "-c",
@@ -210,32 +210,16 @@ impl App {
                     "-c",
                     "delta.features=side-by-side",
                     "diff",
-                ])
-                .current_dir(&self.current_dir)
-                .stdin(Stdio::inherit())
-                .stdout(Stdio::inherit())
-                .stderr(Stdio::inherit())
-                .status();
+                ],
+            );
         } else {
             println!("$ git -c color.ui=always diff");
-            let _ = Command::new("git")
-                .args(["-c", "color.ui=always", "diff"])
-                .current_dir(&self.current_dir)
-                .stdin(Stdio::inherit())
-                .stdout(Stdio::inherit())
-                .stderr(Stdio::inherit())
-                .status();
+            CommandBuilder::git_interactive(&self.current_dir, &["-c", "color.ui=always", "diff"]);
             println!("\nTip: install delta for side-by-side colored diff preview.");
         }
 
         println!("\n$ git status");
-        let _ = Command::new("git")
-            .arg("status")
-            .current_dir(&self.current_dir)
-            .stdin(Stdio::inherit())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .status();
+        CommandBuilder::git_interactive(&self.current_dir, &["status"]);
 
         print!("\nDo you really want to commit these changes? [y/N]: ");
         let _ = io::stdout().flush();

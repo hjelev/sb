@@ -75,6 +75,20 @@ impl CommandBuilder {
         cmd.output()
     }
 
+    /// Run a `git` subcommand with inherited stdio so it streams straight to the
+    /// user's terminal (e.g. an interactive `git diff` / `git status` / `git log`
+    /// the user reads on screen). Unlike [`git_command`], output is not captured.
+    /// Spawn errors and non-zero exits are ignored, matching the call sites.
+    pub fn git_interactive<P: AsRef<Path>>(cwd: P, args: &[&str]) {
+        let _ = Command::new("git")
+            .args(args)
+            .current_dir(cwd.as_ref())
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status();
+    }
+
     /// Run fusermount/umount in multiple fallback variants to unmount a FUSE filesystem.
     ///
     /// Tries all common unmount methods in order until one succeeds. This is a best-effort

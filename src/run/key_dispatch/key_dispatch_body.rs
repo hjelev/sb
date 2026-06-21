@@ -1,5 +1,6 @@
 use super::*;
 use crate::ui::theme;
+use crate::util::list::{cursor_down, cursor_up};
 use crate::util::tui::{resume_tui, resume_tui_cleared, suspend_tui};
 
 pub(crate) fn handle_app_key_event_body(
@@ -418,8 +419,7 @@ pub(crate) fn handle_app_key_event_body(
                 let _ = Command::new(crate::util::command::editor_command())
                     .arg(&config_path)
                     .status();
-                enable_raw_mode()?;
-                execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+                resume_tui()?;
                 execute!(io::stdout(), Hide)?;
                 terminal.clear()?;
             }
@@ -470,11 +470,10 @@ pub(crate) fn handle_app_key_event_body(
                     app.begin_sort_menu();
                 }
                 KeyCode::Up => {
-                    app.integration_selected = app.integration_selected.saturating_sub(1);
+                    cursor_up(&mut app.integration_selected);
                 }
                 KeyCode::Down => {
-                    let max_idx = app.integration_rows_cache.len().saturating_sub(1);
-                    app.integration_selected = (app.integration_selected + 1).min(max_idx);
+                    cursor_down(&mut app.integration_selected, app.integration_rows_cache.len());
                 }
                 KeyCode::Char(' ') => {
                     let row = app.integration_rows_cache.get(app.integration_selected).cloned();
@@ -594,11 +593,10 @@ pub(crate) fn handle_app_key_event_body(
                     app.mode = AppMode::Browsing;
                 }
                 KeyCode::Up => {
-                    app.sort_menu_selected = app.sort_menu_selected.saturating_sub(1);
+                    cursor_up(&mut app.sort_menu_selected);
                 }
                 KeyCode::Down => {
-                    let max_idx = App::sort_mode_options().len().saturating_sub(1);
-                    app.sort_menu_selected = (app.sort_menu_selected + 1).min(max_idx);
+                    cursor_down(&mut app.sort_menu_selected, App::sort_mode_options().len());
                 }
                 KeyCode::Enter | KeyCode::Right => {
                     app.commit_sort_menu_choice();
@@ -619,11 +617,10 @@ pub(crate) fn handle_app_key_event_body(
                 app.mode = AppMode::SshPicker;
             }
             KeyCode::Up => {
-                app.bookmark_selected = app.bookmark_selected.saturating_sub(1);
+                cursor_up(&mut app.bookmark_selected);
             }
             KeyCode::Down => {
-                let max_idx = App::load_bookmarks().len().saturating_sub(1);
-                app.bookmark_selected = (app.bookmark_selected + 1).min(max_idx);
+                cursor_down(&mut app.bookmark_selected, App::load_bookmarks().len());
             }
             KeyCode::Enter | KeyCode::Right => {
                 let idx = app.bookmark_selected;
@@ -664,9 +661,9 @@ pub(crate) fn handle_app_key_event_body(
                 let path = app.input_buffer.trim().to_string();
                 if !path.is_empty() {
                     let idx = app.bookmark_edit_idx;
-                    let mut cfg = crate::util::config::SbPersistConfig::load();
-                    cfg.bookmarks.insert(idx as u8, path);
-                    let _ = cfg.save();
+                    crate::util::config::SbPersistConfig::update(|cfg| {
+                        cfg.bookmarks.insert(idx as u8, path);
+                    });
                 }
                 app.clear_input_edit();
                 app.mode = AppMode::Bookmarks;
@@ -747,53 +744,7 @@ fn handle_browsing_key(
             app.panel_tab = 0;
             app.mode = AppMode::Help;
         }
-        KeyCode::Char('H') => {
-            let work_dir = app.active_panel_dir();
-            if app.integration_active("git")
-                && App::get_git_info(&work_dir).is_some()
-            {
-                let fmt = "%C(bold blue)%h%C(reset) - %C(cyan)%ad%C(reset) | %C(yellow)%d%C(reset) %C(white)%s%C(reset) %C(green)[%an]%C(reset)";
-                suspend_tui()?;
-                execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
-                let log_child = Command::new("git")
-                    .args([
-                        "log",
-                        "--graph",
-                        &format!("--pretty=format:{}", fmt),
-                        "--date=short",
-                        "--all",
-                        "--color=always",
-                    ])
-                    .current_dir(&work_dir)
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::null())
-                    .spawn();
-                if let Ok(child) = log_child {
-                    if let Some(out) = child.stdout {
-                        let _ = Command::new("less")
-                            .args(["-R"])
-                            .stdin(out)
-                            .status();
-                    }
-                } else {
-                    let _ = Command::new("git")
-                        .args([
-                            "log",
-                            "--graph",
-                            &format!("--pretty=format:{}", fmt),
-                            "--date=short",
-                            "--all",
-                        ])
-                        .current_dir(&work_dir)
-                        .status();
-                }
-                resume_tui_cleared()?;
-                enable_raw_mode()?;
-                terminal.clear()?;
-            } else {
-                app.set_status("not a git repository");
-            }
-        }
+        KeyCode::Char('H') => return handle_git_log_key(terminal, app),
         KeyCode::Tab => {
             if app.is_dual_panel_mode() {
                 app.active_panel = match app.active_panel {
@@ -995,8 +946,7 @@ fn handle_browsing_key(
                             .args(["-R", selected_path.to_str().unwrap_or_default()])
                             .status();
                     }
-                    enable_raw_mode()?;
-                    execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+                    resume_tui()?;
                     terminal.clear()?;
                 }
         }
@@ -1086,8 +1036,7 @@ fn handle_browsing_key(
                             cmd.arg(p);
                         }
                         let _ = cmd.status();
-                        enable_raw_mode()?;
-                        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+                        resume_tui()?;
                         terminal.clear()?;
                         app.refresh_entries_or_status();
                     }
@@ -1106,7 +1055,146 @@ fn handle_browsing_key(
                 }
             }
         }
-        KeyCode::Up | KeyCode::Down => {
+        KeyCode::Up | KeyCode::Down => return handle_vertical_move_key(app, key, deferred_key),
+        KeyCode::PageUp => {
+            if app.preview_focus_is_preview() {
+                app.preview_scroll_up(8);
+            } else if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
+                app.right.selected_index = app.right.selected_index.saturating_sub(app.page_size);
+                app.right.table_state.select(Some(app.right.selected_index));
+            } else {
+                app.selected_index = app.selected_index.saturating_sub(app.page_size);
+                app.table_state.select(Some(app.selected_index));
+            }
+        }
+        KeyCode::PageDown => {
+            if app.preview_focus_is_preview() {
+                app.preview_scroll_down(8);
+            } else if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
+                if !app.right.entries.is_empty() {
+                    app.right.selected_index = (app.right.selected_index + app.page_size).min(app.right.entries.len() - 1);
+                    app.right.table_state.select(Some(app.right.selected_index));
+                }
+            } else if !app.entries.is_empty() {
+                app.selected_index = (app.selected_index + app.page_size).min(app.entries.len() - 1);
+                app.table_state.select(Some(app.selected_index));
+            }
+        }
+        KeyCode::Home => {
+            if app.preview_focus_is_preview() {
+                app.preview_scroll_offset = 0;
+            } else if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
+                app.right.selected_index = 0;
+                app.right.table_state.select(Some(0));
+            } else {
+                app.selected_index = 0;
+                app.table_state.select(Some(0));
+            }
+        }
+        KeyCode::End => {
+            if app.preview_focus_is_preview() {
+                app.preview_scroll_offset = app.preview_max_scroll();
+            } else if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
+                if !app.right.entries.is_empty() {
+                    app.right.selected_index = app.right.entries.len() - 1;
+                    app.right.table_state.select(Some(app.right.selected_index));
+                }
+            } else if !app.entries.is_empty() {
+                app.selected_index = app.entries.len() - 1;
+                app.table_state.select(Some(app.selected_index));
+            }
+        }
+        KeyCode::Left | KeyCode::Backspace => {
+            if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
+                if !app.try_leave_archive()
+                    && let Some(parent) = app.right.dir.parent() {
+                        app.right.dir = parent.to_path_buf();
+                        let _ = app.refresh_right_panel_entries();
+                    }
+                return Ok(KeyDispatchOutcome::ContinueLoop);
+            }
+            if !app.try_leave_archive() && !app.try_leave_ssh_mount() {
+                app.try_enter_parent_dir();
+            }
+        }
+        KeyCode::Enter | KeyCode::Right => return handle_enter_or_right(terminal, app, key),
+        KeyCode::Char('g') => return handle_grep_search_key(terminal, app),
+        KeyCode::Char('G') => {
+            let work_dir = app.active_panel_dir();
+            if !app.integration_active("git") {
+                app.status_tool_not_found("git");
+            } else {
+                match App::get_git_info(&work_dir) {
+                    Some((_, true, _)) => {
+                        let confirmed = app.preview_git_diff_and_confirm_commit()?;
+                        terminal.clear()?;
+                        if confirmed {
+                            app.begin_input_edit(AppMode::GitCommitMessage, String::new());
+                            app.set_status("enter commit message (include --amend to amend+force-push)");
+                        } else {
+                            app.set_status("git commit cancelled");
+                        }
+                    }
+                    Some((_, false, _)) => {
+                        app.set_status("repository is clean");
+                    }
+                    None => {
+                        app.set_status("not a git repository");
+                    }
+                }
+            }
+        }
+        KeyCode::Char('f') => return handle_fzf_find_key(terminal, app),
+        KeyCode::Char('e') | KeyCode::F(4) => return handle_edit_key(terminal, app),
+        _ => {}
+    }
+    Ok(KeyDispatchOutcome::Ok)
+}
+
+fn handle_git_log_key(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> io::Result<KeyDispatchOutcome> {
+            let work_dir = app.active_panel_dir();
+            if app.integration_active("git")
+                && App::get_git_info(&work_dir).is_some()
+            {
+                let fmt = "%C(bold blue)%h%C(reset) - %C(cyan)%ad%C(reset) | %C(yellow)%d%C(reset) %C(white)%s%C(reset) %C(green)[%an]%C(reset)";
+                suspend_tui()?;
+                execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+                let mut log_cmd = Command::new("git");
+                log_cmd
+                    .args([
+                        "log",
+                        "--graph",
+                        &format!("--pretty=format:{}", fmt),
+                        "--date=short",
+                        "--all",
+                        "--color=always",
+                    ])
+                    .current_dir(&work_dir)
+                    .stderr(Stdio::null());
+                // Pipe the colored log into the pager; if that's unavailable, fall
+                // back to streaming an uncolored log straight to the terminal.
+                if !crate::util::command::pipe_to_pager(log_cmd) {
+                    crate::util::command::CommandBuilder::git_interactive(
+                        &work_dir,
+                        &[
+                            "log",
+                            "--graph",
+                            &format!("--pretty=format:{}", fmt),
+                            "--date=short",
+                            "--all",
+                        ],
+                    );
+                }
+                resume_tui_cleared()?;
+                enable_raw_mode()?;
+                terminal.clear()?;
+            } else {
+                app.set_status("not a git repository");
+            }
+    Ok(KeyDispatchOutcome::Ok)
+}
+
+fn handle_vertical_move_key(app: &mut App, key: KeyEvent, deferred_key: &mut Option<KeyEvent>) -> io::Result<KeyDispatchOutcome> {
             // With the folder-filter box open and focus on the list, pressing Up
             // at the top row returns keyboard focus to the box.
             if key.code == KeyCode::Up && app.folder_filter_visible {
@@ -1188,69 +1276,10 @@ fn handle_browsing_key(
                 steps as isize
             };
             app.move_selection_delta(delta);
-        }
-        KeyCode::PageUp => {
-            if app.preview_focus_is_preview() {
-                app.preview_scroll_up(8);
-            } else if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
-                app.right.selected_index = app.right.selected_index.saturating_sub(app.page_size);
-                app.right.table_state.select(Some(app.right.selected_index));
-            } else {
-                app.selected_index = app.selected_index.saturating_sub(app.page_size);
-                app.table_state.select(Some(app.selected_index));
-            }
-        }
-        KeyCode::PageDown => {
-            if app.preview_focus_is_preview() {
-                app.preview_scroll_down(8);
-            } else if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
-                if !app.right.entries.is_empty() {
-                    app.right.selected_index = (app.right.selected_index + app.page_size).min(app.right.entries.len() - 1);
-                    app.right.table_state.select(Some(app.right.selected_index));
-                }
-            } else if !app.entries.is_empty() {
-                app.selected_index = (app.selected_index + app.page_size).min(app.entries.len() - 1);
-                app.table_state.select(Some(app.selected_index));
-            }
-        }
-        KeyCode::Home => {
-            if app.preview_focus_is_preview() {
-                app.preview_scroll_offset = 0;
-            } else if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
-                app.right.selected_index = 0;
-                app.right.table_state.select(Some(0));
-            } else {
-                app.selected_index = 0;
-                app.table_state.select(Some(0));
-            }
-        }
-        KeyCode::End => {
-            if app.preview_focus_is_preview() {
-                app.preview_scroll_offset = app.preview_max_scroll();
-            } else if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
-                if !app.right.entries.is_empty() {
-                    app.right.selected_index = app.right.entries.len() - 1;
-                    app.right.table_state.select(Some(app.right.selected_index));
-                }
-            } else if !app.entries.is_empty() {
-                app.selected_index = app.entries.len() - 1;
-                app.table_state.select(Some(app.selected_index));
-            }
-        }
-        KeyCode::Left | KeyCode::Backspace => {
-            if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
-                if !app.try_leave_archive()
-                    && let Some(parent) = app.right.dir.parent() {
-                        app.right.dir = parent.to_path_buf();
-                        let _ = app.refresh_right_panel_entries();
-                    }
-                return Ok(KeyDispatchOutcome::ContinueLoop);
-            }
-            if !app.try_leave_archive() && !app.try_leave_ssh_mount() {
-                app.try_enter_parent_dir();
-            }
-        }
-        KeyCode::Enter | KeyCode::Right => {
+    Ok(KeyDispatchOutcome::Ok)
+}
+
+fn handle_enter_or_right(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App, key: KeyEvent) -> io::Result<KeyDispatchOutcome> {
             // Right in the right panel only navigates into directories; Enter opens everything.
             if key.code == KeyCode::Right && app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
                 if let Some(selected_path) = app.right.entries.get(app.right.selected_index).map(|e| e.path())
@@ -1415,8 +1444,8 @@ fn handle_browsing_key(
                     resume_tui()?;
                     terminal.clear()?;
                 }
-                else { 
-                    disable_raw_mode()?; execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+                else {
+                    suspend_tui()?;
                     if App::is_binary_file(&selected_path) && app.integration_active("hexyl") {
                         let mut cmd = Command::new("hexyl");
                         cmd.arg(&selected_path);
@@ -1430,12 +1459,14 @@ fn handle_browsing_key(
                     } else {
                         let _ = Command::new("less").arg("-R").arg(&selected_path).status();
                     }
-                    enable_raw_mode()?; execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+                    resume_tui()?;
                     terminal.clear()?;
                 }
             }
-        }
-        KeyCode::Char('g') => {
+    Ok(KeyDispatchOutcome::Ok)
+}
+
+fn handle_grep_search_key(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> io::Result<KeyDispatchOutcome> {
             let work_dir = app.active_panel_dir();
             let has_rg  = app.integration_active("rg");
             let has_fzf = app.integration_active("fzf");
@@ -1458,7 +1489,7 @@ fn handle_browsing_key(
                         tmp.display()
                     )
                 };
-                disable_raw_mode()?; execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+                suspend_tui()?;
                 let _ = Command::new("sh")
                     .args(["-c", &cmd])
                     .current_dir(&work_dir)
@@ -1466,7 +1497,7 @@ fn handle_browsing_key(
                     .stdout(Stdio::inherit())
                     .stderr(Stdio::inherit())
                     .status();
-                enable_raw_mode()?; execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+                resume_tui()?;
                 terminal.clear()?;
                 let selected = fs::read_to_string(&tmp).unwrap_or_default();
                 let _ = fs::remove_file(&tmp);
@@ -1484,33 +1515,10 @@ fn handle_browsing_key(
                 app.start_internal_search_with_scope(InternalSearchScope::Content);
                 app.set_status("rg not found; opened Search in content mode");
             }
-        }
-        KeyCode::Char('G') => {
-            let work_dir = app.active_panel_dir();
-            if !app.integration_active("git") {
-                app.status_tool_not_found("git");
-            } else {
-                match App::get_git_info(&work_dir) {
-                    Some((_, true, _)) => {
-                        let confirmed = app.preview_git_diff_and_confirm_commit()?;
-                        terminal.clear()?;
-                        if confirmed {
-                            app.begin_input_edit(AppMode::GitCommitMessage, String::new());
-                            app.set_status("enter commit message (include --amend to amend+force-push)");
-                        } else {
-                            app.set_status("git commit cancelled");
-                        }
-                    }
-                    Some((_, false, _)) => {
-                        app.set_status("repository is clean");
-                    }
-                    None => {
-                        app.set_status("not a git repository");
-                    }
-                }
-            }
-        }
-        KeyCode::Char('f') => {
+    Ok(KeyDispatchOutcome::Ok)
+}
+
+fn handle_fzf_find_key(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> io::Result<KeyDispatchOutcome> {
             let work_dir = app.active_panel_dir();
             if app.integration_active("fzf") {
                 let tmp = App::create_temp_selection_path("sbrs_fzf_selection");
@@ -1518,7 +1526,7 @@ fn handle_browsing_key(
                     "find . -path '*/.*' -prune -o -print 2>/dev/null | fzf --layout=reverse > {}",
                     tmp.display()
                 );
-                disable_raw_mode()?; execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+                suspend_tui()?;
                 let _ = Command::new("sh")
                     .args(["-c", &cmd])
                     .current_dir(&work_dir)
@@ -1526,7 +1534,7 @@ fn handle_browsing_key(
                     .stdout(Stdio::inherit())
                     .stderr(Stdio::inherit())
                     .status();
-                enable_raw_mode()?; execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+                resume_tui()?;
                 terminal.clear()?;
                 let selected = fs::read_to_string(&tmp).unwrap_or_default();
                 let _ = fs::remove_file(&tmp);
@@ -1543,8 +1551,10 @@ fn handle_browsing_key(
             } else {
                 app.start_internal_search();
             }
-        }
-        KeyCode::Char('e') | KeyCode::F(4) => {
+    Ok(KeyDispatchOutcome::Ok)
+}
+
+fn handle_edit_key(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> io::Result<KeyDispatchOutcome> {
             if let Some(path) = app.active_selected_entry_path() {
                 if path.is_dir() {
                     let current_name = crate::util::classify::path_file_name(&path).unwrap_or_default();
@@ -1556,22 +1566,19 @@ fn handle_browsing_key(
                         terminal.clear()?;
                     }
                 } else {
-                    disable_raw_mode()?; execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
+                    suspend_tui()?;
                     execute!(io::stdout(), Show)?;
                     if !path.is_dir() && App::is_binary_file(&path) && app.integration_active("hexedit") {
                         let _ = Command::new("hexedit").arg(&path).status();
                     } else {
                         let _ = Command::new(crate::util::command::editor_command()).arg(&path).status();
                     }
-                    enable_raw_mode()?; execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+                    resume_tui()?;
                     execute!(io::stdout(), Hide)?;
                     terminal.clear()?;
                     app.refresh_entries_or_status();
                 }
             }
-        }
-        _ => {}
-    }
     Ok(KeyDispatchOutcome::Ok)
 }
 
@@ -1735,8 +1742,7 @@ fn handle_ssh_picker_key(
                         } else {
                             suspend_tui()?;
                             let result = app.mount_ssh_host(&host);
-                            enable_raw_mode()?;
-                            execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+                            resume_tui()?;
                             terminal.clear()?;
                             if result.is_err() {
                                 app.set_status(format!("Failed to mount {}", alias));
@@ -1752,8 +1758,7 @@ fn handle_ssh_picker_key(
                             suspend_tui()?;
                             println!("Connecting to rclone remote: {}…", name);
                             let result = app.mount_rclone_remote(&name, &rtype);
-                            enable_raw_mode()?;
-                            execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+                            resume_tui()?;
                             terminal.clear()?;
                             if result.is_err() {
                                 app.set_status(format!("Failed to mount rclone remote {}", name));
