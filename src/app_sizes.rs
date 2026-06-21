@@ -4,11 +4,7 @@ use std::{
     path::PathBuf,
     process::Command,
     str::FromStr,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc, Arc,
-    },
-    thread,
+    sync::atomic::{AtomicBool, Ordering},
     time::UNIX_EPOCH,
 };
 use crate::util::background::{drain_channel, spawn_worker};
@@ -31,31 +27,9 @@ impl App {
         }
     }
 
-    /// Signal a previous scan's worker to stop and install a fresh token.
-    ///
-    /// Flips the old `Arc<AtomicBool>` (if any) to `true` so the still-running
-    /// recursive walk bails out early, then returns a new token cloned into the
-    /// new worker. The cooperative checks live in the recursive walk functions.
-    fn renew_cancel_token(slot: &mut Option<Arc<AtomicBool>>) -> Arc<AtomicBool> {
-        if let Some(old) = slot.take() {
-            old.store(true, Ordering::Relaxed);
-        }
-        let token = Arc::new(AtomicBool::new(false));
-        *slot = Some(token.clone());
-        token
-    }
-
-    /// Signal a previous scan's worker to stop without starting a new one.
-    fn abort_cancel_token(slot: &mut Option<Arc<AtomicBool>>) {
-        if let Some(old) = slot.take() {
-            old.store(true, Ordering::Relaxed);
-        }
-    }
-
     pub(crate) fn start_recursive_mtime_scan(&mut self) {
-        self.recursive_mtime_scan_id = self.recursive_mtime_scan_id.wrapping_add(1);
-        let scan_id = self.recursive_mtime_scan_id;
-        let cancel = Self::renew_cancel_token(&mut self.recursive_mtime_cancel);
+        let scan_id = self.recursive_mtime.next_scan_id();
+        let cancel = self.recursive_mtime.renew_cancel();
 
         let mut unique_dirs: HashSet<PathBuf> = self
             .entries
@@ -76,11 +50,11 @@ impl App {
         let dir_paths: Vec<PathBuf> = unique_dirs.into_iter().collect();
 
         if dir_paths.is_empty() {
-            self.recursive_mtime_rx = None;
+            self.recursive_mtime.clear_rx();
             return;
         }
 
-        self.recursive_mtime_rx = Some(spawn_worker(move |tx| {
+        self.recursive_mtime.rx = Some(spawn_worker(move |tx| {
             let updated: Vec<(PathBuf, u64)> = dir_paths
                 .par_iter()
                 .map(|dir| {
@@ -102,10 +76,10 @@ impl App {
     }
 
     pub(crate) fn pump_recursive_mtime_progress(&mut self) {
-        for msg in drain_channel(&mut self.recursive_mtime_rx) {
+        for msg in drain_channel(&mut self.recursive_mtime.rx) {
             match msg {
                 RecursiveMtimeMsg::EntryMtime(scan_id, dir_path, unix_secs) => {
-                    if scan_id != self.recursive_mtime_scan_id {
+                    if !self.recursive_mtime.is_current(scan_id) {
                         continue;
                     }
                     if let Some(idx) = self.entries.iter().position(|e| e.path() == dir_path) {
@@ -120,8 +94,8 @@ impl App {
                     }
                 }
                 RecursiveMtimeMsg::Finished(scan_id) => {
-                    if scan_id == self.recursive_mtime_scan_id {
-                        self.recursive_mtime_rx = None;
+                    if self.recursive_mtime.is_current(scan_id) {
+                        self.recursive_mtime.clear_rx();
                     }
                 }
             }
@@ -172,15 +146,15 @@ impl App {
     pub(crate) fn clear_selected_total_size_state_for(&mut self, side: crate::DualPanelSide) {
         match side {
             crate::DualPanelSide::Left => {
-                self.selected_total_size_scan_id = self.selected_total_size_scan_id.wrapping_add(1);
-                self.selected_total_size_rx = None;
+                self.selected_total_size.next_scan_id();
+                self.selected_total_size.clear_rx();
                 self.selected_total_size_pending = false;
                 self.selected_total_size_bytes = None;
                 self.selected_total_size_items = 0;
             }
             crate::DualPanelSide::Right => {
-                self.right.selected_total_size_scan_id = self.right.selected_total_size_scan_id.wrapping_add(1);
-                self.right.selected_total_size_rx = None;
+                self.right.selected_total_size.next_scan_id();
+                self.right.selected_total_size.clear_rx();
                 self.right.selected_total_size_pending = false;
                 self.right.selected_total_size_bytes = None;
                 self.right.selected_total_size_items = 0;
@@ -238,58 +212,57 @@ impl App {
             return;
         }
 
-        let (tx, rx) = mpsc::channel();
         let scan_id = match side {
             crate::DualPanelSide::Left => {
-                self.selected_total_size_scan_id = self.selected_total_size_scan_id.wrapping_add(1);
                 self.selected_total_size_items = targets.len();
                 self.selected_total_size_pending = true;
                 self.selected_total_size_bytes = None;
-                self.selected_total_size_rx = Some(rx);
-                self.selected_total_size_scan_id
+                self.selected_total_size.next_scan_id()
             }
             crate::DualPanelSide::Right => {
-                self.right.selected_total_size_scan_id = self.right.selected_total_size_scan_id.wrapping_add(1);
                 self.right.selected_total_size_items = targets.len();
                 self.right.selected_total_size_pending = true;
                 self.right.selected_total_size_bytes = None;
-                self.right.selected_total_size_rx = Some(rx);
-                self.right.selected_total_size_scan_id
+                self.right.selected_total_size.next_scan_id()
             }
         };
 
-        thread::spawn(move || {
+        let rx = spawn_worker(move |tx| {
             let total = targets
                 .par_iter()
                 .map(|p| App::compute_total_display_bytes(p, None).unwrap_or(0))
                 .reduce(|| 0u64, |acc, v| acc.saturating_add(v));
             let _ = tx.send(SelectedTotalSizeMsg::Finished(scan_id, total));
         });
+        match side {
+            crate::DualPanelSide::Left => self.selected_total_size.rx = Some(rx),
+            crate::DualPanelSide::Right => self.right.selected_total_size.rx = Some(rx),
+        }
     }
 
     pub(crate) fn pump_selected_total_size_progress(&mut self) {
-        for msg in drain_channel(&mut self.selected_total_size_rx) {
+        for msg in drain_channel(&mut self.selected_total_size.rx) {
             let SelectedTotalSizeMsg::Finished(scan_id, bytes) = msg;
-            if scan_id == self.selected_total_size_scan_id {
+            if self.selected_total_size.is_current(scan_id) {
                 self.selected_total_size_bytes = Some(bytes);
                 self.selected_total_size_pending = false;
-                self.selected_total_size_rx = None;
+                self.selected_total_size.clear_rx();
             }
         }
         if !self.folder_size_enabled {
-            self.selected_total_size_rx = None;
+            self.selected_total_size.clear_rx();
         }
 
-        for msg in drain_channel(&mut self.right.selected_total_size_rx) {
+        for msg in drain_channel(&mut self.right.selected_total_size.rx) {
             let SelectedTotalSizeMsg::Finished(scan_id, bytes) = msg;
-            if scan_id == self.right.selected_total_size_scan_id {
+            if self.right.selected_total_size.is_current(scan_id) {
                 self.right.selected_total_size_bytes = Some(bytes);
                 self.right.selected_total_size_pending = false;
-                self.right.selected_total_size_rx = None;
+                self.right.selected_total_size.clear_rx();
             }
         }
         if !self.folder_size_enabled {
-            self.right.selected_total_size_rx = None;
+            self.right.selected_total_size.clear_rx();
         }
     }
 
@@ -351,9 +324,8 @@ impl App {
             return;
         }
 
-        self.folder_size_scan_id = self.folder_size_scan_id.wrapping_add(1);
-        let scan_id = self.folder_size_scan_id;
-        let cancel = Self::renew_cancel_token(&mut self.folder_size_cancel);
+        let scan_id = self.folder_size.next_scan_id();
+        let cancel = self.folder_size.renew_cancel();
 
         let mut unique_dirs: HashSet<PathBuf> = self
             .entries
@@ -374,11 +346,11 @@ impl App {
         let dir_paths: Vec<PathBuf> = unique_dirs.into_iter().collect();
 
         if dir_paths.is_empty() {
-            self.folder_size_rx = None;
+            self.folder_size.clear_rx();
             return;
         }
 
-        self.folder_size_rx = Some(spawn_worker(move |tx| {
+        self.folder_size.rx = Some(spawn_worker(move |tx| {
             let sized: Vec<(PathBuf, u64)> = dir_paths
                 .par_iter()
                 .map(|dir| (dir.clone(), App::compute_total_display_bytes(dir, Some(&cancel)).unwrap_or(0)))
@@ -394,9 +366,9 @@ impl App {
     }
 
     pub(crate) fn clear_current_dir_total_size_state(&mut self) {
-        self.current_dir_total_size_scan_id = self.current_dir_total_size_scan_id.wrapping_add(1);
-        Self::abort_cancel_token(&mut self.current_dir_total_size_cancel);
-        self.current_dir_total_size_rx = None;
+        self.current_dir_total_size.next_scan_id();
+        self.current_dir_total_size.abort_cancel();
+        self.current_dir_total_size.clear_rx();
         self.current_dir_total_size_pending = false;
         self.current_dir_total_size_bytes = None;
     }
@@ -435,14 +407,13 @@ impl App {
             return;
         }
 
-        self.current_dir_total_size_scan_id = self.current_dir_total_size_scan_id.wrapping_add(1);
-        let scan_id = self.current_dir_total_size_scan_id;
-        let cancel = Self::renew_cancel_token(&mut self.current_dir_total_size_cancel);
+        let scan_id = self.current_dir_total_size.next_scan_id();
+        let cancel = self.current_dir_total_size.renew_cancel();
         let current_dir = self.active_size_context_dir();
         self.current_dir_total_size_pending = true;
         self.current_dir_total_size_bytes = None;
 
-        self.current_dir_total_size_rx = Some(spawn_worker(move |tx| {
+        self.current_dir_total_size.rx = Some(spawn_worker(move |tx| {
             let total = App::compute_total_display_bytes(&current_dir, Some(&cancel)).unwrap_or(0);
             if cancel.load(Ordering::Relaxed) {
                 return;
@@ -452,16 +423,16 @@ impl App {
     }
 
     pub(crate) fn pump_current_dir_total_size_progress(&mut self) {
-        for msg in drain_channel(&mut self.current_dir_total_size_rx) {
+        for msg in drain_channel(&mut self.current_dir_total_size.rx) {
             let CurrentDirTotalSizeMsg::Finished(scan_id, bytes) = msg;
-            if scan_id == self.current_dir_total_size_scan_id {
+            if self.current_dir_total_size.is_current(scan_id) {
                 self.current_dir_total_size_bytes = Some(bytes);
                 self.current_dir_total_size_pending = false;
-                self.current_dir_total_size_rx = None;
+                self.current_dir_total_size.clear_rx();
             }
         }
         if !self.folder_size_enabled {
-            self.current_dir_total_size_rx = None;
+            self.current_dir_total_size.clear_rx();
         }
     }
 
@@ -565,9 +536,9 @@ impl App {
         }
 
         self.folder_size_enabled = enabled;
-        self.folder_size_scan_id = self.folder_size_scan_id.wrapping_add(1);
-        Self::abort_cancel_token(&mut self.folder_size_cancel);
-        self.folder_size_rx = None;
+        self.folder_size.next_scan_id();
+        self.folder_size.abort_cancel();
+        self.folder_size.clear_rx();
         self.reset_folder_size_columns();
 
         // Persist the choice so it is restored on next launch.
@@ -588,10 +559,10 @@ impl App {
 
     pub(crate) fn pump_folder_size_progress(&mut self) {
         let mut any_size_changed = false;
-        for msg in drain_channel(&mut self.folder_size_rx) {
+        for msg in drain_channel(&mut self.folder_size.rx) {
             match msg {
                 FolderSizeMsg::EntrySize(scan_id, dir_path, size) => {
-                    if !self.folder_size_enabled || scan_id != self.folder_size_scan_id {
+                    if !self.folder_size_enabled || !self.folder_size.is_current(scan_id) {
                         continue;
                     }
                     let previous = self.folder_size_cache.insert(dir_path.clone(), size);
@@ -610,8 +581,8 @@ impl App {
                     }
                 }
                 FolderSizeMsg::Finished(scan_id) => {
-                    if scan_id == self.folder_size_scan_id {
-                        self.folder_size_rx = None;
+                    if self.folder_size.is_current(scan_id) {
+                        self.folder_size.clear_rx();
                     }
                 }
             }
@@ -620,7 +591,7 @@ impl App {
             self.apply_sort_to_current_entries();
         }
         if !self.folder_size_enabled {
-            self.folder_size_rx = None;
+            self.folder_size.clear_rx();
         }
     }
 

@@ -349,7 +349,7 @@ pub(crate) fn handle_app_key_event_body(
                 app.create_archive_from_input();
             }
             KeyCode::Esc => {
-                app.archive_create_targets.clear();
+                app.archive.create_targets.clear();
                 app.clear_input_edit();
                 app.mode = AppMode::Browsing;
                 app.set_status("archive creation cancelled");
@@ -924,23 +924,9 @@ fn handle_browsing_key(
                 && !selected_path.is_dir() {
                     suspend_tui()?;
                     if App::is_binary_file(&selected_path) && app.integration_active("hexyl") {
-                        use std::process::Stdio;
-                        let hexyl = Command::new("hexyl")
-                            .arg(&selected_path)
-                            .stdout(Stdio::piped())
-                            .spawn();
-                        if let Ok(child) = hexyl {
-                            if let Some(out) = child.stdout {
-                                let _ = Command::new("less")
-                                    .args(["-R"])
-                                    .stdin(out)
-                                    .status();
-                            }
-                        } else {
-                            let _ = Command::new("less")
-                                .args(["-R", selected_path.to_str().unwrap_or_default()])
-                                .status();
-                        }
+                        let mut hexyl = Command::new("hexyl");
+                        hexyl.arg(&selected_path);
+                        crate::util::command::pipe_to_pager_or_less(hexyl, &selected_path);
                     } else {
                         let _ = Command::new("less")
                             .args(["-R", selected_path.to_str().unwrap_or_default()])
@@ -1377,26 +1363,16 @@ fn handle_enter_or_right(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app:
                     }
                 }
                 else if App::is_audio_file(&selected_path) && app.integration_active("sox") {
-                    use std::process::Stdio;
                     suspend_tui()?;
                     execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
 
-                    let mut child = if App::integration_probe("play").0 {
-                        Command::new("play")
-                            .arg(&selected_path)
-                            .stdin(Stdio::null())
-                            .stdout(Stdio::null())
-                            .stderr(Stdio::null())
-                            .spawn()
+                    let (player, extra): (&str, &[&str]) = if App::integration_probe("play").0 {
+                        ("play", &[])
                     } else {
-                        Command::new("sox")
-                            .arg(&selected_path)
-                            .arg("-d")
-                            .stdin(Stdio::null())
-                            .stdout(Stdio::null())
-                            .stderr(Stdio::null())
-                            .spawn()
+                        ("sox", &["-d"])
                     };
+                    let mut child =
+                        crate::util::command::spawn_detached(player, &selected_path, extra);
 
                     if let Ok(ref mut proc) = child {
                         println!("Playing: {}", selected_path.display());
@@ -1425,13 +1401,7 @@ fn handle_enter_or_right(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app:
 
                     let mut cmd = Command::new("pdftotext");
                     cmd.args(["-layout", "-nopgbrk"]).arg(&selected_path).arg("-");
-                    let shown = crate::util::command::pipe_to_pager(cmd);
-
-                    if !shown {
-                        let _ = Command::new("less")
-                            .args(["-R", selected_path.to_str().unwrap_or_default()])
-                            .status();
-                    }
+                    crate::util::command::pipe_to_pager_or_less(cmd, &selected_path);
 
                     resume_tui()?;
                     terminal.clear()?;
@@ -1585,46 +1555,46 @@ fn handle_edit_key(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut 
 fn handle_internal_search_key(app: &mut App, key: KeyEvent) -> io::Result<KeyDispatchOutcome> {
     match key.code {
         KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            if app.internal_search_scope == InternalSearchScope::Content {
-                app.internal_search_limits_menu_open = !app.internal_search_limits_menu_open;
+            if app.search.scope == InternalSearchScope::Content {
+                app.search.limits_menu_open = !app.search.limits_menu_open;
             }
         }
-        KeyCode::Esc if app.internal_search_limits_menu_open => {
-            app.internal_search_limits_menu_open = false;
+        KeyCode::Esc if app.search.limits_menu_open => {
+            app.search.limits_menu_open = false;
         }
-        KeyCode::Enter if app.internal_search_limits_menu_open => {
-            app.internal_search_limits_menu_open = false;
+        KeyCode::Enter if app.search.limits_menu_open => {
+            app.search.limits_menu_open = false;
         }
-        KeyCode::Up if app.internal_search_limits_menu_open => {
-            app.internal_search_limits_selected = app.internal_search_limits_selected.saturating_sub(1);
+        KeyCode::Up if app.search.limits_menu_open => {
+            app.search.limits_selected = app.search.limits_selected.saturating_sub(1);
         }
-        KeyCode::Down if app.internal_search_limits_menu_open => {
-            app.internal_search_limits_selected = (app.internal_search_limits_selected + 1).min(2);
+        KeyCode::Down if app.search.limits_menu_open => {
+            app.search.limits_selected = (app.search.limits_selected + 1).min(2);
         }
-        KeyCode::Left if app.internal_search_limits_menu_open => {
+        KeyCode::Left if app.search.limits_menu_open => {
             app.adjust_internal_search_content_limit(false, key.modifiers.contains(KeyModifiers::SHIFT));
         }
-        KeyCode::Right if app.internal_search_limits_menu_open => {
+        KeyCode::Right if app.search.limits_menu_open => {
             app.adjust_internal_search_content_limit(true, key.modifiers.contains(KeyModifiers::SHIFT));
         }
-        KeyCode::Char('-') if app.internal_search_limits_menu_open => {
+        KeyCode::Char('-') if app.search.limits_menu_open => {
             app.adjust_internal_search_content_limit(false, key.modifiers.contains(KeyModifiers::SHIFT));
         }
-        KeyCode::Char('+') if app.internal_search_limits_menu_open => {
+        KeyCode::Char('+') if app.search.limits_menu_open => {
             app.adjust_internal_search_content_limit(true, key.modifiers.contains(KeyModifiers::SHIFT));
         }
-        KeyCode::Char('=') if app.internal_search_limits_menu_open => {
+        KeyCode::Char('=') if app.search.limits_menu_open => {
             app.adjust_internal_search_content_limit(true, key.modifiers.contains(KeyModifiers::SHIFT));
         }
-        KeyCode::Char('r') if app.internal_search_limits_menu_open => {
+        KeyCode::Char('r') if app.search.limits_menu_open => {
             app.reset_internal_search_content_limits_to_defaults();
         }
         KeyCode::Backspace | KeyCode::Delete | KeyCode::PageUp | KeyCode::PageDown | KeyCode::Home | KeyCode::End
-            if app.internal_search_limits_menu_open =>
+            if app.search.limits_menu_open =>
         {
         }
         KeyCode::Char(_)
-            if app.internal_search_limits_menu_open
+            if app.search.limits_menu_open
                 && !key.modifiers.contains(KeyModifiers::CONTROL)
                 && !key.modifiers.contains(KeyModifiers::ALT) =>
         {
@@ -1663,18 +1633,18 @@ fn handle_internal_search_key(app: &mut App, key: KeyEvent) -> io::Result<KeyDis
                 }
         }
         KeyCode::Up => {
-            app.internal_search_selected = app.internal_search_selected.saturating_sub(1);
+            app.search.selected = app.search.selected.saturating_sub(1);
         }
         KeyCode::Down => {
-            let max_idx = app.internal_search_results.len().saturating_sub(1);
-            app.internal_search_selected = (app.internal_search_selected + 1).min(max_idx);
+            let max_idx = app.search.results.len().saturating_sub(1);
+            app.search.selected = (app.search.selected + 1).min(max_idx);
         }
         KeyCode::PageUp => {
-            app.internal_search_selected = app.internal_search_selected.saturating_sub(10);
+            app.search.selected = app.search.selected.saturating_sub(10);
         }
         KeyCode::PageDown => {
-            let max_idx = app.internal_search_results.len().saturating_sub(1);
-            app.internal_search_selected = (app.internal_search_selected + 10).min(max_idx);
+            let max_idx = app.search.results.len().saturating_sub(1);
+            app.search.selected = (app.search.selected + 10).min(max_idx);
         }
         KeyCode::Backspace => {
             app.input_backspace();

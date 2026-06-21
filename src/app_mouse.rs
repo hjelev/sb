@@ -286,21 +286,21 @@ impl App {
 
     pub(crate) fn internal_search_header_rows(&self) -> usize {
         let mut rows = 0usize;
-        if self.internal_search_candidates_pending || self.internal_search_candidates_truncated {
+        if self.search.candidates_pending || self.search.candidates_truncated {
             rows += 1;
         }
 
-        if self.internal_search_scope == InternalSearchScope::Content {
+        if self.search.scope == InternalSearchScope::Content {
             rows += 1; // limits summary
-            if self.internal_search_limits_menu_open {
+            if self.search.limits_menu_open {
                 rows += 4; // 3 editable rows + helper line
             } else {
                 rows += 1; // open editor hint
             }
-            if self.internal_search_content_pending {
+            if self.search.content_pending {
                 rows += 1;
             }
-            if self.internal_search_content_limit_note.is_some() {
+            if self.search.content_limit_note.is_some() {
                 rows += 1;
             }
         }
@@ -316,7 +316,7 @@ impl App {
     ) -> Option<KeyEvent> {
         match self.mode {
             AppMode::InternalSearch => {
-                if self.internal_search_results.is_empty() {
+                if self.search.results.is_empty() {
                     return None;
                 }
 
@@ -340,11 +340,11 @@ impl App {
                 }
 
                 let header_rows = self.internal_search_header_rows();
-                let regex_rows = usize::from(self.internal_search_regex_error.is_some());
+                let regex_rows = usize::from(self.search.regex_error.is_some());
                 let visible_rows = body_area.height as usize;
                 let max_rows = visible_rows.saturating_sub(header_rows).max(1);
-                let offset = if self.internal_search_selected >= max_rows {
-                    self.internal_search_selected + 1 - max_rows
+                let offset = if self.search.selected >= max_rows {
+                    self.search.selected + 1 - max_rows
                 } else {
                     0
                 };
@@ -358,7 +358,7 @@ impl App {
 
                 let clicked_result_row = row.saturating_sub(result_start_y) as usize;
                 let rendered_results = self
-                    .internal_search_results
+                    .search.results
                     .len()
                     .saturating_sub(offset)
                     .min(max_rows);
@@ -366,7 +366,7 @@ impl App {
                     return None;
                 }
 
-                self.internal_search_selected = offset + clicked_result_row;
+                self.search.selected = offset + clicked_result_row;
                 Some(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
             }
             AppMode::Bookmarks => {
@@ -593,17 +593,17 @@ impl App {
                 }
             }
             AppMode::InternalSearch => {
-                if self.internal_search_limits_menu_open {
+                if self.search.limits_menu_open {
                     if scroll_up {
-                        cursor_up(&mut self.internal_search_limits_selected);
+                        cursor_up(&mut self.search.limits_selected);
                     } else {
-                        cursor_down(&mut self.internal_search_limits_selected, 3);
+                        cursor_down(&mut self.search.limits_selected, 3);
                     }
-                } else if !self.internal_search_results.is_empty() {
+                } else if !self.search.results.is_empty() {
                     if scroll_up {
-                        cursor_up(&mut self.internal_search_selected);
+                        cursor_up(&mut self.search.selected);
                     } else {
-                        cursor_down(&mut self.internal_search_selected, self.internal_search_results.len());
+                        cursor_down(&mut self.search.selected, self.search.results.len());
                     }
                 }
             }

@@ -1693,7 +1693,7 @@ fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &RenderCtx, t
         } else {
             crate::DualPanelSide::Left
         };
-        let active_status = if app.copy_rx.is_none() && app.archive_rx.is_none() {
+        let active_status = if app.copy.rx.is_none() && app.archive.rx.is_none() {
             app.selected_total_size_status_for(active_side)
         } else {
             None
@@ -1714,7 +1714,7 @@ fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &RenderCtx, t
             let is_error = crate::ui::status::is_error_message(&status_text);
             let msg_style = if selected_total_is_shown {
                 Style::default().fg(active_theme.git_added)
-            } else if app.copy_rx.is_some() || app.archive_rx.is_some() {
+            } else if app.copy.rx.is_some() || app.archive.rx.is_some() {
                 Style::default().fg(active_theme.git_modified)
             } else if is_error {
                 Style::default().fg(active_theme.git_deleted)
@@ -2029,7 +2029,7 @@ fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
         render_ssh_picker_overlay(f, app, ctx, tab_overlay_anchor);
     } else if app.mode == AppMode::ConfirmExtract {
         let area = f.size();
-        let to_extract = &app.archive_extract_targets;
+        let to_extract = &app.archive.extract_targets;
         let mut msg_lines: Vec<String> = vec!["Extract selected archives?".to_string(), String::new()];
         let max_list_rows = ((area.height.saturating_sub(10) as usize).min(14)).max(1);
         for (idx, path) in to_extract.iter().enumerate() {
@@ -2244,7 +2244,7 @@ fn render_footer(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
     };
     f.render_widget(Paragraph::new(status).block(footer_block), chunks[1]);
     if !app.is_preview_mode() && !app.is_dual_panel_mode() {
-        let selected_total_status = if app.copy_rx.is_none() && app.archive_rx.is_none() {
+        let selected_total_status = if app.copy.rx.is_none() && app.archive.rx.is_none() {
             app.selected_total_size_status()
         } else {
             None
@@ -2264,7 +2264,7 @@ fn render_footer(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             let is_error = crate::ui::status::is_error_message(&status_text);
             let msg_style = if selected_total_is_shown {
                 Style::default().fg(active_theme.git_added)
-            } else if app.copy_rx.is_some() || app.archive_rx.is_some() {
+            } else if app.copy.rx.is_some() || app.archive.rx.is_some() {
                 Style::default().fg(active_theme.git_modified)
             } else if is_error {
                 Style::default().fg(active_theme.git_deleted)
@@ -2692,7 +2692,7 @@ fn render_internal_search_overlay(f: &mut Frame, app: &mut App, ctx: &RenderCtx,
         let query_inner = query_box_block.inner(query_box_area);
         f.render_widget(query_box_block, query_box_area);
 
-        let (mode_text, mode_style) = if app.internal_search_scope == InternalSearchScope::Content {
+        let (mode_text, mode_style) = if app.search.scope == InternalSearchScope::Content {
             (
                 "Scope: Content".to_string(),
                 Style::default().fg(Color::Rgb(120, 220, 180)),
@@ -2725,20 +2725,20 @@ fn render_internal_search_overlay(f: &mut Frame, app: &mut App, ctx: &RenderCtx,
 
         let mut lines: Vec<Line> = Vec::new();
 
-        if app.internal_search_candidates_pending {
+        if app.search.candidates_pending {
             lines.push(Line::from(Span::styled(
                 "Indexing files asynchronously...",
                 Style::default().fg(active_theme.overlay_section),
             )));
-        } else if app.internal_search_candidates_truncated {
+        } else if app.search.candidates_truncated {
             lines.push(Line::from(Span::styled(
                 "Indexed first 20000 files (refine query to narrow results)",
                 Style::default().fg(Color::Rgb(160, 160, 160)),
             )));
         }
 
-        if app.internal_search_scope == InternalSearchScope::Content {
-            let limits = app.internal_search_content_limits;
+        if app.search.scope == InternalSearchScope::Content {
+            let limits = app.search.content_limits;
             lines.push(Line::from(Span::styled(
                 format!(
                     " Limits: files={}  hits={}  max-file={}",
@@ -2749,12 +2749,12 @@ fn render_internal_search_overlay(f: &mut Frame, app: &mut App, ctx: &RenderCtx,
                 Style::default().fg(Color::Rgb(160, 160, 160)),
             )));
 
-            if app.internal_search_limits_menu_open {
+            if app.search.limits_menu_open {
                 let selected_style = Style::default().fg(Color::Rgb(255, 220, 120)).add_modifier(Modifier::BOLD);
                 let normal_style = Style::default().fg(Color::Rgb(180, 180, 180));
                 let item_line = |idx: usize, label: &str, value: String| {
-                    let marker = if idx == app.internal_search_limits_selected { ">" } else { " " };
-                    let style = if idx == app.internal_search_limits_selected {
+                    let marker = if idx == app.search.limits_selected { ">" } else { " " };
+                    let style = if idx == app.search.limits_selected {
                         selected_style
                     } else {
                         normal_style
@@ -2775,13 +2775,13 @@ fn render_internal_search_overlay(f: &mut Frame, app: &mut App, ctx: &RenderCtx,
                 )));
             }
 
-            if app.internal_search_content_pending {
+            if app.search.content_pending {
                 lines.push(Line::from(Span::styled(
                     " Scanning content asynchronously...",
                     Style::default().fg(active_theme.overlay_section),
                 )));
             }
-            if let Some(note) = &app.internal_search_content_limit_note {
+            if let Some(note) = &app.search.content_limit_note {
                 lines.push(Line::from(Span::styled(
                     note.clone(),
                     Style::default().fg(Color::Rgb(160, 160, 160)),
@@ -2789,7 +2789,7 @@ fn render_internal_search_overlay(f: &mut Frame, app: &mut App, ctx: &RenderCtx,
             }
         }
 
-        let selected = app.internal_search_selected;
+        let selected = app.search.selected;
         let body_content_w = body_area.width as usize;
         let visible_rows = body_area.height as usize;
         let header_rows = lines.len();
@@ -2799,19 +2799,19 @@ fn render_internal_search_overlay(f: &mut Frame, app: &mut App, ctx: &RenderCtx,
         } else {
             0
         };
-        let search_total_rows = app.internal_search_results.len();
+        let search_total_rows = app.search.results.len();
         let search_max_scroll = search_total_rows.saturating_sub(max_rows);
         let search_scroll_offset = offset.min(search_max_scroll);
         let can_draw_search_scrollbar = body_area.width > 2 && search_total_rows > max_rows;
 
-        if let Some(err) = &app.internal_search_regex_error {
+        if let Some(err) = &app.search.regex_error {
             lines.push(Line::from(Span::styled(
                 format!("Regex error: {}", err),
                 Style::default().fg(Color::Rgb(255, 120, 120)),
             )));
         }
 
-        if app.internal_search_results.is_empty() {
+        if app.search.results.is_empty() {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
                 " No matches",
@@ -2819,7 +2819,7 @@ fn render_internal_search_overlay(f: &mut Frame, app: &mut App, ctx: &RenderCtx,
             )));
         } else {
             for (display_idx, result_idx) in app
-                .internal_search_results
+                .search.results
                 .iter()
                 .skip(offset)
                 .take(max_rows)

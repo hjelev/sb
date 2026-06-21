@@ -201,9 +201,9 @@ impl App {
     }
 
     pub(crate) fn refresh_internal_search_filename_results(&mut self, query: &str) {
-        if let Some(regex) = self.internal_search_regex.as_ref() {
+        if let Some(regex) = self.search.regex.as_ref() {
             let mut matched: Vec<(usize, usize, usize, String, InternalSearchResult)> = Vec::new();
-            for rel in &self.internal_search_candidates {
+            for rel in &self.search.candidates {
                 let rel_str = rel.to_string_lossy().into_owned();
                 let ranges = Self::merge_byte_ranges(
                     regex
@@ -232,12 +232,12 @@ impl App {
                     .then_with(|| a.3.cmp(&b.3))
             });
 
-            self.internal_search_results = matched.into_iter().map(|(_, _, _, _, item)| item).collect();
+            self.search.results = matched.into_iter().map(|(_, _, _, _, item)| item).collect();
             return;
         }
 
         let mut scored: Vec<(i64, usize, String, InternalSearchResult)> = Vec::new();
-        for rel in &self.internal_search_candidates {
+        for rel in &self.search.candidates {
             let rel_str = rel.to_string_lossy().into_owned();
             if let Some((score, ranges)) = Self::fuzzy_score_and_ranges(&rel_str, query) {
                 scored.push((
@@ -258,7 +258,7 @@ impl App {
                 .then_with(|| a.2.cmp(&b.2))
         });
 
-        self.internal_search_results = scored.into_iter().map(|(_, _, _, item)| item).collect();
+        self.search.results = scored.into_iter().map(|(_, _, _, item)| item).collect();
     }
 
     pub(crate) fn internal_search_content_limits() -> InternalSearchContentLimits {
@@ -280,19 +280,19 @@ impl App {
     pub(crate) fn adjust_internal_search_content_limit(&mut self, increase: bool, fast: bool) {
         let factor = if fast { 10usize } else { 1usize };
 
-        let (current, step, min_value) = match self.internal_search_limits_selected {
+        let (current, step, min_value) = match self.search.limits_selected {
             0 => (
-                self.internal_search_content_limits.max_files,
+                self.search.content_limits.max_files,
                 500usize.saturating_mul(factor),
                 100usize,
             ),
             1 => (
-                self.internal_search_content_limits.max_hits,
+                self.search.content_limits.max_hits,
                 100usize.saturating_mul(factor),
                 50usize,
             ),
             _ => (
-                self.internal_search_content_limits.max_file_bytes,
+                self.search.content_limits.max_file_bytes,
                 (256usize * 1024).saturating_mul(factor),
                 64usize * 1024,
             ),
@@ -304,20 +304,20 @@ impl App {
             current.saturating_sub(step).max(min_value)
         };
 
-        match self.internal_search_limits_selected {
-            0 => self.internal_search_content_limits.max_files = new_value,
-            1 => self.internal_search_content_limits.max_hits = new_value,
-            _ => self.internal_search_content_limits.max_file_bytes = new_value,
+        match self.search.limits_selected {
+            0 => self.search.content_limits.max_files = new_value,
+            1 => self.search.content_limits.max_hits = new_value,
+            _ => self.search.content_limits.max_file_bytes = new_value,
         }
 
-        if self.internal_search_scope == InternalSearchScope::Content {
+        if self.search.scope == InternalSearchScope::Content {
             self.refresh_internal_search_results();
         }
     }
 
     pub(crate) fn reset_internal_search_content_limits_to_defaults(&mut self) {
-        self.internal_search_content_limits = Self::internal_search_content_limits();
-        if self.internal_search_scope == InternalSearchScope::Content {
+        self.search.content_limits = Self::internal_search_content_limits();
+        if self.search.scope == InternalSearchScope::Content {
             self.refresh_internal_search_results();
         }
     }
@@ -445,9 +445,9 @@ impl App {
     }
 
     pub(crate) fn cancel_internal_search_content_request(&mut self) {
-        self.internal_search_content_request_id = self.internal_search_content_request_id.wrapping_add(1);
-        self.internal_search_content_rx = None;
-        self.internal_search_content_pending = false;
+        self.search.content_request_id = self.search.content_request_id.wrapping_add(1);
+        self.search.content_rx = None;
+        self.search.content_pending = false;
     }
 
     pub(crate) fn refresh_internal_search_content_results_async(
@@ -457,16 +457,16 @@ impl App {
     ) {
         if query.is_empty() {
             self.cancel_internal_search_content_request();
-            self.internal_search_results.clear();
-            self.internal_search_content_limit_note = None;
+            self.search.results.clear();
+            self.search.content_limit_note = None;
             return;
         }
 
-        let limits = self.internal_search_content_limits;
-        let request_id = self.internal_search_content_request_id.wrapping_add(1);
-        self.internal_search_content_request_id = request_id;
-        self.internal_search_content_pending = true;
-        self.internal_search_content_limit_note = Some(format!(
+        let limits = self.search.content_limits;
+        let request_id = self.search.content_request_id.wrapping_add(1);
+        self.search.content_request_id = request_id;
+        self.search.content_pending = true;
+        self.search.content_limit_note = Some(format!(
             "Limits: files <= {}, hits <= {}, file <= {}",
             limits.max_files,
             limits.max_hits,
@@ -474,7 +474,7 @@ impl App {
         ));
 
         let current_dir = self.current_dir.clone();
-        let candidates = self.internal_search_candidates.clone();
+        let candidates = self.search.candidates.clone();
         let pattern = if let Some((pattern, case_insensitive)) = regex_pattern {
             InternalSearchPattern::Regex {
                 pattern,
@@ -484,7 +484,7 @@ impl App {
             InternalSearchPattern::Literal(query.to_string())
         };
 
-        self.internal_search_content_rx = Some(spawn_worker(move |tx| {
+        self.search.content_rx = Some(spawn_worker(move |tx| {
             let (results, limit_note) =
                 App::run_internal_search_content_query(current_dir, candidates, pattern, limits);
             let _ = tx.send(InternalSearchContentMsg::Finished {
@@ -496,7 +496,7 @@ impl App {
     }
 
     pub(crate) fn pump_internal_search_content_progress(&mut self) {
-        let Some(rx) = self.internal_search_content_rx.take() else {
+        let Some(rx) = self.search.content_rx.take() else {
             return;
         };
 
@@ -508,16 +508,16 @@ impl App {
                     results,
                     limit_note,
                 }) => {
-                    if request_id == self.internal_search_content_request_id {
-                        self.internal_search_results = results;
-                        self.internal_search_content_limit_note = limit_note;
-                        self.internal_search_content_pending = false;
-                        if self.internal_search_results.is_empty() {
-                            self.internal_search_selected = 0;
+                    if request_id == self.search.content_request_id {
+                        self.search.results = results;
+                        self.search.content_limit_note = limit_note;
+                        self.search.content_pending = false;
+                        if self.search.results.is_empty() {
+                            self.search.selected = 0;
                         } else {
-                            self.internal_search_selected = self
-                                .internal_search_selected
-                                .min(self.internal_search_results.len() - 1);
+                            self.search.selected = self
+                                .search.selected
+                                .min(self.search.results.len() - 1);
                         }
                         keep_rx = false;
                     } else {
@@ -526,7 +526,7 @@ impl App {
                 }
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    self.internal_search_content_pending = false;
+                    self.search.content_pending = false;
                     keep_rx = false;
                     break;
                 }
@@ -534,22 +534,22 @@ impl App {
         }
 
         if keep_rx {
-            self.internal_search_content_rx = Some(rx);
+            self.search.content_rx = Some(rx);
         }
     }
 
     pub(crate) fn refresh_internal_search_results(&mut self) {
         let query = self.input_buffer.trim().to_string();
-        self.internal_search_regex_mode = false;
-        self.internal_search_regex = None;
-        self.internal_search_regex_error = None;
+        self.search.regex_mode = false;
+        self.search.regex = None;
+        self.search.regex_error = None;
 
         let mut compiled_regex: Option<Regex> = None;
 
         let parsed_regex = Self::parse_regex_query(&query);
 
         if let Some((pattern, case_insensitive)) = parsed_regex.as_ref() {
-            self.internal_search_regex_mode = true;
+            self.search.regex_mode = true;
 
             let regex = RegexBuilder::new(pattern)
                 .case_insensitive(*case_insensitive)
@@ -557,21 +557,21 @@ impl App {
 
             let Ok(regex) = regex else {
                 self.cancel_internal_search_content_request();
-                self.internal_search_results.clear();
-                self.internal_search_selected = 0;
-                self.internal_search_content_limit_note = None;
-                self.internal_search_regex_error = Some("invalid regex".to_string());
+                self.search.results.clear();
+                self.search.selected = 0;
+                self.search.content_limit_note = None;
+                self.search.regex_error = Some("invalid regex".to_string());
                 return;
             };
             compiled_regex = Some(regex);
         }
 
-        self.internal_search_regex = compiled_regex;
+        self.search.regex = compiled_regex;
 
-        match self.internal_search_scope {
+        match self.search.scope {
             InternalSearchScope::Filename => {
                 self.cancel_internal_search_content_request();
-                self.internal_search_content_limit_note = None;
+                self.search.content_limit_note = None;
                 self.refresh_internal_search_filename_results(&query);
             }
             InternalSearchScope::Content => {
@@ -579,36 +579,36 @@ impl App {
             }
         }
 
-        if self.internal_search_results.is_empty() {
-            self.internal_search_selected = 0;
+        if self.search.results.is_empty() {
+            self.search.selected = 0;
         } else {
-            self.internal_search_selected = self
-                .internal_search_selected
-                .min(self.internal_search_results.len() - 1);
+            self.search.selected = self
+                .search.selected
+                .min(self.search.results.len() - 1);
         }
     }
 
     pub(crate) fn cancel_internal_search_candidate_scan(&mut self) {
-        self.internal_search_candidates_scan_id = self.internal_search_candidates_scan_id.wrapping_add(1);
-        self.internal_search_candidates_rx = None;
-        self.internal_search_candidates_pending = false;
+        self.search.candidates_scan_id = self.search.candidates_scan_id.wrapping_add(1);
+        self.search.candidates_rx = None;
+        self.search.candidates_pending = false;
     }
 
     pub(crate) fn start_internal_search_candidate_scan(&mut self) {
         const INTERNAL_SEARCH_MAX_ITEMS: usize = 20_000;
 
         self.cancel_internal_search_candidate_scan();
-        self.internal_search_candidates_truncated = false;
-        self.internal_search_candidates.clear();
-        self.internal_search_results.clear();
-        self.internal_search_selected = 0;
+        self.search.candidates_truncated = false;
+        self.search.candidates.clear();
+        self.search.results.clear();
+        self.search.selected = 0;
 
-        self.internal_search_candidates_scan_id = self.internal_search_candidates_scan_id.wrapping_add(1);
-        let scan_id = self.internal_search_candidates_scan_id;
-        self.internal_search_candidates_pending = true;
+        self.search.candidates_scan_id = self.search.candidates_scan_id.wrapping_add(1);
+        let scan_id = self.search.candidates_scan_id;
+        self.search.candidates_pending = true;
 
         let root = self.current_dir.clone();
-        self.internal_search_candidates_rx = Some(spawn_worker(move |tx| {
+        self.search.candidates_rx = Some(spawn_worker(move |tx| {
             let candidates = App::collect_internal_search_candidates(&root, INTERNAL_SEARCH_MAX_ITEMS);
             let truncated = candidates.len() >= INTERNAL_SEARCH_MAX_ITEMS;
             let _ = tx.send(InternalSearchCandidatesMsg::Finished {
@@ -620,7 +620,7 @@ impl App {
     }
 
     pub(crate) fn pump_internal_search_candidates_progress(&mut self) {
-        let Some(rx) = self.internal_search_candidates_rx.take() else {
+        let Some(rx) = self.search.candidates_rx.take() else {
             return;
         };
 
@@ -632,15 +632,15 @@ impl App {
                     candidates,
                     truncated,
                 }) => {
-                    if scan_id == self.internal_search_candidates_scan_id {
-                        self.internal_search_candidates = candidates;
-                        self.internal_search_candidates_truncated = truncated;
-                        self.internal_search_candidates_pending = false;
+                    if scan_id == self.search.candidates_scan_id {
+                        self.search.candidates = candidates;
+                        self.search.candidates_truncated = truncated;
+                        self.search.candidates_pending = false;
                         self.refresh_internal_search_results();
 
-                        if self.internal_search_candidates.is_empty() {
+                        if self.search.candidates.is_empty() {
                             self.set_status("search: no files found");
-                        } else if self.internal_search_candidates_truncated {
+                        } else if self.search.candidates_truncated {
                             self.set_status("search indexed first 20000 files");
                         } else if self.status_message == "search: indexing files asynchronously..." {
                             self.status_message.clear();
@@ -652,7 +652,7 @@ impl App {
                 }
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    self.internal_search_candidates_pending = false;
+                    self.search.candidates_pending = false;
                     keep_rx = false;
                     break;
                 }
@@ -660,7 +660,7 @@ impl App {
         }
 
         if keep_rx {
-            self.internal_search_candidates_rx = Some(rx);
+            self.search.candidates_rx = Some(rx);
         }
     }
 
@@ -669,11 +669,11 @@ impl App {
     }
 
     pub(crate) fn start_internal_search_with_scope(&mut self, scope: InternalSearchScope) {
-        self.internal_search_selected = 0;
-        self.internal_search_scope = scope;
-        self.internal_search_content_limit_note = None;
-        self.internal_search_limits_menu_open = false;
-        self.internal_search_limits_selected = 0;
+        self.search.selected = 0;
+        self.search.scope = scope;
+        self.search.content_limit_note = None;
+        self.search.limits_menu_open = false;
+        self.search.limits_selected = 0;
         self.panel_tab = 1;
         self.begin_input_edit(AppMode::InternalSearch, String::new());
         self.start_internal_search_candidate_scan();
@@ -682,19 +682,19 @@ impl App {
     }
 
     pub(crate) fn toggle_internal_search_scope(&mut self) {
-        self.internal_search_scope = match self.internal_search_scope {
+        self.search.scope = match self.search.scope {
             InternalSearchScope::Filename => InternalSearchScope::Content,
             InternalSearchScope::Content => InternalSearchScope::Filename,
         };
-        if self.internal_search_scope == InternalSearchScope::Filename {
-            self.internal_search_limits_menu_open = false;
+        if self.search.scope == InternalSearchScope::Filename {
+            self.search.limits_menu_open = false;
         }
-        self.internal_search_selected = 0;
+        self.search.selected = 0;
         self.refresh_internal_search_results();
     }
 
     pub(crate) fn selected_internal_search_path(&self) -> Option<PathBuf> {
-        let result = self.internal_search_results.get(self.internal_search_selected)?;
+        let result = self.search.results.get(self.search.selected)?;
         let rel = match result {
             InternalSearchResult::Filename { rel_path, .. } => rel_path,
             InternalSearchResult::Content { rel_path, .. } => rel_path,
