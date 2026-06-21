@@ -51,9 +51,8 @@ impl App {
     pub(crate) fn toggle_nerd_font(&mut self) {
         self.nerd_font_active = !self.nerd_font_active;
         self.rebuild_render_caches();
-        let mut cfg = crate::util::config::SbPersistConfig::load();
-        cfg.nerd_font = Some(self.nerd_font_active);
-        let _ = cfg.save();
+        let nerd_font_active = self.nerd_font_active;
+        crate::util::config::SbPersistConfig::update(|cfg| cfg.nerd_font = Some(nerd_font_active));
     }
 
     /// Flip the "disable clock" setting and persist it. When enabled, the
@@ -62,9 +61,8 @@ impl App {
     pub(crate) fn toggle_disable_clock(&mut self) {
         self.disable_clock = !self.disable_clock;
         self.refresh_current_dir_free_space();
-        let mut cfg = crate::util::config::SbPersistConfig::load();
-        cfg.disable_clock = Some(self.disable_clock);
-        let _ = cfg.save();
+        let disable_clock = self.disable_clock;
+        crate::util::config::SbPersistConfig::update(|cfg| cfg.disable_clock = Some(disable_clock));
     }
 
     /// Cycle the filename-color mode (Full → Less → White), re-render the file
@@ -77,9 +75,8 @@ impl App {
         self.preview_cache.clear();
         self.preview_target_path = None;
         self.request_preview_for_selected();
-        let mut cfg = crate::util::config::SbPersistConfig::load();
-        cfg.filename_color_mode = self.filename_color_mode;
-        let _ = cfg.save();
+        let filename_color_mode = self.filename_color_mode;
+        crate::util::config::SbPersistConfig::update(|cfg| cfg.filename_color_mode = filename_color_mode);
     }
 
     pub(crate) fn set_status(&mut self, msg: impl Into<String>) {

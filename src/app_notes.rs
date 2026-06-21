@@ -9,15 +9,11 @@ use std::{
 
 use crossterm::{
     cursor::{Hide, Show},
-    event::EnableMouseCapture,
     execute,
-    terminal::{
-        enable_raw_mode, EnterAlternateScreen,
-    },
 };
 
 use crate::util::background::{drain_channel, spawn_worker};
-use crate::util::tui::suspend_tui;
+use crate::util::tui::{resume_tui, suspend_tui};
 use crate::{App, AppMode, DualPanelSide, NotesLoadMsg};
 
 impl App {
@@ -306,9 +302,8 @@ impl App {
         suspend_tui()?;
         execute!(io::stdout(), Show)?;
         let _ = Command::new(editor).arg(&todo_path).status();
-        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+        resume_tui()?;
         execute!(io::stdout(), Hide)?;
-        enable_raw_mode()?;
         self.refresh_entries_or_status();
         self.set_status("opened ~/.todo");
         Ok(())
