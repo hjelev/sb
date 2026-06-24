@@ -39,7 +39,7 @@ pub(crate) fn handle_browsing_key(
                     DualPanelSide::Left => DualPanelSide::Right,
                     DualPanelSide::Right => DualPanelSide::Left,
                 };
-                if app.folder_size_enabled {
+                if app.size.folder_size_enabled {
                     app.refresh_current_dir_free_space();
                     app.start_current_dir_total_size_scan();
                     app.start_selected_total_size_scan();
@@ -170,7 +170,7 @@ pub(crate) fn handle_browsing_key(
             app.begin_sort_menu();
         }
         KeyCode::Char('s') => {
-            let enabled = !app.folder_size_enabled;
+            let enabled = !app.size.folder_size_enabled;
             app.set_folder_size_enabled(enabled);
         }
         KeyCode::Char('+') => {

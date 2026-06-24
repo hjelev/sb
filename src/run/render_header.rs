@@ -189,7 +189,7 @@ pub(crate) fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user:
         spans.push(Span::raw(" "));
 
         Some(Line::from(spans))
-    } else if !app.folder_size_enabled {
+    } else if !app.size.folder_size_enabled {
         header_right_is_clock = true;
         Some(Line::from(vec![
             Span::styled(app.header_clock_text.clone(), Style::default().fg(active_theme.text_normal)),

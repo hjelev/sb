@@ -122,8 +122,8 @@ impl App {
             .filter_map(|idx| self.entries.get(*idx).map(|e| e.path()))
             .collect();
 
-        let folder_size_cache = if self.folder_size_enabled {
-            Some(&self.folder_size_cache)
+        let folder_size_cache = if self.size.folder_size_enabled {
+            Some(&self.size.folder_size_cache)
         } else {
             None
         };

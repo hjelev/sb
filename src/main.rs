@@ -146,6 +146,23 @@ struct ArchiveOperation {
     name: String,
 }
 
+/// App-global folder/size accounting: the recursive folder-size jobs and their
+/// caches plus the current-directory total/free-space figures. Grouped out of
+/// `App` so the size-tracking state lives together. The per-panel
+/// `selected_total_size*` fields stay in [`PanelState`] (they are per-panel).
+#[derive(Default)]
+struct SizeState {
+    folder_size_enabled: bool,
+    folder_size_cache: HashMap<PathBuf, u64>,
+    folder_size: AsyncJobState<FolderSizeMsg>,
+    current_dir_total_size: AsyncJobState<CurrentDirTotalSizeMsg>,
+    current_dir_total_size_pending: bool,
+    current_dir_total_size_bytes: Option<u64>,
+    current_dir_total_space_bytes: Option<u64>,
+    current_dir_free_bytes: Option<u64>,
+    recursive_mtime: AsyncJobState<RecursiveMtimeMsg>,
+}
+
 struct App {
     current_dir: PathBuf,
     entries: Vec<fs::DirEntry>,
@@ -213,22 +230,14 @@ struct App {
     git_info_cache: Option<GitInfoCache>,
     git_info_rx: Option<Receiver<(PathBuf, Option<(String, bool, Option<(String, u64)>)>)>>,
     git_last_check_at: Option<Instant>,
-    folder_size_enabled: bool,
     /// When true, the top-right header clock is replaced by the disk-usage pill
     /// (without the recursive folder-size prefix). Persisted to config.
     disable_clock: bool,
-    folder_size_cache: HashMap<PathBuf, u64>,
-    folder_size: AsyncJobState<FolderSizeMsg>,
+    size: SizeState,
     tree_expansion_levels: HashMap<PathBuf, usize>,
     tree_last_tap: Option<(char, Instant)>,
     main_list_last_click: Option<(PathBuf, usize, Instant)>,
     tree_row_prefixes: Vec<String>,
-    current_dir_total_size: AsyncJobState<CurrentDirTotalSizeMsg>,
-    current_dir_total_size_pending: bool,
-    current_dir_total_size_bytes: Option<u64>,
-    current_dir_total_space_bytes: Option<u64>,
-    current_dir_free_bytes: Option<u64>,
-    recursive_mtime: AsyncJobState<RecursiveMtimeMsg>,
     selected_total_size: AsyncJobState<SelectedTotalSizeMsg>,
     selected_total_size_pending: bool,
     selected_total_size_bytes: Option<u64>,
@@ -415,20 +424,12 @@ impl App {
             git_info_cache: None,
             git_info_rx: None,
             git_last_check_at: None,
-            folder_size_enabled: false,
             disable_clock: false,
-            folder_size_cache: HashMap::new(),
-            folder_size: AsyncJobState::default(),
+            size: SizeState::default(),
             tree_expansion_levels: HashMap::new(),
             tree_last_tap: None,
             main_list_last_click: None,
             tree_row_prefixes: Vec::new(),
-            current_dir_total_size: AsyncJobState::default(),
-            current_dir_total_size_pending: false,
-            current_dir_total_size_bytes: None,
-            current_dir_total_space_bytes: None,
-            current_dir_free_bytes: None,
-            recursive_mtime: AsyncJobState::default(),
             selected_total_size: AsyncJobState::default(),
             selected_total_size_pending: false,
             selected_total_size_bytes: None,
@@ -589,9 +590,9 @@ impl App {
             || self.search.content_rx.is_some()
             || self.download_rx.is_some()
             || self.git_info_rx.is_some()
-            || self.folder_size.rx.is_some()
-            || self.current_dir_total_size.rx.is_some()
-            || self.recursive_mtime.rx.is_some()
+            || self.size.folder_size.rx.is_some()
+            || self.size.current_dir_total_size.rx.is_some()
+            || self.size.recursive_mtime.rx.is_some()
             || self.selected_total_size.rx.is_some()
             || self.right.selected_total_size.rx.is_some()
             || self.notes_rx.is_some()
@@ -1061,8 +1062,8 @@ impl App {
     }
 
     fn refresh_entries(&mut self) -> io::Result<()> {
-        let folder_size_cache = if self.folder_size_enabled {
-            Some(&self.folder_size_cache)
+        let folder_size_cache = if self.size.folder_size_enabled {
+            Some(&self.size.folder_size_cache)
         } else {
             None
         };
@@ -1127,9 +1128,9 @@ impl App {
         self.apply_cached_folder_size_columns();
         self.refresh_meta_identity_widths();
         self.refresh_current_dir_free_space();
-        self.folder_size.next_scan_id();
-        self.folder_size.clear_rx();
-        self.recursive_mtime.clear_rx();
+        self.size.folder_size.next_scan_id();
+        self.size.folder_size.clear_rx();
+        self.size.recursive_mtime.clear_rx();
         self.clear_current_dir_total_size_state();
         self.clear_selected_total_size_state();
         self.marked_indices.clear();
@@ -1142,7 +1143,7 @@ impl App {
             self.table_state.select(Some(self.selected_index));
         }
 
-        if self.folder_size_enabled {
+        if self.size.folder_size_enabled {
             self.start_folder_size_scan();
             self.start_current_dir_total_size_scan();
         }
