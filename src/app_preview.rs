@@ -165,6 +165,7 @@ impl App {
             .map(|entry| App::build_entry_render_cache(entry, config, &uid_cache, &gid_cache))
             .collect();
         self.right.entries = entries;
+        self.recompute_list_aggregates();
         if self.folder_size_enabled {
             self.apply_cached_folder_size_columns();
             self.start_folder_size_scan();

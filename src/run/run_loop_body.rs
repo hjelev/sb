@@ -636,7 +636,7 @@ fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> TableLayout {
     let perms_width = 11usize;
     let group_width = app.meta_group_width.max(1);
     let owner_width = app.meta_owner_width.max(1);
-    let size_width = panel_size_width(&app.entry_render_cache, show_size);
+    let size_width = if show_size { app.list_aggregates.max_size_width } else { 1 };
     let pct_width = 4usize;
     let date_width = 16usize;
     let reserved_width = (if show_meta { perms_width + group_width + owner_width } else { 0 })
@@ -672,22 +672,11 @@ fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> TableLayout {
         (icon_style, name_style)
     };
 
-    let size_min_max = if show_size {
-        ui::list_temperature::size_min_max_from_sizes(
-            app.entry_render_cache.iter().map(|entry| entry.size_bytes),
-        )
-    } else {
-        None
-    };
-    let left_total_for_pct = panel_percent_total(&app.entry_render_cache, show_pct);
-
-    let date_rank_by_ts = if show_date {
-        ui::list_temperature::date_rank_map_from_unix(
-            app.entry_render_cache.iter().map(|entry| entry.modified_unix),
-        )
-    } else {
-        HashMap::new()
-    };
+    // Aggregates are precomputed when the render cache is (re)built; the render
+    // path only gates them by the column-visibility flags here.
+    let size_min_max = if show_size { app.list_aggregates.size_min_max } else { None };
+    let left_total_for_pct = if show_pct { app.list_aggregates.percent_total } else { None };
+    let date_rank_by_ts = &app.list_aggregates.date_rank_by_ts;
     let use_main_pill = true;
     let left_pill_color = if app.is_dual_panel_mode() && app.active_panel == crate::DualPanelSide::Right {
         active_theme.bg_inactive_panel
@@ -711,7 +700,7 @@ fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> TableLayout {
         let date_style =
             Style::default().fg(ui::list_temperature::date_color_for(
                 entry_cache.modified_unix,
-                &date_rank_by_ts,
+                date_rank_by_ts,
             ));
         let marker = if app.no_color {
             format!(
@@ -1429,24 +1418,12 @@ fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &RenderCtx, t
             let right_show_date = right_term_w >= 50;
             let right_show_size = right_term_w >= 70;
             let right_show_pct = app.folder_size_enabled && right_show_size;
-            let right_size_min_max = if right_show_size {
-                ui::list_temperature::size_min_max_from_sizes(
-                    app.right.entry_render_cache.iter().map(|entry| entry.size_bytes),
-                )
-            } else {
-                None
-            };
-            let right_date_rank_by_ts = if right_show_date {
-                ui::list_temperature::date_rank_map_from_unix(
-                    app.right.entry_render_cache.iter().map(|entry| entry.modified_unix),
-                )
-            } else {
-                HashMap::new()
-            };
-            let right_size_width = panel_size_width(&app.right.entry_render_cache, right_show_size);
+            let right_size_min_max = if right_show_size { app.right.list_aggregates.size_min_max } else { None };
+            let right_date_rank_by_ts = &app.right.list_aggregates.date_rank_by_ts;
+            let right_size_width = if right_show_size { app.right.list_aggregates.max_size_width } else { 1 };
             let right_pct_width = 4usize;
             let right_date_width = 16usize;
-            let right_total_for_pct = panel_percent_total(&app.right.entry_render_cache, right_show_pct);
+            let right_total_for_pct = if right_show_pct { app.right.list_aggregates.percent_total } else { None };
             let right_name_width = panel_name_width(
                 right_term_w,
                 right_show_size,
@@ -1582,7 +1559,7 @@ fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &RenderCtx, t
                     ));
                     let right_date_style = Style::default().fg(ui::list_temperature::date_color_for(
                         entry_cache.modified_unix,
-                        &right_date_rank_by_ts,
+                        right_date_rank_by_ts,
                     ));
                     push_metric_cells(
                         &mut cells,
@@ -2317,7 +2294,11 @@ pub(crate) fn run_tui_body(
     let user = env::var("USER").unwrap_or_else(|_| "user".to_string());
 
     loop {
-        app.refresh_header_clock_if_needed();
+        // Capture in-flight async work *before* pumping: a pump may apply (and
+        // then clear) a channel this iteration, so the frame that shows the
+        // final result must still draw. One trailing idle frame is harmless.
+        let had_async_work = app.has_active_async_work();
+        let clock_changed = app.refresh_header_clock_if_needed();
         app.pump_archive_progress();
         app.pump_copy_total_prescan();
         app.pump_copy_progress();
@@ -2352,6 +2333,12 @@ pub(crate) fn run_tui_body(
                 | AppMode::InternalSearch
                 | AppMode::BookmarkEditing
         );
+        // Skip the whole render (cursor update + draw) on idle iterations where
+        // nothing changed. `needs_redraw` is set by event handling (below) and by
+        // init; `clock_changed`/`had_async_work` cover time- and channel-driven
+        // updates that arrive without user input.
+        let should_draw = app.needs_redraw || clock_changed || had_async_work;
+        if should_draw {
         if text_input_cursor {
             execute!(terminal.backend_mut(), SetCursorStyle::BlinkingBar)?;
         } else {
@@ -2402,6 +2389,8 @@ pub(crate) fn run_tui_body(
             render_overlays(f, app, &ctx);
             render_footer(f, app, &ctx);
         })?;
+            app.needs_redraw = false;
+        }
 
 
         // After ratatui has drawn, overlay native protocol image in the preview pane
@@ -2628,6 +2617,7 @@ pub(crate) fn run_tui_body(
                     if let Some(simulated_key) = app.handle_mouse_event(mouse, area) {
                         deferred_key = Some(simulated_key);
                     }
+                    app.needs_redraw = true;
                     continue;
                 }
                 _ => {}
@@ -2635,6 +2625,8 @@ pub(crate) fn run_tui_body(
         }
 
         if let Some(key) = next_key {
+            // Any dispatched key may mutate state; repaint on the next iteration.
+            app.needs_redraw = true;
             match key_dispatch::handle_app_key_event(terminal, app, key, &mut deferred_key)? {
                 key_dispatch::KeyDispatchOutcome::Quit => break,
                 key_dispatch::KeyDispatchOutcome::ContinueLoop => continue,

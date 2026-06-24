@@ -252,7 +252,9 @@ pub(crate) fn handle_app_key_event_body(
             KeyCode::Enter => {
                 if let Some(old_path) = app.active_selected_entry_path() {
                     let new_path = app.active_panel_dir().join(&app.input_buffer);
-                    let _ = fs::rename(old_path, new_path);
+                    if let Err(e) = fs::rename(&old_path, &new_path) {
+                        app.set_status(format!("rename failed: {}", e));
+                    }
                 }
                 app.clear_input_edit();
                 app.mode = AppMode::Browsing;

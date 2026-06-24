@@ -49,6 +49,7 @@ impl App {
                 .map(|entry| App::build_entry_render_cache(entry, config, &uid_cache_r, &gid_cache_r))
                 .collect();
         }
+        self.recompute_list_aggregates();
     }
 
     pub(crate) fn apply_selected_theme(&mut self) {

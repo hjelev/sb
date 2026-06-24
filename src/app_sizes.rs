@@ -487,6 +487,15 @@ impl App {
         })
     }
 
+    /// Recompute both panels' cached [`ListAggregates`] from their current render
+    /// caches. Called whenever the cache (notably `size_bytes`) changes — on
+    /// directory load, sort, and folder-size arrival — so the render path can
+    /// read the aggregates instead of rescanning every frame.
+    pub(crate) fn recompute_list_aggregates(&mut self) {
+        self.list_aggregates = crate::ListAggregates::from_cache(&self.entry_render_cache);
+        self.right.list_aggregates = crate::ListAggregates::from_cache(&self.right.entry_render_cache);
+    }
+
     pub(crate) fn reset_folder_size_columns(&mut self) {
         let size_width = 6usize;
         for (idx, entry) in self.entries.iter().enumerate() {
@@ -501,6 +510,7 @@ impl App {
                 self.right.entry_render_cache[idx].size_bytes = None;
             }
         }
+        self.recompute_list_aggregates();
     }
 
     pub(crate) fn apply_cached_folder_size_columns(&mut self) {
@@ -528,6 +538,7 @@ impl App {
                 self.right.entry_render_cache[idx].size_bytes = Some(size);
             }
         }
+        self.recompute_list_aggregates();
     }
 
     pub(crate) fn set_folder_size_enabled(&mut self, enabled: bool) {
@@ -587,8 +598,13 @@ impl App {
                 }
             }
         }
-        if any_size_changed && matches!(self.sort_mode, crate::SortMode::SizeAsc | crate::SortMode::SizeDesc) {
-            self.apply_sort_to_current_entries();
+        if any_size_changed {
+            if matches!(self.sort_mode, crate::SortMode::SizeAsc | crate::SortMode::SizeDesc) {
+                // Re-sort rebuilds the cache and refreshes aggregates itself.
+                self.apply_sort_to_current_entries();
+            } else {
+                self.recompute_list_aggregates();
+            }
         }
         if !self.folder_size_enabled {
             self.folder_size.clear_rx();

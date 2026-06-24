@@ -51,7 +51,7 @@ mod app_preview;
 mod app_remote;
 mod app_rendering;
 mod app_render_cache;
-pub(crate) use app_render_cache::{EntryRenderCache, EntryRenderConfig};
+pub(crate) use app_render_cache::{EntryRenderCache, EntryRenderConfig, ListAggregates};
 mod app_model;
 pub(crate) use app_model::*;
 mod app_search;
@@ -71,6 +71,7 @@ struct PanelState {
     dir: PathBuf,
     entries: Vec<fs::DirEntry>,
     entry_render_cache: Vec<EntryRenderCache>,
+    list_aggregates: ListAggregates,
     selected_index: usize,
     marked_indices: HashSet<usize>,
     table_state: TableState,
@@ -149,6 +150,9 @@ struct App {
     current_dir: PathBuf,
     entries: Vec<fs::DirEntry>,
     entry_render_cache: Vec<EntryRenderCache>,
+    /// Per-set aggregates (size/date heat, percent total, size width) recomputed
+    /// only when `entry_render_cache` is rebuilt — read by the render path.
+    list_aggregates: ListAggregates,
     selected_index: usize,
     marked_indices: HashSet<usize>,
     directory_selection: HashMap<PathBuf, usize>,
@@ -256,6 +260,10 @@ struct App {
     meta_owner_width: usize,
     header_clock_minute_key: Option<i64>,
     header_clock_text: String,
+    /// Set whenever state changes (user input, async result, clock tick) so the
+    /// event loop repaints; cleared after each draw. Lets idle iterations skip
+    /// the full render. See [`App::has_active_async_work`].
+    needs_redraw: bool,
     db_preview_path: Option<PathBuf>,
     db_preview_tables: Vec<String>,
     db_preview_selected: usize,
@@ -344,6 +352,7 @@ impl App {
             current_dir,
             entries: Vec::new(),
             entry_render_cache: Vec::new(),
+            list_aggregates: ListAggregates::default(),
             selected_index: 0,
             marked_indices: HashSet::new(),
             directory_selection: HashMap::new(),
@@ -464,6 +473,7 @@ impl App {
             meta_group_width: 1,
             meta_owner_width: 1,
             header_clock_minute_key: None,
+            needs_redraw: true,
             header_clock_text: String::new(),
             db_preview_path: None,
             db_preview_tables: Vec::new(),
@@ -495,6 +505,7 @@ impl App {
                 dir: PathBuf::new(),
                 entries: Vec::new(),
                 entry_render_cache: Vec::new(),
+                list_aggregates: ListAggregates::default(),
                 selected_index: 0,
                 marked_indices: HashSet::new(),
                 table_state: TableState::default(),
@@ -550,14 +561,42 @@ impl App {
         Ok(app)
     }
 
-    fn refresh_header_clock_if_needed(&mut self) {
+    /// Refresh the cached header clock string. Returns `true` when the displayed
+    /// minute changed (so the event loop knows it must repaint).
+    fn refresh_header_clock_if_needed(&mut self) -> bool {
         let now = Local::now();
         let minute_key = now.timestamp().div_euclid(60);
         if self.header_clock_minute_key == Some(minute_key) {
-            return;
+            return false;
         }
         self.header_clock_minute_key = Some(minute_key);
         self.header_clock_text = now.format("%Y-%m-%d %H:%M").to_string();
+        true
+    }
+
+    /// Whether any background job still has a live channel that a future `pump_*`
+    /// call could deliver results on. The event loop uses this to decide whether
+    /// an idle (event-less) iteration still needs to repaint.
+    ///
+    /// INVARIANT: every async `Receiver`/`AsyncJobState` field on `App`/`PanelState`
+    /// must be listed here. Add new background sources to this list or their
+    /// results may not appear until the next user input.
+    fn has_active_async_work(&self) -> bool {
+        self.copy.rx.is_some()
+            || self.copy.total_rx.is_some()
+            || self.archive.rx.is_some()
+            || self.search.candidates_rx.is_some()
+            || self.search.content_rx.is_some()
+            || self.download_rx.is_some()
+            || self.git_info_rx.is_some()
+            || self.folder_size.rx.is_some()
+            || self.current_dir_total_size.rx.is_some()
+            || self.recursive_mtime.rx.is_some()
+            || self.selected_total_size.rx.is_some()
+            || self.right.selected_total_size.rx.is_some()
+            || self.notes_rx.is_some()
+            || self.right_notes_rx.is_some()
+            || self.preview_rx.is_some()
     }
 
     fn search_spans_with_ranges(
@@ -1560,6 +1599,11 @@ fn main() -> io::Result<()> {
         TermClear(ClearType::All),
         MoveTo(0, 0)
     )?;
+    // Best-effort: the optional shell `cd`-on-exit snippet (see README) reads this
+    // fixed path. Intentionally fire-and-forget — the app is already exiting and a
+    // failed write only means the shell won't follow us into the last directory.
+    // The path is a documented contract with that snippet; do not relocate it here
+    // without updating the README integration.
     let _ = std::fs::write("/tmp/sb_path", app.active_panel_dir().to_string_lossy().as_bytes());
     Ok(())
 }

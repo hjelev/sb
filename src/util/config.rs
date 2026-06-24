@@ -110,6 +110,31 @@ pub fn config_dir() -> std::path::PathBuf {
     base.join("sb")
 }
 
+/// Returns the sb runtime directory for transient state such as remote mount
+/// points: `$XDG_RUNTIME_DIR/sb`, falling back to `$XDG_CACHE_HOME/sb` or
+/// `~/.cache/sb`. Unlike a predictable `/tmp/...` path, these bases are
+/// per-user and not world-writable, which avoids the symlink/TOCTOU exposure of
+/// a shared, guessable mount path.
+pub fn runtime_dir() -> std::path::PathBuf {
+    let base = env::var("XDG_RUNTIME_DIR")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            env::var("XDG_CACHE_HOME")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .map(std::path::PathBuf::from)
+        })
+        .or_else(|| {
+            env::var("HOME")
+                .ok()
+                .map(|h| std::path::PathBuf::from(h).join(".cache"))
+        })
+        .unwrap_or_else(|| std::path::PathBuf::from(".cache"));
+    base.join("sb")
+}
+
 /// Returns the path to the persistent config file: `$XDG_CONFIG_HOME/sb/config`
 /// or `~/.config/sb/config` if the env var is unset.
 fn persist_config_path() -> std::path::PathBuf {
