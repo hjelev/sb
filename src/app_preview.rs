@@ -38,22 +38,22 @@ impl App {
                         self.mode = crate::AppMode::Browsing;
                     }
                     self.clear_input_edit();
-                    if self.path_input_filter.take().is_some() {
+                    if self.left.folder_filter.take().is_some() {
                         let _ = self.refresh_entries();
                     }
                 }
                 self.view_mode = ViewMode::DualPanel;
-                self.right.dir = self.current_dir.clone();
+                self.right.dir = self.left.dir.clone();
                 self.right.selected_index = 0;
                 self.right.table_state = ratatui::widgets::TableState::default();
-                self.right.sort_mode = self.sort_mode;
-                self.right.show_hidden = self.show_hidden;
+                self.right.sort_mode = self.left.sort_mode;
+                self.right.show_hidden = self.left.show_hidden;
                 self.active_panel = DualPanelSide::Left;
                 let _ = self.refresh_right_panel_entries();
             }
             ViewMode::DualPanel => {
                 // Preserve the active panel's directory when returning to normal mode
-                self.current_dir = self.active_panel_dir();
+                self.left.dir = self.active_panel_dir();
                 self.view_mode = ViewMode::Normal;
                 self.right.dir = std::path::PathBuf::new();
                 self.right.entries.clear();
@@ -220,7 +220,7 @@ impl App {
         if !self.is_preview_mode() {
             return;
         }
-        let Some(path) = self.entries.get(self.selected_index).map(|e| e.path()) else {
+        let Some(path) = self.left.entries.get(self.left.selected_index).map(|e| e.path()) else {
             self.preview_lines = vec!["No selection".to_string()];
             self.preview_line_kinds = vec![crate::PreviewLineKind::Plain];
             self.preview_footer = None;

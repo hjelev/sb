@@ -70,7 +70,7 @@ impl App {
             self.set_status("clipboard is empty");
             return;
         }
-        self.begin_transfer_from_sources(self.clipboard.clone(), self.current_dir.clone(), move_mode);
+        self.begin_transfer_from_sources(self.clipboard.clone(), self.left.dir.clone(), move_mode);
     }
 
     pub(crate) fn begin_dual_panel_transfer(&mut self, move_mode: bool) {
@@ -81,16 +81,16 @@ impl App {
 
         let (sources, target_dir) = match self.active_panel {
             DualPanelSide::Left => {
-                let sources = if !self.marked_indices.is_empty() {
-                    self.entries
+                let sources = if !self.left.marked_indices.is_empty() {
+                    self.left.entries
                         .iter()
                         .enumerate()
-                        .filter(|(i, _)| self.marked_indices.contains(i))
+                        .filter(|(i, _)| self.left.marked_indices.contains(i))
                         .map(|(_, e)| e.path())
                         .collect()
                 } else {
-                    self.entries
-                        .get(self.selected_index)
+                    self.left.entries
+                        .get(self.left.selected_index)
                         .map(|e| vec![e.path()])
                         .unwrap_or_default()
                 };
@@ -110,7 +110,7 @@ impl App {
                         .map(|e| vec![e.path()])
                         .unwrap_or_default()
                 };
-                (sources, self.current_dir.clone())
+                (sources, self.left.dir.clone())
             }
         };
 
@@ -521,7 +521,7 @@ impl App {
                 .paste_target_dir
                 .as_ref()
                 .cloned()
-                .unwrap_or_else(|| self.current_dir.clone());
+                .unwrap_or_else(|| self.left.dir.clone());
             let dest = target_dir.join(&name);
             if dest.exists() {
                 self.paste_current_src = Some(src);

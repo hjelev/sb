@@ -11,7 +11,7 @@ impl App {
         if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
             self.right.show_hidden
         } else {
-            self.show_hidden
+            self.left.show_hidden
         }
     }
 
@@ -37,7 +37,7 @@ impl App {
     /// active panel doesn't leave stale entries in the other panel. No-op in
     /// single-panel mode or when the two panels point at different directories.
     pub(crate) fn sync_inactive_panel_if_same_dir(&mut self) {
-        if !self.is_dual_panel_mode() || self.current_dir != self.right.dir {
+        if !self.is_dual_panel_mode() || self.left.dir != self.right.dir {
             return;
         }
         // The active panel was just refreshed by the caller; refresh the other.
@@ -128,16 +128,16 @@ impl App {
                     dirs.push(path);
                 }
             }
-        } else if !self.marked_indices.is_empty() {
-            for idx in &self.marked_indices {
-                if let Some(entry) = self.entries.get(*idx) {
+        } else if !self.left.marked_indices.is_empty() {
+            for idx in &self.left.marked_indices {
+                if let Some(entry) = self.left.entries.get(*idx) {
                     let path = entry.path();
                     if path.is_dir() && self.dir_has_visible_children(&path) {
                         dirs.push(path);
                     }
                 }
             }
-        } else if let Some(entry) = self.entries.get(self.selected_index) {
+        } else if let Some(entry) = self.left.entries.get(self.left.selected_index) {
             let path = entry.path();
             if path.is_dir() && self.dir_has_visible_children(&path) {
                 dirs.push(path);
@@ -263,13 +263,13 @@ impl App {
     }
 
     pub(crate) fn move_selection_delta(&mut self, delta: isize) {
-        if self.entries.is_empty() {
+        if self.left.entries.is_empty() {
             return;
         }
-        let max_idx = (self.entries.len() - 1) as isize;
-        let next = ((self.selected_index as isize) + delta).clamp(0, max_idx) as usize;
-        self.selected_index = next;
-        self.table_state.select(Some(next));
+        let max_idx = (self.left.entries.len() - 1) as isize;
+        let next = ((self.left.selected_index as isize) + delta).clamp(0, max_idx) as usize;
+        self.left.selected_index = next;
+        self.left.table_state.select(Some(next));
     }
 
     fn byte_index_for_char(s: &str, char_index: usize) -> usize {

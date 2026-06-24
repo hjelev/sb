@@ -171,7 +171,7 @@ impl App {
         let Some(mount_idx) = self
             .archive_mounts
             .iter()
-            .rposition(|mount| mount.mount_path == self.current_dir)
+            .rposition(|mount| mount.mount_path == self.left.dir)
         else {
             return false;
         };
@@ -179,7 +179,7 @@ impl App {
         self.remember_current_selection();
         let return_dir = self.archive_mounts[mount_idx].return_dir.clone();
         let archive_name = self.archive_mounts[mount_idx].archive_name.clone();
-        self.current_dir = return_dir;
+        self.left.dir = return_dir;
         if self.refresh_entries_or_status() {
             self.select_entry_named(&archive_name);
         }
@@ -194,9 +194,9 @@ impl App {
             .archive_mounts
             .iter()
             .rev()
-            .find(|m| self.current_dir == m.mount_path || self.current_dir.starts_with(&m.mount_path))
+            .find(|m| self.left.dir == m.mount_path || self.left.dir.starts_with(&m.mount_path))
         {
-            self.current_dir = mount.return_dir.clone();
+            self.left.dir = mount.return_dir.clone();
         }
 
         while let Some(mount) = self.archive_mounts.pop() {
@@ -216,9 +216,9 @@ impl App {
         };
 
         let mount = self.archive_mounts.remove(idx);
-        let was_inside = self.current_dir == mount.mount_path || self.current_dir.starts_with(&mount.mount_path);
+        let was_inside = self.left.dir == mount.mount_path || self.left.dir.starts_with(&mount.mount_path);
         if was_inside {
-            self.current_dir = mount.return_dir.clone();
+            self.left.dir = mount.return_dir.clone();
             if self.refresh_entries_or_status() {
                 self.select_entry_named(&mount.archive_name);
             }
@@ -244,16 +244,16 @@ impl App {
                     .into_iter()
                     .collect()
             }
-        } else if !self.marked_indices.is_empty() {
-            self.entries
+        } else if !self.left.marked_indices.is_empty() {
+            self.left.entries
                 .iter()
                 .enumerate()
-                .filter(|(i, _)| self.marked_indices.contains(i))
+                .filter(|(i, _)| self.left.marked_indices.contains(i))
                 .map(|(_, e)| e.path())
                 .collect()
         } else {
-            self.entries
-                .get(self.selected_index)
+            self.left.entries
+                .get(self.left.selected_index)
                 .map(|e| e.path())
                 .into_iter()
                 .collect()
@@ -302,7 +302,7 @@ impl App {
         };
         let mut archive_name = format!("{}.zip", base_name);
         let mut n = 2usize;
-        while self.current_dir.join(&archive_name).exists() {
+        while self.left.dir.join(&archive_name).exists() {
             archive_name = format!("{}-{}.zip", base_name, n);
             n += 1;
         }
@@ -335,7 +335,7 @@ impl App {
             return;
         }
 
-        if self.current_dir.join(&archive_name).exists() {
+        if self.left.dir.join(&archive_name).exists() {
             self.set_status("archive already exists: choose another name");
             return;
         }
@@ -376,10 +376,10 @@ impl App {
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "extracted".to_string());
 
-            let mut out_dir = self.current_dir.join(&base);
+            let mut out_dir = self.left.dir.join(&base);
             let mut n = 2usize;
             while out_dir.exists() {
-                out_dir = self.current_dir.join(format!("{}-{}", base, n));
+                out_dir = self.left.dir.join(format!("{}-{}", base, n));
                 n += 1;
             }
 
@@ -529,7 +529,7 @@ impl App {
             return;
         }
 
-        let cwd = self.current_dir.clone();
+        let cwd = self.left.dir.clone();
         let archive_path = cwd.join(&archive_name);
         self.archive.total_bytes = 0;
         self.archive.done_bytes = 0;

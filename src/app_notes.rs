@@ -96,7 +96,7 @@ impl App {
         if self
             .notes_loaded_for
             .as_ref()
-            .map(|p| p == &self.current_dir)
+            .map(|p| p == &self.left.dir)
             .unwrap_or(false)
         {
             return;
@@ -104,7 +104,7 @@ impl App {
 
         self.notes_scan_id = self.notes_scan_id.wrapping_add(1);
         let scan_id = self.notes_scan_id;
-        let dir = self.current_dir.clone();
+        let dir = self.left.dir.clone();
         self.notes_by_name.clear();
         self.notes_rx = Some(spawn_worker(move |tx| {
             let notes = App::load_notes_map_for_dir(&dir);
@@ -114,7 +114,7 @@ impl App {
 
     pub(crate) fn pump_notes_progress(&mut self) {
         for NotesLoadMsg::Finished(scan_id, path, notes) in drain_channel(&mut self.notes_rx) {
-            if scan_id == self.notes_scan_id && path == self.current_dir {
+            if scan_id == self.notes_scan_id && path == self.left.dir {
                 self.notes_by_name = notes;
                 self.notes_loaded_for = Some(path);
             }
@@ -134,13 +134,13 @@ impl App {
             } else if let Some(entry) = self.right.entries.get(self.right.selected_index) {
                 out.push(crate::util::classify::entry_name(entry));
             }
-        } else if !self.marked_indices.is_empty() {
-            for idx in &self.marked_indices {
-                if let Some(entry) = self.entries.get(*idx) {
+        } else if !self.left.marked_indices.is_empty() {
+            for idx in &self.left.marked_indices {
+                if let Some(entry) = self.left.entries.get(*idx) {
                     out.push(crate::util::classify::entry_name(entry));
                 }
             }
-        } else if let Some(entry) = self.entries.get(self.selected_index) {
+        } else if let Some(entry) = self.left.entries.get(self.left.selected_index) {
             out.push(crate::util::classify::entry_name(entry));
         }
         out.sort();
@@ -156,7 +156,7 @@ impl App {
         }
 
         let active_dir = self.active_panel_dir();
-        let notes_map = if active_dir != self.current_dir {
+        let notes_map = if active_dir != self.left.dir {
             Self::load_notes_map_for_dir(&active_dir)
         } else {
             self.notes_by_name.clone()
@@ -217,11 +217,11 @@ impl App {
     }
 
     pub(crate) fn save_notes_for_current_dir(&mut self) -> io::Result<()> {
-        let existing = Self::entry_names_in_dir(&self.current_dir);
+        let existing = Self::entry_names_in_dir(&self.left.dir);
         self.notes_by_name
             .retain(|name, note| existing.contains(name) && !note.trim().is_empty());
-        Self::write_notes_map(&self.current_dir, &self.notes_by_name, self.notes_scan_id)?;
-        self.notes_loaded_for = Some(self.current_dir.clone());
+        Self::write_notes_map(&self.left.dir, &self.notes_by_name, self.notes_scan_id)?;
+        self.notes_loaded_for = Some(self.left.dir.clone());
         Ok(())
     }
 
@@ -237,7 +237,7 @@ impl App {
         let count = self.note_edit_targets.len();
         let edit_dir = self.note_edit_dir.clone();
 
-        let save_result = if edit_dir == self.current_dir || edit_dir == PathBuf::new() {
+        let save_result = if edit_dir == self.left.dir || edit_dir == PathBuf::new() {
             for target in &self.note_edit_targets {
                 if is_empty {
                     self.notes_by_name.remove(target);
@@ -262,6 +262,18 @@ impl App {
 
         match save_result {
             Ok(()) => {
+                // Keep both panels consistent: in dual-panel mode the same
+                // directory can be shown in both halves, so any panel whose dir
+                // matches the edited dir must pick up the just-saved note.
+                let saved = Self::load_notes_map_for_dir(&edit_dir);
+                if self.left.dir == edit_dir {
+                    self.notes_by_name = saved.clone();
+                    self.notes_loaded_for = Some(edit_dir.clone());
+                }
+                if self.is_dual_panel_mode() && self.right.dir == edit_dir {
+                    self.right_notes_by_name = saved;
+                    self.right_notes_loaded_for = Some(edit_dir.clone());
+                }
                 if is_empty {
                     self.set_status(format!("cleared note for {} item(s)", count));
                 } else {

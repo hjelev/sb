@@ -68,16 +68,16 @@ pub(crate) fn handle_browsing_key(
                         app.right.table_state.select(Some(app.right.selected_index));
                     }
                 }
-            } else if !app.entries.is_empty() {
-                if app.marked_indices.contains(&app.selected_index) {
-                    app.marked_indices.remove(&app.selected_index);
+            } else if !app.left.entries.is_empty() {
+                if app.left.marked_indices.contains(&app.left.selected_index) {
+                    app.left.marked_indices.remove(&app.left.selected_index);
                 } else {
-                    app.marked_indices.insert(app.selected_index);
+                    app.left.marked_indices.insert(app.left.selected_index);
                 }
                 app.start_selected_total_size_scan();
-                if app.selected_index < app.entries.len() - 1 {
-                    app.selected_index += 1;
-                    app.table_state.select(Some(app.selected_index));
+                if app.left.selected_index < app.left.entries.len() - 1 {
+                    app.left.selected_index += 1;
+                    app.left.table_state.select(Some(app.left.selected_index));
                 }
             }
         }
@@ -91,11 +91,11 @@ pub(crate) fn handle_browsing_key(
                     }
                     app.start_selected_total_size_scan();
                 }
-            } else if !app.entries.is_empty() {
-                if app.marked_indices.len() == app.entries.len() {
-                    app.marked_indices.clear();
+            } else if !app.left.entries.is_empty() {
+                if app.left.marked_indices.len() == app.left.entries.len() {
+                    app.left.marked_indices.clear();
                 } else {
-                    app.marked_indices = (0..app.entries.len()).collect();
+                    app.left.marked_indices = (0..app.left.entries.len()).collect();
                 }
                 app.start_selected_total_size_scan();
             }
@@ -115,12 +115,12 @@ pub(crate) fn handle_browsing_key(
                 app.begin_dual_panel_transfer(false);
             } else {
                 app.clipboard.clear();
-                if !app.marked_indices.is_empty() {
+                if !app.left.marked_indices.is_empty() {
                     // Copy all marked
-                    for &idx in &app.marked_indices {
-                        if let Some(e) = app.entries.get(idx) { app.clipboard.push(e.path()); }
+                    for &idx in &app.left.marked_indices {
+                        if let Some(e) = app.left.entries.get(idx) { app.clipboard.push(e.path()); }
                     }
-                } else if let Some(e) = app.entries.get(app.selected_index) {
+                } else if let Some(e) = app.left.entries.get(app.left.selected_index) {
                     // Copy single selected
                     app.clipboard.push(e.path());
                 }
@@ -281,9 +281,9 @@ pub(crate) fn handle_browsing_key(
             }
         }
         KeyCode::Char('.') => {
-            app.show_hidden = !app.show_hidden;
+            app.left.show_hidden = !app.left.show_hidden;
             app.refresh_entries_or_status();
-            app.set_status(if app.show_hidden {
+            app.set_status(if app.left.show_hidden {
                 "hidden files: shown"
             } else {
                 "hidden files: hidden"
@@ -291,14 +291,14 @@ pub(crate) fn handle_browsing_key(
         }
 
         KeyCode::F(2) | KeyCode::Char('r') => {
-            if app.marked_indices.len() > 1 {
+            if app.left.marked_indices.len() > 1 {
                 if !app.integration_active("vidir") {
                     app.status_tool_not_found("vidir");
                 } else {
-                    let targets: Vec<PathBuf> = app.entries
+                    let targets: Vec<PathBuf> = app.left.entries
                         .iter()
                         .enumerate()
-                        .filter(|(i, _)| app.marked_indices.contains(i))
+                        .filter(|(i, _)| app.left.marked_indices.contains(i))
                         .map(|(_, e)| e.path())
                         .collect();
                     if targets.is_empty() {
@@ -316,14 +316,14 @@ pub(crate) fn handle_browsing_key(
                     }
                 }
             } else {
-                let target_idx = if app.marked_indices.len() == 1 {
-                    *app.marked_indices.iter().next().unwrap_or(&app.selected_index)
+                let target_idx = if app.left.marked_indices.len() == 1 {
+                    *app.left.marked_indices.iter().next().unwrap_or(&app.left.selected_index)
                 } else {
-                    app.selected_index
+                    app.left.selected_index
                 };
-                if let Some(e) = app.entries.get(target_idx) {
-                    app.selected_index = target_idx;
-                    app.table_state.select(Some(target_idx));
+                if let Some(e) = app.left.entries.get(target_idx) {
+                    app.left.selected_index = target_idx;
+                    app.left.table_state.select(Some(target_idx));
                     let current_name = crate::util::classify::entry_name(e);
                     app.begin_input_edit(AppMode::Renaming, current_name);
                 }
@@ -337,8 +337,8 @@ pub(crate) fn handle_browsing_key(
                 app.right.selected_index = app.right.selected_index.saturating_sub(app.page_size);
                 app.right.table_state.select(Some(app.right.selected_index));
             } else {
-                app.selected_index = app.selected_index.saturating_sub(app.page_size);
-                app.table_state.select(Some(app.selected_index));
+                app.left.selected_index = app.left.selected_index.saturating_sub(app.page_size);
+                app.left.table_state.select(Some(app.left.selected_index));
             }
         }
         KeyCode::PageDown => {
@@ -349,9 +349,9 @@ pub(crate) fn handle_browsing_key(
                     app.right.selected_index = (app.right.selected_index + app.page_size).min(app.right.entries.len() - 1);
                     app.right.table_state.select(Some(app.right.selected_index));
                 }
-            } else if !app.entries.is_empty() {
-                app.selected_index = (app.selected_index + app.page_size).min(app.entries.len() - 1);
-                app.table_state.select(Some(app.selected_index));
+            } else if !app.left.entries.is_empty() {
+                app.left.selected_index = (app.left.selected_index + app.page_size).min(app.left.entries.len() - 1);
+                app.left.table_state.select(Some(app.left.selected_index));
             }
         }
         KeyCode::Home => {
@@ -361,8 +361,8 @@ pub(crate) fn handle_browsing_key(
                 app.right.selected_index = 0;
                 app.right.table_state.select(Some(0));
             } else {
-                app.selected_index = 0;
-                app.table_state.select(Some(0));
+                app.left.selected_index = 0;
+                app.left.table_state.select(Some(0));
             }
         }
         KeyCode::End => {
@@ -373,9 +373,9 @@ pub(crate) fn handle_browsing_key(
                     app.right.selected_index = app.right.entries.len() - 1;
                     app.right.table_state.select(Some(app.right.selected_index));
                 }
-            } else if !app.entries.is_empty() {
-                app.selected_index = app.entries.len() - 1;
-                app.table_state.select(Some(app.selected_index));
+            } else if !app.left.entries.is_empty() {
+                app.left.selected_index = app.left.entries.len() - 1;
+                app.left.table_state.select(Some(app.left.selected_index));
             }
         }
         KeyCode::Left | KeyCode::Backspace => {
@@ -475,7 +475,7 @@ fn handle_vertical_move_key(app: &mut App, key: KeyEvent, deferred_key: &mut Opt
                 let at_top = if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
                     app.right.selected_index == 0
                 } else {
-                    app.selected_index == 0
+                    app.left.selected_index == 0
                 };
                 if at_top {
                     app.mode = AppMode::FolderFilter;
@@ -566,7 +566,7 @@ fn handle_enter_or_right(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app:
             let selected_path = if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
                 app.right.entries.get(app.right.selected_index).map(|e| e.path())
             } else {
-                app.entries.get(app.selected_index).map(|e| e.path())
+                app.left.entries.get(app.left.selected_index).map(|e| e.path())
             };
 
             if let Some(selected_path) = selected_path {

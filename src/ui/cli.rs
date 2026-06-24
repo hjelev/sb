@@ -55,6 +55,7 @@ pub fn list_current_directory(
     let no_color = config.no_color;
     let show_icons = config.show_icons;
     let theme_id = crate::ui::theme::theme_by_name(&persist.current_theme);
+    let theme = crate::ui::theme::theme_spec(theme_id);
     let filename_color_mode = persist.filename_color_mode;
     let term_w = crossterm::terminal::size()
         .map(|(w, _)| w as usize)
@@ -226,7 +227,7 @@ pub fn list_current_directory(
         let tree_color = if no_color {
             CtColor::Reset
         } else {
-            CtColor::Rgb { r: 140, g: 140, b: 140 }
+            rt_to_ct_color(theme.text_dim)
         };
 
         let icon_prefix = if show_icons && !cache.icon_glyph.is_empty() {
@@ -317,8 +318,8 @@ pub fn list_current_directory(
                 }
                 print!(
                     " {} {}",
-                    style(group_col.as_str()).with(CtColor::Rgb { r: 180, g: 150, b: 100 }),
-                    style(owner_col.as_str()).with(CtColor::Rgb { r: 180, g: 150, b: 100 })
+                    style(group_col.as_str()).with(rt_to_ct_color(theme.meta_group)),
+                    style(owner_col.as_str()).with(rt_to_ct_color(theme.meta_owner))
                 );
             }
             if show_size {

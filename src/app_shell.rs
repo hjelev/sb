@@ -43,7 +43,7 @@ impl App {
             return Ok(());
         };
 
-        let Some(entry) = self.entries.get(self.selected_index) else {
+        let Some(entry) = self.left.entries.get(self.left.selected_index) else {
             self.set_status("no selected item");
             return Ok(());
         };
@@ -55,7 +55,7 @@ impl App {
         }
 
         let shell = Self::login_shell();
-        let current_dir = self.current_dir.to_string_lossy().into_owned();
+        let current_dir = self.left.dir.to_string_lossy().into_owned();
         let selected_file = selected_path.to_string_lossy().into_owned();
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -73,7 +73,7 @@ impl App {
             return Ok(());
         };
 
-        let Some(entry) = self.entries.get(self.selected_index) else {
+        let Some(entry) = self.left.entries.get(self.left.selected_index) else {
             self.set_status("no selected item");
             return Ok(());
         };
@@ -86,7 +86,7 @@ impl App {
 
         let shell = Self::login_shell();
         let editor = crate::util::command::editor_command();
-        let current_dir = self.current_dir.to_string_lossy().into_owned();
+        let current_dir = self.left.dir.to_string_lossy().into_owned();
         let selected_file = selected_path.to_string_lossy().into_owned();
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -249,7 +249,7 @@ impl App {
         // suspend sbrs when returning from the command runner.
         cmd.args(["-c", trimmed]);
 
-        let status = cmd.current_dir(&self.current_dir).status();
+        let status = cmd.current_dir(&self.left.dir).status();
 
         match status {
             Ok(s) => {
@@ -283,7 +283,7 @@ impl App {
         suspend_tui()?;
         execute!(io::stdout(), Show)?;
         let _ = Command::new(&shell)
-            .current_dir(&self.current_dir)
+            .current_dir(&self.left.dir)
             .status();
         resume_tui_cleared()?;
         enable_raw_mode()?;
@@ -435,17 +435,17 @@ impl App {
             return Ok(());
         }
 
-        if self.marked_indices.len() != 1 {
+        if self.left.marked_indices.len() != 1 {
             self.set_status("mark exactly one file, then move cursor to another file and press C");
             return Ok(());
         }
 
-        let marked_idx = *self.marked_indices.iter().next().unwrap_or(&self.selected_index);
-        let Some(marked_entry) = self.entries.get(marked_idx) else {
+        let marked_idx = *self.left.marked_indices.iter().next().unwrap_or(&self.left.selected_index);
+        let Some(marked_entry) = self.left.entries.get(marked_idx) else {
             self.set_status("marked file not found");
             return Ok(());
         };
-        let Some(cursor_entry) = self.entries.get(self.selected_index) else {
+        let Some(cursor_entry) = self.left.entries.get(self.left.selected_index) else {
             self.set_status("cursor file not found");
             return Ok(());
         };
@@ -481,7 +481,7 @@ impl App {
         let entry = if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
             self.right.entries.get(self.right.selected_index)
         } else {
-            self.entries.get(self.selected_index)
+            self.left.entries.get(self.left.selected_index)
         };
         let Some(entry) = entry else {
             self.set_status("no selected item");

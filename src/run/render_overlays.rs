@@ -37,7 +37,7 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
         render_new_entry_overlay(f, app, ctx);
     } else if app.mode == AppMode::Renaming {
         let area = f.size();
-        let selected_entry = app.entries.get(app.selected_index);
+        let selected_entry = app.left.entries.get(app.left.selected_index);
         let old_name = selected_entry
             .map(crate::util::classify::entry_name)
             .unwrap_or_else(|| app.input_buffer.clone());
@@ -278,7 +278,7 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             },
             &options,
             app.sort_menu_selected,
-            app.sort_mode,
+            app.left.sort_mode,
             &mut app.footer_shortcut_zones,
         );
     } else if app.mode == AppMode::SshPicker {
@@ -610,7 +610,7 @@ pub(crate) fn render_internal_search_overlay(f: &mut Frame, app: &mut App, ctx: 
                     InternalSearchResult::Filename { rel_path, .. } => rel_path,
                     InternalSearchResult::Content { rel_path, .. } => rel_path,
                 };
-                let abs_path = app.current_dir.join(rel_path_for_icon);
+                let abs_path = app.left.dir.join(rel_path_for_icon);
                 let is_symlink = crate::util::classify::is_symlink(&abs_path);
                 let is_dir = abs_path.is_dir();
                 let icon_name = rel_path_for_icon

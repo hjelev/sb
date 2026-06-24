@@ -38,7 +38,7 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
             app.current_dir_display_path_with_filter()
         };
         let left_title = build_panel_title(
-            &app.current_dir,
+            &app.left.dir,
             path_text,
             app.mode == AppMode::PathEditing,
             list_frame_area.width,
@@ -81,7 +81,7 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
     let perms_width = 11usize;
     let group_width = app.meta_group_width.max(1);
     let owner_width = app.meta_owner_width.max(1);
-    let size_width = if show_size { app.list_aggregates.max_size_width } else { 1 };
+    let size_width = if show_size { app.left.list_aggregates.max_size_width } else { 1 };
     let pct_width = 4usize;
     let date_width = 16usize;
     let reserved_width = (if show_meta { perms_width + group_width + owner_width } else { 0 })
@@ -119,9 +119,9 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
 
     // Aggregates are precomputed when the render cache is (re)built; the render
     // path only gates them by the column-visibility flags here.
-    let size_min_max = if show_size { app.list_aggregates.size_min_max } else { None };
-    let left_total_for_pct = if show_pct { app.list_aggregates.percent_total } else { None };
-    let date_rank_by_ts = &app.list_aggregates.date_rank_by_ts;
+    let size_min_max = if show_size { app.left.list_aggregates.size_min_max } else { None };
+    let left_total_for_pct = if show_pct { app.left.list_aggregates.percent_total } else { None };
+    let date_rank_by_ts = &app.left.list_aggregates.date_rank_by_ts;
     let use_main_pill = true;
     let left_pill_color = if app.is_dual_panel_mode() && app.active_panel == crate::DualPanelSide::Right {
         active_theme.bg_inactive_panel
@@ -129,9 +129,9 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
         active_theme.bg_selected
     };
 
-    let rows: Vec<Row> = app.entry_render_cache.iter().enumerate().map(|(idx, entry_cache)| {
-        let is_marked = app.marked_indices.contains(&idx);
-        let is_selected = idx == app.selected_index;
+    let rows: Vec<Row> = app.left.entry_render_cache.iter().enumerate().map(|(idx, entry_cache)| {
+        let is_marked = app.left.marked_indices.contains(&idx);
+        let is_selected = idx == app.left.selected_index;
         let pill_mode = use_main_pill;
         let pill_selected = is_selected && pill_mode;
         let (icon_style, name_style) = entry_styles(entry_cache.icon_style, entry_cache.name_style, is_selected);
@@ -161,7 +161,7 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
             .get(&entry_cache.raw_name)
             .map(|s| s.as_str())
             .unwrap_or("");
-        let tree_prefix = app.tree_row_prefixes.get(idx).map(|s| s.as_str()).unwrap_or("");
+        let tree_prefix = app.left.tree_row_prefixes.get(idx).map(|s| s.as_str()).unwrap_or("");
         let icon_prefix_width = if app.show_icons && !entry_cache.icon_glyph.is_empty() {
             2usize
         } else {
@@ -354,7 +354,7 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
     } else {
         table_area
     };
-    let needs_scroll = app.entries.len() > table_area.height as usize;
+    let needs_scroll = app.left.entries.len() > table_area.height as usize;
     let can_draw_scrollbar = app.mode_shows_main_scrollbar() && table_area.width > 2 && needs_scroll;
     let list_area = if can_draw_scrollbar {
         Rect::new(table_area.x, table_area.y, table_area.width.saturating_sub(1), table_area.height)
@@ -372,9 +372,9 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
         list_area
     };
     app.page_size = (table_render_area.height as usize).saturating_sub(1).max(1);
-    f.render_stateful_widget(table, table_render_area, &mut app.table_state);
+    f.render_stateful_widget(table, table_render_area, &mut app.left.table_state);
 
-    if app.entries.is_empty() {
+    if app.left.entries.is_empty() {
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 "No files or folders yet. Use the 'n' button to break the silence.",
@@ -389,13 +389,13 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
 
     // If the selected item is truncated, temporarily hide its metadata and
     // render its full name across the whole row width.
-    if let Some(selected_idx) = app.table_state.selected()
-        && let Some(entry_cache) = app.entry_render_cache.get(selected_idx) {
-            let tree_prefix = app.tree_row_prefixes.get(selected_idx).map(|s| s.as_str()).unwrap_or("");
+    if let Some(selected_idx) = app.left.table_state.selected()
+        && let Some(entry_cache) = app.left.entry_render_cache.get(selected_idx) {
+            let tree_prefix = app.left.tree_row_prefixes.get(selected_idx).map(|s| s.as_str()).unwrap_or("");
             let full_name = entry_cache.raw_name.as_str();
             let prefix_width_for_check = tree_prefix.chars().count();
             if prefix_width_for_check + full_name.chars().count() > name_truncate_width {
-                let offset = app.table_state.offset();
+                let offset = app.left.table_state.offset();
                 if selected_idx >= offset {
                     let row_in_view = selected_idx - offset;
                     if row_in_view < table_render_area.height as usize {
@@ -405,7 +405,7 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
                             table_render_area.width,
                             1,
                         );
-                        let is_marked = app.marked_indices.contains(&selected_idx);
+                        let is_marked = app.left.marked_indices.contains(&selected_idx);
                         let icon_style = entry_cache.icon_style.fg(active_theme.text_normal);
                         let name_style = entry_cache.name_style.fg(active_theme.text_normal);
                         let marker = if app.no_color {
@@ -520,8 +520,8 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
         }
 
     if use_main_pill
-        && let Some(selected_idx) = app.table_state.selected() {
-            let offset = app.table_state.offset();
+        && let Some(selected_idx) = app.left.table_state.selected() {
+            let offset = app.left.table_state.offset();
             if selected_idx >= offset {
                 let row_in_view = selected_idx - offset;
                 if row_in_view < table_render_area.height as usize {
@@ -596,9 +596,9 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
         let track_h = sb_area.height as usize;
         if track_h > 0 {
             let visible_rows = list_area.height.max(1) as usize;
-            let total_rows = app.entries.len();
+            let total_rows = app.left.entries.len();
             let max_scroll = total_rows.saturating_sub(visible_rows);
-            let offset = app.table_state.offset().min(max_scroll);
+            let offset = app.left.table_state.offset().min(max_scroll);
             let thumb_h = ((visible_rows * track_h + total_rows.saturating_sub(1)) / total_rows)
                 .max(1)
                 .min(track_h);
@@ -629,7 +629,7 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
         let title_path = app
             .preview_target_path
             .clone()
-            .or_else(|| app.entries.get(app.selected_index).map(|e| e.path()));
+            .or_else(|| app.left.entries.get(app.left.selected_index).map(|e| e.path()));
         let preview_title = if let Some(path) = title_path {
             let name = path
                 .file_name()
@@ -818,7 +818,7 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
         }
         } else if app.is_dual_panel_mode() {
             let right_path = if app.right.dir.as_os_str().is_empty() {
-                app.current_dir.clone()
+                app.left.dir.clone()
             } else {
                 app.right.dir.clone()
             };

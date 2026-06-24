@@ -82,7 +82,7 @@ pub(crate) fn run_tui_body(
             // Pre-calculate if scrollbar will be visible for header alignment
             let scrollbar_in_main = {
                 let table_area_height = chunks[0].height.saturating_sub(header_rows);
-                let needs_scroll = app.entries.len() > table_area_height as usize;
+                let needs_scroll = app.left.entries.len() > table_area_height as usize;
                 let table_area_width = if app.is_preview_mode() {
                     (chunks[0].width * 33 / 100).max(1)
                 } else if app.is_dual_panel_mode() {

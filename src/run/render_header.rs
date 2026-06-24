@@ -23,7 +23,7 @@ pub(crate) fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user:
     };
     let os_icon_glyph: Option<&'static str> = if app.nerd_font_active {
         // Use the remote OS icon if we're inside an SSH/rclone mount
-        app.ssh_mounts.iter().rfind(|m| app.current_dir.starts_with(&m.mount_path))
+        app.ssh_mounts.iter().rfind(|m| app.left.dir.starts_with(&m.mount_path))
             .and_then(|m| m.remote_os_icon.map(|(glyph, _)| glyph))
             .or_else(|| app.os_icon.map(|(glyph, _)| glyph))
     } else {

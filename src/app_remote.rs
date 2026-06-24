@@ -171,7 +171,7 @@ impl App {
     }
 
     pub(crate) fn current_remote_mount(&self) -> Option<&SshMount> {
-        self.remote_mount_for_path(&self.current_dir)
+        self.remote_mount_for_path(&self.left.dir)
     }
 
     pub(crate) fn current_header_identity(&self, local_user: &str, local_host: &str) -> String {
@@ -181,11 +181,11 @@ impl App {
     }
 
     pub(crate) fn current_dir_display_path(&self) -> String {
-        self.display_path_for(&self.current_dir)
+        self.display_path_for(&self.left.dir)
     }
 
     pub(crate) fn path_filter_suffix_text(&self) -> Option<String> {
-        let filter = self.path_input_filter.as_ref()?;
+        let filter = self.left.folder_filter.as_ref()?;
         let suffix = match filter.mode {
             PathFilterMode::Prefix => format!("^{}", filter.pattern),
             PathFilterMode::Suffix => format!("{}$", filter.pattern),
@@ -211,7 +211,7 @@ impl App {
     }
 
     pub(crate) fn current_path_edit_value(&self) -> String {
-        let base = self.current_dir.to_string_lossy().into_owned();
+        let base = self.left.dir.to_string_lossy().into_owned();
         Self::path_with_filter_suffix(base, self.path_filter_suffix_text())
     }
 
@@ -341,13 +341,13 @@ impl App {
     pub(crate) fn try_leave_ssh_mount(&mut self) -> bool {
         // Check if we are at the mount root (not just a subdir) — only intercept at the boundary
         let mount_idx = self.ssh_mounts.iter().rposition(|m| {
-            self.current_dir == m.mount_path
+            self.left.dir == m.mount_path
         });
         let Some(idx) = mount_idx else { return false };
         self.remember_current_selection();
         let return_dir = self.ssh_mounts[idx].return_dir.clone();
         // Navigate back without unmounting — mount stays active, shown as mounted in S picker
-        self.current_dir = return_dir;
+        self.left.dir = return_dir;
         self.refresh_entries_or_status();
         true
     }
@@ -356,8 +356,8 @@ impl App {
         // If current_dir is inside any ssh mount, set it to the return dir first
         // so the shell cd integration lands on a local path
         for mount in self.ssh_mounts.iter() {
-            if self.current_dir == mount.mount_path || self.current_dir.starts_with(&mount.mount_path) {
-                self.current_dir = mount.return_dir.clone();
+            if self.left.dir == mount.mount_path || self.left.dir.starts_with(&mount.mount_path) {
+                self.left.dir = mount.return_dir.clone();
                 break;
             }
         }
@@ -374,8 +374,8 @@ impl App {
         };
 
         let mount = self.ssh_mounts.remove(idx);
-        if self.current_dir == mount.mount_path || self.current_dir.starts_with(&mount.mount_path) {
-            self.current_dir = mount.return_dir.clone();
+        if self.left.dir == mount.mount_path || self.left.dir.starts_with(&mount.mount_path) {
+            self.left.dir = mount.return_dir.clone();
             self.refresh_entries_or_status();
         }
 

@@ -47,7 +47,7 @@ impl App {
         let cache_is_current = self
             .git_info_cache
             .as_ref()
-            .map(|cache| cache.path == self.current_dir)
+            .map(|cache| cache.path == self.left.dir)
             .unwrap_or(false);
 
         let is_fresh = self
@@ -64,7 +64,7 @@ impl App {
             self.git_info_cache = None;
         }
 
-        let path = self.current_dir.clone();
+        let path = self.left.dir.clone();
         self.git_last_check_at = Some(Instant::now());
         self.git_info_rx = Some(spawn_worker(move |tx| {
             let info = App::get_git_info(&path);
@@ -74,7 +74,7 @@ impl App {
 
     pub(crate) fn cached_git_info_for_current_dir(&self) -> Option<(&str, bool, Option<(&str, u64)>)> {
         let cache = self.git_info_cache.as_ref()?;
-        if cache.path != self.current_dir {
+        if cache.path != self.left.dir {
             return None;
         }
         cache.info.as_ref().map(|(branch, dirty, tag)| {
@@ -178,7 +178,7 @@ impl App {
     }
 
     pub(crate) fn latest_git_tag(&self) -> Option<String> {
-        let out = CommandBuilder::git_command(&self.current_dir, &["describe", "--tags", "--abbrev=0"])
+        let out = CommandBuilder::git_command(&self.left.dir, &["describe", "--tags", "--abbrev=0"])
             .ok()?;
 
         if !out.status.success() {
@@ -201,7 +201,7 @@ impl App {
         if delta_available {
             println!("$ git -c core.pager=delta -c delta.side-by-side=true -c delta.features=side-by-side diff");
             CommandBuilder::git_interactive(
-                &self.current_dir,
+                &self.left.dir,
                 &[
                     "-c",
                     "core.pager=delta",
@@ -214,12 +214,12 @@ impl App {
             );
         } else {
             println!("$ git -c color.ui=always diff");
-            CommandBuilder::git_interactive(&self.current_dir, &["-c", "color.ui=always", "diff"]);
+            CommandBuilder::git_interactive(&self.left.dir, &["-c", "color.ui=always", "diff"]);
             println!("\nTip: install delta for side-by-side colored diff preview.");
         }
 
         println!("\n$ git status");
-        CommandBuilder::git_interactive(&self.current_dir, &["status"]);
+        CommandBuilder::git_interactive(&self.left.dir, &["status"]);
 
         print!("\nDo you really want to commit these changes? [y/N]: ");
         let _ = io::stdout().flush();
@@ -244,19 +244,19 @@ impl App {
         };
 
         println!("$ git add --all");
-        if !run_step(&["add", "--all"], &self.current_dir)? {
+        if !run_step(&["add", "--all"], &self.left.dir)? {
             failed_step = Some("git add --all failed".to_string());
         }
 
         if failed_step.is_none() {
             if amend {
                 println!("$ git commit -m \"{}\" --amend", commit_message);
-                if !run_step(&["commit", "-m", commit_message, "--amend"], &self.current_dir)? {
+                if !run_step(&["commit", "-m", commit_message, "--amend"], &self.left.dir)? {
                     failed_step = Some("git commit --amend failed".to_string());
                 }
             } else {
                 println!("$ git commit -m \"{}\"", commit_message);
-                if !run_step(&["commit", "-m", commit_message], &self.current_dir)? {
+                if !run_step(&["commit", "-m", commit_message], &self.left.dir)? {
                     failed_step = Some("git commit failed".to_string());
                 }
             }
@@ -266,20 +266,20 @@ impl App {
             if amend {
                 println!("$ git push origin HEAD -f");
                 push_forced = true;
-                if !run_step(&["push", "origin", "HEAD", "-f"], &self.current_dir)? {
+                if !run_step(&["push", "origin", "HEAD", "-f"], &self.left.dir)? {
                     failed_step = Some("git push -f failed".to_string());
                 }
             } else {
                 println!("$ git push origin HEAD");
-                if !run_step(&["push", "origin", "HEAD"], &self.current_dir)? {
+                if !run_step(&["push", "origin", "HEAD"], &self.left.dir)? {
                     println!("git push failed, pulling with --rebase and retrying...");
                     println!("$ git pull --rebase");
-                    if !run_step(&["pull", "--rebase"], &self.current_dir)? {
+                    if !run_step(&["pull", "--rebase"], &self.left.dir)? {
                         failed_step =
                             Some("git pull --rebase failed (resolve conflicts manually)".to_string());
                     } else {
                         println!("$ git push origin HEAD");
-                        if !run_step(&["push", "origin", "HEAD"], &self.current_dir)? {
+                        if !run_step(&["push", "origin", "HEAD"], &self.left.dir)? {
                             failed_step = Some("git push failed".to_string());
                         }
                     }
@@ -349,13 +349,13 @@ impl App {
         let mut failed_step: Option<String> = None;
 
         println!("$ git tag {}", tag);
-        if !run_step(&["tag", tag], &self.current_dir)? {
+        if !run_step(&["tag", tag], &self.left.dir)? {
             failed_step = Some("git tag failed".to_string());
         }
 
         if failed_step.is_none() {
             println!("$ git push origin {}", tag);
-            if !run_step(&["push", "origin", tag], &self.current_dir)? {
+            if !run_step(&["push", "origin", tag], &self.left.dir)? {
                 failed_step = Some("git push tag failed".to_string());
             }
         }

@@ -473,7 +473,7 @@ impl App {
             Self::format_size(limits.max_file_bytes as u64),
         ));
 
-        let current_dir = self.current_dir.clone();
+        let current_dir = self.left.dir.clone();
         let candidates = self.search.candidates.clone();
         let pattern = if let Some((pattern, case_insensitive)) = regex_pattern {
             InternalSearchPattern::Regex {
@@ -607,7 +607,7 @@ impl App {
         let scan_id = self.search.candidates_scan_id;
         self.search.candidates_pending = true;
 
-        let root = self.current_dir.clone();
+        let root = self.left.dir.clone();
         self.search.candidates_rx = Some(spawn_worker(move |tx| {
             let candidates = App::collect_internal_search_candidates(&root, INTERNAL_SEARCH_MAX_ITEMS);
             let truncated = candidates.len() >= INTERNAL_SEARCH_MAX_ITEMS;
@@ -699,6 +699,6 @@ impl App {
             InternalSearchResult::Filename { rel_path, .. } => rel_path,
             InternalSearchResult::Content { rel_path, .. } => rel_path,
         };
-        Some(self.current_dir.join(rel))
+        Some(self.left.dir.join(rel))
     }
 }

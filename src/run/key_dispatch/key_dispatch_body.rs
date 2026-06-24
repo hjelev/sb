@@ -16,7 +16,7 @@ pub(crate) fn handle_app_key_event_body(
                 app.apply_path_input();
             }
             KeyCode::Esc => {
-                let had_filter = app.path_input_filter.take().is_some();
+                let had_filter = app.left.folder_filter.take().is_some();
                 if had_filter && app.refresh_entries_or_status() {
                     app.set_status("path filter cleared");
                 }
@@ -281,7 +281,7 @@ pub(crate) fn handle_app_key_event_body(
                         .paste_target_dir
                         .as_ref()
                         .cloned()
-                        .unwrap_or_else(|| app.current_dir.clone());
+                        .unwrap_or_else(|| app.left.dir.clone());
                     let dest = target_dir.join(&new_name);
                     if dest.exists() {
                         app.set_status("target still exists: choose another name");

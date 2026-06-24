@@ -23,7 +23,7 @@ impl App {
         {
             self.right.dir.clone()
         } else {
-            self.current_dir.clone()
+            self.left.dir.clone()
         }
     }
 
@@ -31,7 +31,7 @@ impl App {
         let scan_id = self.size.recursive_mtime.next_scan_id();
         let cancel = self.size.recursive_mtime.renew_cancel();
 
-        let mut unique_dirs: HashSet<PathBuf> = self
+        let mut unique_dirs: HashSet<PathBuf> = self.left
             .entries
             .iter()
             .map(|e| e.path())
@@ -82,9 +82,9 @@ impl App {
                     if !self.size.recursive_mtime.is_current(scan_id) {
                         continue;
                     }
-                    if let Some(idx) = self.entries.iter().position(|e| e.path() == dir_path) {
-                        self.entry_render_cache[idx].modified_unix = Some(unix_secs);
-                        self.entry_render_cache[idx].date_col = format!(
+                    if let Some(idx) = self.left.entries.iter().position(|e| e.path() == dir_path) {
+                        self.left.entry_render_cache[idx].modified_unix = Some(unix_secs);
+                        self.left.entry_render_cache[idx].date_col = format!(
                             "{:>width$}",
                             crate::util::format::format_mtime(
                                 UNIX_EPOCH + std::time::Duration::from_secs(unix_secs)
@@ -146,11 +146,11 @@ impl App {
     pub(crate) fn clear_selected_total_size_state_for(&mut self, side: crate::DualPanelSide) {
         match side {
             crate::DualPanelSide::Left => {
-                self.selected_total_size.next_scan_id();
-                self.selected_total_size.clear_rx();
-                self.selected_total_size_pending = false;
-                self.selected_total_size_bytes = None;
-                self.selected_total_size_items = 0;
+                self.left.selected_total_size.next_scan_id();
+                self.left.selected_total_size.clear_rx();
+                self.left.selected_total_size_pending = false;
+                self.left.selected_total_size_bytes = None;
+                self.left.selected_total_size_items = 0;
             }
             crate::DualPanelSide::Right => {
                 self.right.selected_total_size.next_scan_id();
@@ -180,15 +180,15 @@ impl App {
 
         let targets: Vec<PathBuf> = match side {
             crate::DualPanelSide::Left => {
-                if !self.size.folder_size_enabled || self.marked_indices.len() < 2 {
+                if !self.size.folder_size_enabled || self.left.marked_indices.len() < 2 {
                     self.clear_selected_total_size_state_for(side);
                     return;
                 }
 
-                self.entries
+                self.left.entries
                     .iter()
                     .enumerate()
-                    .filter(|(i, _)| self.marked_indices.contains(i))
+                    .filter(|(i, _)| self.left.marked_indices.contains(i))
                     .map(|(_, e)| e.path())
                     .collect()
             }
@@ -214,10 +214,10 @@ impl App {
 
         let scan_id = match side {
             crate::DualPanelSide::Left => {
-                self.selected_total_size_items = targets.len();
-                self.selected_total_size_pending = true;
-                self.selected_total_size_bytes = None;
-                self.selected_total_size.next_scan_id()
+                self.left.selected_total_size_items = targets.len();
+                self.left.selected_total_size_pending = true;
+                self.left.selected_total_size_bytes = None;
+                self.left.selected_total_size.next_scan_id()
             }
             crate::DualPanelSide::Right => {
                 self.right.selected_total_size_items = targets.len();
@@ -235,22 +235,22 @@ impl App {
             let _ = tx.send(SelectedTotalSizeMsg::Finished(scan_id, total));
         });
         match side {
-            crate::DualPanelSide::Left => self.selected_total_size.rx = Some(rx),
+            crate::DualPanelSide::Left => self.left.selected_total_size.rx = Some(rx),
             crate::DualPanelSide::Right => self.right.selected_total_size.rx = Some(rx),
         }
     }
 
     pub(crate) fn pump_selected_total_size_progress(&mut self) {
-        for msg in drain_channel(&mut self.selected_total_size.rx) {
+        for msg in drain_channel(&mut self.left.selected_total_size.rx) {
             let SelectedTotalSizeMsg::Finished(scan_id, bytes) = msg;
-            if self.selected_total_size.is_current(scan_id) {
-                self.selected_total_size_bytes = Some(bytes);
-                self.selected_total_size_pending = false;
-                self.selected_total_size.clear_rx();
+            if self.left.selected_total_size.is_current(scan_id) {
+                self.left.selected_total_size_bytes = Some(bytes);
+                self.left.selected_total_size_pending = false;
+                self.left.selected_total_size.clear_rx();
             }
         }
         if !self.size.folder_size_enabled {
-            self.selected_total_size.clear_rx();
+            self.left.selected_total_size.clear_rx();
         }
 
         for msg in drain_channel(&mut self.right.selected_total_size.rx) {
@@ -278,10 +278,10 @@ impl App {
     pub(crate) fn selected_total_size_status_for(&self, side: crate::DualPanelSide) -> Option<String> {
         let (selected_count, pending, bytes, items) = match side {
             crate::DualPanelSide::Left => (
-                self.marked_indices.len(),
-                self.selected_total_size_pending,
-                self.selected_total_size_bytes,
-                self.selected_total_size_items,
+                self.left.marked_indices.len(),
+                self.left.selected_total_size_pending,
+                self.left.selected_total_size_bytes,
+                self.left.selected_total_size_items,
             ),
             crate::DualPanelSide::Right => (
                 self.right.marked_indices.len(),
@@ -327,7 +327,7 @@ impl App {
         let scan_id = self.size.folder_size.next_scan_id();
         let cancel = self.size.folder_size.renew_cancel();
 
-        let mut unique_dirs: HashSet<PathBuf> = self
+        let mut unique_dirs: HashSet<PathBuf> = self.left
             .entries
             .iter()
             .map(|e| e.path())
@@ -492,16 +492,16 @@ impl App {
     /// directory load, sort, and folder-size arrival — so the render path can
     /// read the aggregates instead of rescanning every frame.
     pub(crate) fn recompute_list_aggregates(&mut self) {
-        self.list_aggregates = crate::ListAggregates::from_cache(&self.entry_render_cache);
+        self.left.list_aggregates = crate::ListAggregates::from_cache(&self.left.entry_render_cache);
         self.right.list_aggregates = crate::ListAggregates::from_cache(&self.right.entry_render_cache);
     }
 
     pub(crate) fn reset_folder_size_columns(&mut self) {
         let size_width = 6usize;
-        for (idx, entry) in self.entries.iter().enumerate() {
+        for (idx, entry) in self.left.entries.iter().enumerate() {
             if entry.path().is_dir() {
-                self.entry_render_cache[idx].size_col = format!("{:>width$}", "-", width = size_width);
-                self.entry_render_cache[idx].size_bytes = None;
+                self.left.entry_render_cache[idx].size_col = format!("{:>width$}", "-", width = size_width);
+                self.left.entry_render_cache[idx].size_bytes = None;
             }
         }
         for (idx, entry) in self.right.entries.iter().enumerate() {
@@ -514,16 +514,16 @@ impl App {
     }
 
     pub(crate) fn apply_cached_folder_size_columns(&mut self) {
-        for (idx, entry) in self.entries.iter().enumerate() {
+        for (idx, entry) in self.left.entries.iter().enumerate() {
             let path = entry.path();
             if !path.is_dir() {
                 continue;
             }
 
             if let Some(size) = self.size.folder_size_cache.get(&path).copied() {
-                self.entry_render_cache[idx].size_col =
+                self.left.entry_render_cache[idx].size_col =
                     format!("{:>width$}", Self::format_size(size), width = 6);
-                self.entry_render_cache[idx].size_bytes = Some(size);
+                self.left.entry_render_cache[idx].size_bytes = Some(size);
             }
         }
         for (idx, entry) in self.right.entries.iter().enumerate() {
@@ -580,10 +580,10 @@ impl App {
                     if previous != Some(size) {
                         any_size_changed = true;
                     }
-                    if let Some(idx) = self.entries.iter().position(|e| e.path() == dir_path) {
-                        self.entry_render_cache[idx].size_col =
+                    if let Some(idx) = self.left.entries.iter().position(|e| e.path() == dir_path) {
+                        self.left.entry_render_cache[idx].size_col =
                             format!("{:>width$}", Self::format_size(size), width = 6);
-                        self.entry_render_cache[idx].size_bytes = Some(size);
+                        self.left.entry_render_cache[idx].size_bytes = Some(size);
                     }
                     if let Some(idx) = self.right.entries.iter().position(|e| e.path() == dir_path) {
                         self.right.entry_render_cache[idx].size_col =
@@ -599,7 +599,7 @@ impl App {
             }
         }
         if any_size_changed {
-            if matches!(self.sort_mode, crate::SortMode::SizeAsc | crate::SortMode::SizeDesc) {
+            if matches!(self.left.sort_mode, crate::SortMode::SizeAsc | crate::SortMode::SizeDesc) {
                 // Re-sort rebuilds the cache and refreshes aggregates itself.
                 self.apply_sort_to_current_entries();
             } else {

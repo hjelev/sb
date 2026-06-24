@@ -164,25 +164,17 @@ struct SizeState {
 }
 
 struct App {
-    current_dir: PathBuf,
-    entries: Vec<fs::DirEntry>,
-    entry_render_cache: Vec<EntryRenderCache>,
-    /// Per-set aggregates (size/date heat, percent total, size width) recomputed
-    /// only when `entry_render_cache` is rebuilt — read by the render path.
-    list_aggregates: ListAggregates,
-    selected_index: usize,
-    marked_indices: HashSet<usize>,
+    /// The left/main panel's state. In single-panel mode this is the only
+    /// panel; in dual-panel mode it is the left half (mirrors [`right`]).
+    left: PanelState,
     directory_selection: HashMap<PathBuf, usize>,
     archive_mounts: Vec<ArchiveMount>,
     mode: AppMode,
-    table_state: TableState,
-    show_hidden: bool,
     clipboard: Vec<PathBuf>,
     paste_queue: VecDeque<PathBuf>,
     paste_current_src: Option<PathBuf>,
     paste_move_mode: bool,
     paste_target_dir: Option<PathBuf>,
-    path_input_filter: Option<PathInputFilter>,
     folder_filter_visible: bool,
     input_buffer: String,
     input_cursor: usize,
@@ -223,8 +215,6 @@ struct App {
     help_max_offset: u16,
     confirm_delete_scroll_offset: u16,
     confirm_delete_max_offset: u16,
-    file_list_scroll_dragging: bool,
-    file_list_scroll_grab_offset: u16,
     confirm_delete_button_focus: u8,
     confirm_integration_install_button_focus: u8,
     git_info_cache: Option<GitInfoCache>,
@@ -236,13 +226,6 @@ struct App {
     size: SizeState,
     tree_expansion_levels: HashMap<PathBuf, usize>,
     tree_last_tap: Option<(char, Instant)>,
-    main_list_last_click: Option<(PathBuf, usize, Instant)>,
-    tree_row_prefixes: Vec<String>,
-    selected_total_size: AsyncJobState<SelectedTotalSizeMsg>,
-    selected_total_size_pending: bool,
-    selected_total_size_bytes: Option<u64>,
-    selected_total_size_items: usize,
-    sort_mode: SortMode,
     sort_menu_selected: usize,
     panel_tab: u8,
     active_theme: ui::theme::ThemeId,
@@ -358,23 +341,34 @@ impl App {
         let current_dir = app_init::init_current_dir()?;
         let internal_search_content_limits = Self::internal_search_content_limits();
         let mut app = Self {
-            current_dir,
-            entries: Vec::new(),
-            entry_render_cache: Vec::new(),
-            list_aggregates: ListAggregates::default(),
-            selected_index: 0,
-            marked_indices: HashSet::new(),
+            left: PanelState {
+                dir: current_dir,
+                entries: Vec::new(),
+                entry_render_cache: Vec::new(),
+                list_aggregates: ListAggregates::default(),
+                selected_index: 0,
+                marked_indices: HashSet::new(),
+                table_state: TableState::default(),
+                sort_mode: SortMode::NameAsc,
+                show_hidden: false,
+                folder_filter: None,
+                list_scroll_dragging: false,
+                list_scroll_grab_offset: 0,
+                list_last_click: None,
+                tree_row_prefixes: Vec::new(),
+                selected_total_size: AsyncJobState::default(),
+                selected_total_size_pending: false,
+                selected_total_size_bytes: None,
+                selected_total_size_items: 0,
+            },
             directory_selection: HashMap::new(),
             archive_mounts: Vec::new(),
             mode: AppMode::Browsing,
-            table_state: TableState::default(),
-            show_hidden: false,
             clipboard: Vec::new(),
             paste_queue: VecDeque::new(),
             paste_current_src: None,
             paste_move_mode: false,
             paste_target_dir: None,
-            path_input_filter: None,
             folder_filter_visible: false,
             input_buffer: String::new(),
             input_cursor: 0,
@@ -417,8 +411,6 @@ impl App {
             help_max_offset: 0,
             confirm_delete_scroll_offset: 0,
             confirm_delete_max_offset: 0,
-            file_list_scroll_dragging: false,
-            file_list_scroll_grab_offset: 0,
             confirm_delete_button_focus: 0,
             confirm_integration_install_button_focus: 0,
             git_info_cache: None,
@@ -428,13 +420,6 @@ impl App {
             size: SizeState::default(),
             tree_expansion_levels: HashMap::new(),
             tree_last_tap: None,
-            main_list_last_click: None,
-            tree_row_prefixes: Vec::new(),
-            selected_total_size: AsyncJobState::default(),
-            selected_total_size_pending: false,
-            selected_total_size_bytes: None,
-            selected_total_size_items: 0,
-            sort_mode: SortMode::NameAsc,
             sort_menu_selected: 0,
             panel_tab: 0,
             active_theme: ui::theme::ThemeId::original(),
@@ -593,7 +578,7 @@ impl App {
             || self.size.folder_size.rx.is_some()
             || self.size.current_dir_total_size.rx.is_some()
             || self.size.recursive_mtime.rx.is_some()
-            || self.selected_total_size.rx.is_some()
+            || self.left.selected_total_size.rx.is_some()
             || self.right.selected_total_size.rx.is_some()
             || self.notes_rx.is_some()
             || self.right_notes_rx.is_some()
@@ -625,18 +610,18 @@ impl App {
     }
 
     fn try_enter_dir(&mut self, target: PathBuf) {
-        let previous_dir = self.current_dir.clone();
-        let previous_filter = self.path_input_filter.clone();
+        let previous_dir = self.left.dir.clone();
+        let previous_filter = self.left.folder_filter.clone();
         let changed_dir = target != previous_dir;
         self.remember_current_selection();
-        self.current_dir = target;
+        self.left.dir = target;
         if changed_dir {
-            self.path_input_filter = None;
+            self.left.folder_filter = None;
             self.folder_filter_visible = false;
         }
         if !self.refresh_entries_or_status() {
-            self.current_dir = previous_dir;
-            self.path_input_filter = previous_filter;
+            self.left.dir = previous_dir;
+            self.left.folder_filter = previous_filter;
         } else {
             self.restore_selection_for_current_dir();
             self.request_git_info_for_current_dir_once();
@@ -647,7 +632,7 @@ impl App {
         if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
             self.right.dir.clone()
         } else {
-            self.current_dir.clone()
+            self.left.dir.clone()
         }
     }
 
@@ -655,7 +640,7 @@ impl App {
         if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
             self.right.entries.get(self.right.selected_index).map(|e| e.path())
         } else {
-            self.entries.get(self.selected_index).map(|e| e.path())
+            self.left.entries.get(self.left.selected_index).map(|e| e.path())
         }
     }
 
@@ -663,7 +648,7 @@ impl App {
         if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
             self.right.entries.is_empty()
         } else {
-            self.entries.is_empty()
+            self.left.entries.is_empty()
         }
     }
 
@@ -702,7 +687,7 @@ impl App {
         let current = if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
             self.right.folder_filter.as_ref().map(|f| f.pattern.clone())
         } else {
-            self.path_input_filter.as_ref().map(|f| f.pattern.clone())
+            self.left.folder_filter.as_ref().map(|f| f.pattern.clone())
         }
         .unwrap_or_default();
         self.folder_filter_visible = true;
@@ -734,7 +719,7 @@ impl App {
                 self.set_status("refresh failed");
             }
         } else {
-            self.path_input_filter = new_filter;
+            self.left.folder_filter = new_filter;
             self.refresh_entries_or_status();
         }
     }
@@ -750,7 +735,7 @@ impl App {
             {
                 self.set_status("refresh failed");
             }
-        } else if self.path_input_filter.take().is_some() {
+        } else if self.left.folder_filter.take().is_some() {
             self.refresh_entries_or_status();
         }
     }
@@ -809,34 +794,34 @@ impl App {
 
     fn remember_current_selection(&mut self) {
         self.directory_selection
-            .insert(self.current_dir.clone(), self.selected_index);
+            .insert(self.left.dir.clone(), self.left.selected_index);
     }
 
     fn restore_selection_for_current_dir(&mut self) {
-        if self.entries.is_empty() {
-            self.selected_index = 0;
-            self.table_state.select(None);
+        if self.left.entries.is_empty() {
+            self.left.selected_index = 0;
+            self.left.table_state.select(None);
             return;
         }
 
         let index = self
             .directory_selection
-            .get(&self.current_dir)
+            .get(&self.left.dir)
             .copied()
             .unwrap_or(0)
-            .min(self.entries.len() - 1);
-        self.selected_index = index;
-        self.table_state.select(Some(index));
+            .min(self.left.entries.len() - 1);
+        self.left.selected_index = index;
+        self.left.table_state.select(Some(index));
     }
 
     fn select_entry_named(&mut self, name: &str) {
-        if let Some(index) = self
+        if let Some(index) = self.left
             .entries
             .iter()
             .position(|entry| entry.file_name().to_string_lossy() == name)
         {
-            self.selected_index = index;
-            self.table_state.select(Some(index));
+            self.left.selected_index = index;
+            self.left.table_state.select(Some(index));
         }
     }
 
@@ -852,12 +837,12 @@ impl App {
     }
 
     fn try_enter_parent_dir(&mut self) {
-        let child_name = self
-            .current_dir
+        let child_name = self.left
+            .dir
             .file_name()
             .map(|name| name.to_string_lossy().into_owned());
 
-        if let Some(parent) = self.current_dir.parent() {
+        if let Some(parent) = self.left.dir.parent() {
             self.try_enter_dir(parent.to_path_buf());
             if let Some(name) = child_name {
                 self.select_entry_named(&name);
@@ -880,7 +865,7 @@ impl App {
         if candidate.is_absolute() {
             candidate
         } else {
-            self.current_dir.join(candidate)
+            self.left.dir.join(candidate)
         }
     }
 
@@ -889,12 +874,12 @@ impl App {
         let target = self.resolve_input_path(&raw_input);
         if target.is_dir() {
             // No-op: same directory, no filter to clear — skip refresh to avoid timestamp flicker
-            if target == self.current_dir && self.path_input_filter.is_none() {
+            if target == self.left.dir && self.left.folder_filter.is_none() {
                 self.mode = AppMode::Browsing;
                 self.clear_input_edit();
                 return;
             }
-            self.path_input_filter = None;
+            self.left.folder_filter = None;
             self.try_enter_dir(target);
             self.mode = AppMode::Browsing;
             self.clear_input_edit();
@@ -918,7 +903,7 @@ impl App {
         }
 
         self.try_enter_dir(base_target);
-        self.path_input_filter = Some(filter);
+        self.left.folder_filter = Some(filter);
         self.refresh_entries_or_status();
         self.mode = AppMode::Browsing;
         self.clear_input_edit();
@@ -1070,23 +1055,23 @@ impl App {
         let mut tree_row_prefixes = Vec::new();
         let mut entries: Vec<_> = if !self.tree_expansion_levels.is_empty() {
             let rows = ui::tree::collect_tree_rows_with_expansions(
-                &self.current_dir,
-                self.show_hidden,
-                self.sort_mode,
+                &self.left.dir,
+                self.left.show_hidden,
+                self.left.sort_mode,
                 folder_size_cache,
                 &self.tree_expansion_levels,
             )?;
             tree_row_prefixes = rows.iter().map(|row| row.prefix.clone()).collect();
             rows.into_iter().map(|row| row.entry).collect()
         } else {
-            let mut direct_entries: Vec<_> = fs::read_dir(&self.current_dir)?
+            let mut direct_entries: Vec<_> = fs::read_dir(&self.left.dir)?
                 .filter_map(|res| res.ok())
-                .filter(|e| self.show_hidden || !crate::util::classify::is_hidden_entry(e))
+                .filter(|e| self.left.show_hidden || !crate::util::classify::is_hidden_entry(e))
                 .collect();
-            Self::sort_entries_by_mode(&mut direct_entries, self.sort_mode, folder_size_cache);
+            Self::sort_entries_by_mode(&mut direct_entries, self.left.sort_mode, folder_size_cache);
             direct_entries
         };
-        if let Some(filter) = self.path_input_filter.as_ref() {
+        if let Some(filter) = self.left.folder_filter.as_ref() {
             let filter_regex = Self::build_path_filter_regex(filter)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
             if !self.tree_expansion_levels.is_empty() {
@@ -1108,11 +1093,11 @@ impl App {
                 });
             }
         }
-        self.entries = entries;
-        self.tree_row_prefixes = if !self.tree_expansion_levels.is_empty() {
+        self.left.entries = entries;
+        self.left.tree_row_prefixes = if !self.tree_expansion_levels.is_empty() {
             tree_row_prefixes
         } else {
-            vec![String::new(); self.entries.len()]
+            vec![String::new(); self.left.entries.len()]
         };
         let config = EntryRenderConfig {
             nerd_font_active: self.nerd_font_active,
@@ -1120,9 +1105,9 @@ impl App {
             theme_id: self.active_theme,
             filename_color_mode: self.filename_color_mode,
         };
-        let uid_cache = App::build_uid_cache(&self.entries);
-        let gid_cache = App::build_gid_cache(&self.entries);
-            self.entry_render_cache = self.entries.iter()
+        let uid_cache = App::build_uid_cache(&self.left.entries);
+        let gid_cache = App::build_gid_cache(&self.left.entries);
+            self.left.entry_render_cache = self.left.entries.iter()
             .map(|entry| App::build_entry_render_cache(entry, config, &uid_cache, &gid_cache))
             .collect();
         self.apply_cached_folder_size_columns();
@@ -1133,14 +1118,14 @@ impl App {
         self.size.recursive_mtime.clear_rx();
         self.clear_current_dir_total_size_state();
         self.clear_selected_total_size_state();
-        self.marked_indices.clear();
+        self.left.marked_indices.clear();
         
-        if self.entries.is_empty() {
-            self.selected_index = 0;
-            self.table_state.select(None);
+        if self.left.entries.is_empty() {
+            self.left.selected_index = 0;
+            self.left.table_state.select(None);
         } else {
-            self.selected_index = self.selected_index.min(self.entries.len() - 1);
-            self.table_state.select(Some(self.selected_index));
+            self.left.selected_index = self.left.selected_index.min(self.left.entries.len() - 1);
+            self.left.table_state.select(Some(self.left.selected_index));
         }
 
         if self.size.folder_size_enabled {
@@ -1208,16 +1193,16 @@ impl App {
                     .into_iter()
                     .collect()
             }
-        } else if !self.marked_indices.is_empty() {
-            self.entries
+        } else if !self.left.marked_indices.is_empty() {
+            self.left.entries
                 .iter()
                 .enumerate()
-                .filter(|(i, _)| self.marked_indices.contains(i))
+                .filter(|(i, _)| self.left.marked_indices.contains(i))
                 .map(|(_, e)| e.path())
                 .collect()
         } else {
-            self.entries
-                .get(self.selected_index)
+            self.left.entries
+                .get(self.left.selected_index)
                 .map(|e| e.path())
                 .into_iter()
                 .collect()

@@ -114,7 +114,7 @@ impl App {
         self.download_pending_name = Some(file_name.clone());
         self.download_resume_input = Some(resume_input);
 
-        if self.current_dir.join(&file_name).exists() {
+        if self.left.dir.join(&file_name).exists() {
             self.clear_input_edit();
             self.mode = AppMode::ConfirmDownloadOverwrite;
             self.set_status(format!("target exists: overwrite {}?", file_name));
@@ -207,7 +207,7 @@ impl App {
             return;
         };
 
-        let output_path = self.current_dir.join(&file_name);
+        let output_path = self.left.dir.join(&file_name);
         self.download_active_name = file_name.clone();
         self.download_pending_url = None;
         self.download_pending_name = None;

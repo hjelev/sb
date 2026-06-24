@@ -35,9 +35,9 @@ impl App {
             theme_id: self.active_theme,
             filename_color_mode: self.filename_color_mode,
         };
-        let uid_cache = App::build_uid_cache(&self.entries);
-        let gid_cache = App::build_gid_cache(&self.entries);
-        self.entry_render_cache = self.entries
+        let uid_cache = App::build_uid_cache(&self.left.entries);
+        let gid_cache = App::build_gid_cache(&self.left.entries);
+        self.left.entry_render_cache = self.left.entries
             .iter()
             .map(|entry| App::build_entry_render_cache(entry, config, &uid_cache, &gid_cache))
             .collect();

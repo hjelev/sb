@@ -16,8 +16,8 @@ pub(crate) fn render_footer(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
         let ord = if total == 0 { 0 } else { app.right.selected_index.min(total - 1) + 1 };
         (total, ord)
     } else {
-        let total = app.entries.len();
-        let ord = if total == 0 { 0 } else { app.selected_index.min(total - 1) + 1 };
+        let total = app.left.entries.len();
+        let ord = if total == 0 { 0 } else { app.left.selected_index.min(total - 1) + 1 };
         (total, ord)
     };
     let ordinal_str = selected_ordinal.to_string();
@@ -168,7 +168,7 @@ pub(crate) fn render_footer(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
     }
 
     // Render scrollbar corners on top of all other elements only if no overlay is active
-    if app.mode_shows_main_scrollbar() && !app.entries.is_empty() {
+    if app.mode_shows_main_scrollbar() && !app.left.entries.is_empty() {
         let table_area = Rect::new(
             chunks[0].x,
             chunks[0].y + header_reserved_rows,
@@ -179,7 +179,7 @@ pub(crate) fn render_footer(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             // In split preview mode, extra corner overlays can clash with the
             // rounded pane border; skip the synthetic scrollbar corners.
         } else {
-            let can_draw_scrollbar = table_area.width > 2 && app.entries.len() > table_area.height as usize;
+            let can_draw_scrollbar = table_area.width > 2 && app.left.entries.len() > table_area.height as usize;
             ui::scrollbar::render_scrollbar_corners(f, table_area, can_draw_scrollbar, active_theme.border);
         }
     }

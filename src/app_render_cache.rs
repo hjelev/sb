@@ -348,7 +348,7 @@ impl App {
     pub(crate) fn refresh_meta_identity_widths(&mut self) {
         let mut group_w = 1usize;
         let mut owner_w = 1usize;
-        for entry in &self.entry_render_cache {
+        for entry in &self.left.entry_render_cache {
             group_w = group_w.max(entry.group_name.chars().count());
             owner_w = owner_w.max(entry.owner_name.chars().count());
         }

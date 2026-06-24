@@ -106,20 +106,20 @@ impl App {
 
     pub(crate) fn apply_sort_to_current_entries(&mut self) {
         if !self.tree_expansion_levels.is_empty() {
-            let selected_path = self.entries.get(self.selected_index).map(|e| e.path());
+            let selected_path = self.left.entries.get(self.left.selected_index).map(|e| e.path());
             let _ = self.refresh_entries();
             if let Some(path) = selected_path
-                && let Some(idx) = self.entries.iter().position(|e| e.path() == path) {
-                    self.selected_index = idx;
-                    self.table_state.select(Some(idx));
+                && let Some(idx) = self.left.entries.iter().position(|e| e.path() == path) {
+                    self.left.selected_index = idx;
+                    self.left.table_state.select(Some(idx));
                 }
             return;
         }
-        let selected_path = self.entries.get(self.selected_index).map(|e| e.path());
-        let marked_paths: HashSet<PathBuf> = self
+        let selected_path = self.left.entries.get(self.left.selected_index).map(|e| e.path());
+        let marked_paths: HashSet<PathBuf> = self.left
             .marked_indices
             .iter()
-            .filter_map(|idx| self.entries.get(*idx).map(|e| e.path()))
+            .filter_map(|idx| self.left.entries.get(*idx).map(|e| e.path()))
             .collect();
 
         let folder_size_cache = if self.size.folder_size_enabled {
@@ -127,7 +127,7 @@ impl App {
         } else {
             None
         };
-        Self::sort_entries_by_mode(&mut self.entries, self.sort_mode, folder_size_cache);
+        Self::sort_entries_by_mode(&mut self.left.entries, self.left.sort_mode, folder_size_cache);
 
         let config = EntryRenderConfig {
             nerd_font_active: self.nerd_font_active,
@@ -135,15 +135,15 @@ impl App {
             theme_id: self.active_theme,
             filename_color_mode: self.filename_color_mode,
         };
-        let uid_cache = App::build_uid_cache(&self.entries);
-        let gid_cache = App::build_gid_cache(&self.entries);
-            self.entry_render_cache = self.entries.iter()
+        let uid_cache = App::build_uid_cache(&self.left.entries);
+        let gid_cache = App::build_gid_cache(&self.left.entries);
+            self.left.entry_render_cache = self.left.entries.iter()
             .map(|entry| App::build_entry_render_cache(entry, config, &uid_cache, &gid_cache))
             .collect();
         self.apply_cached_folder_size_columns();
         self.refresh_meta_identity_widths();
 
-        self.marked_indices = self
+        self.left.marked_indices = self.left
             .entries
             .iter()
             .enumerate()
@@ -151,28 +151,28 @@ impl App {
             .map(|(idx, _)| idx)
             .collect();
 
-        if self.entries.is_empty() {
-            self.selected_index = 0;
-            self.table_state.select(None);
+        if self.left.entries.is_empty() {
+            self.left.selected_index = 0;
+            self.left.table_state.select(None);
             return;
         }
 
-        self.selected_index = selected_path
-            .and_then(|p| self.entries.iter().position(|e| e.path() == p))
-            .unwrap_or_else(|| self.selected_index.min(self.entries.len() - 1));
-        self.table_state.select(Some(self.selected_index));
+        self.left.selected_index = selected_path
+            .and_then(|p| self.left.entries.iter().position(|e| e.path() == p))
+            .unwrap_or_else(|| self.left.selected_index.min(self.left.entries.len() - 1));
+        self.left.table_state.select(Some(self.left.selected_index));
     }
 
     pub(crate) fn begin_sort_menu(&mut self) {
         self.panel_tab = 4;
-        self.sort_menu_selected = Self::sort_mode_index(self.sort_mode);
+        self.sort_menu_selected = Self::sort_mode_index(self.left.sort_mode);
         self.mode = AppMode::SortMenu;
     }
 
     pub(crate) fn commit_sort_menu_choice(&mut self) {
         let options = Self::sort_mode_options();
         if let Some(mode) = options.get(self.sort_menu_selected).copied() {
-            self.sort_mode = mode;
+            self.left.sort_mode = mode;
             self.apply_sort_to_current_entries();
             self.set_status(format!("sort: {}", mode.label()));
         }

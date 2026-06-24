@@ -83,7 +83,7 @@ impl App {
     }
 
     fn slideshow_images(&self) -> Vec<PathBuf> {
-        self.entries
+        self.left.entries
             .iter()
             .map(|e| e.path())
             .filter(|path| self.supports_image_slideshow_path(path))
@@ -831,7 +831,7 @@ impl App {
     }
 
     pub(crate) fn preview_images_with_chafa(&mut self, start_path: PathBuf) -> io::Result<()> {
-        let images: Vec<PathBuf> = self
+        let images: Vec<PathBuf> = self.left
             .entries
             .iter()
             .map(|e| e.path())
@@ -930,7 +930,7 @@ printf '%s\n' "${paths[$idx]}" > "$out_file"
     }
 
     pub(crate) fn preview_images_with_viu(&mut self, start_path: PathBuf) -> io::Result<()> {
-        let images: Vec<PathBuf> = self
+        let images: Vec<PathBuf> = self.left
             .entries
             .iter()
             .map(|e| e.path())
