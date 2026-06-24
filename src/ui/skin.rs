@@ -30,10 +30,12 @@ use crate::ui::theme::{IconThemeMode, ThemeId, ThemeSpec, THEMES};
 /// Skins shipped with the binary and seeded to `~/.config/sb/skins/` on first run.
 const BUNDLED_SKINS: &[(&str, &str)] = &[
     ("midnight-commander.ini", include_str!("../../assets/skins/midnight-commander.ini")),
-    ("nord.ini",               include_str!("../../assets/skins/nord.ini")),
     ("catppuccin.ini",         include_str!("../../assets/skins/catppuccin.ini")),
-    ("gruvbox.ini",            include_str!("../../assets/skins/gruvbox.ini")),
     ("tokyo-night.ini",        include_str!("../../assets/skins/tokyo-night.ini")),
+    ("synthwave.ini",          include_str!("../../assets/skins/synthwave.ini")),
+    ("coral-reef.ini",         include_str!("../../assets/skins/coral-reef.ini")),
+    ("cyberpunk-neon.ini",     include_str!("../../assets/skins/cyberpunk-neon.ini")),
+    ("bubblegum-pop.ini",      include_str!("../../assets/skins/bubblegum-pop.ini")),
 ];
 
 /// Returns the skins directory: `~/.config/sb/skins`.

@@ -1125,7 +1125,7 @@ pub fn render_themes_overlay(
 
     // Top toggle row: enable/disable Nerd Font glyphs (persisted to config).
     let nerd_base_style = if nerd_focus {
-        Style::default().bg(current.bg_selected).fg(current.text_normal)
+        Style::default().bg(current.bg_selected).fg(current.selected_fg)
     } else {
         Style::default().fg(current.text_normal)
     };
@@ -1151,7 +1151,7 @@ pub fn render_themes_overlay(
 
     // Second toggle row: filename-color mode (Full / Less / White), persisted.
     let color_base_style = if color_focus {
-        Style::default().bg(current.bg_selected).fg(current.text_normal)
+        Style::default().bg(current.bg_selected).fg(current.selected_fg)
     } else {
         Style::default().fg(current.text_normal)
     };
@@ -1178,7 +1178,7 @@ pub fn render_themes_overlay(
     // Third toggle row: disable the header clock (show the disk-usage pill
     // instead), persisted to config.
     let clock_base_style = if clock_focus {
-        Style::default().bg(current.bg_selected).fg(current.text_normal)
+        Style::default().bg(current.bg_selected).fg(current.selected_fg)
     } else {
         Style::default().fg(current.text_normal)
     };
@@ -1217,7 +1217,7 @@ pub fn render_themes_overlay(
         let is_applied = theme.id == theme_id;
         let spec = theme_spec(theme.id);
         let base_style = if is_selected {
-            Style::default().bg(current.bg_selected).fg(current.text_normal)
+            Style::default().bg(current.bg_selected).fg(current.selected_fg)
         } else {
             Style::default().fg(current.text_normal)
         };

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Four new colorful bundled theme skins: Synthwave, Coral Reef, Cyberpunk Neon, and Bubblegum Pop
+
 ## [0.8] - 2026-06-25
 
 ### Added
