@@ -106,8 +106,8 @@ impl App {
     }
 
     pub(crate) fn refresh_right_panel_entries(&mut self) -> std::io::Result<()> {
-        let folder_size_cache = if self.folder_size_enabled {
-            Some(&self.folder_size_cache)
+        let folder_size_cache = if self.size.folder_size_enabled {
+            Some(&self.size.folder_size_cache)
         } else {
             None
         };
@@ -166,7 +166,7 @@ impl App {
             .collect();
         self.right.entries = entries;
         self.recompute_list_aggregates();
-        if self.folder_size_enabled {
+        if self.size.folder_size_enabled {
             self.apply_cached_folder_size_columns();
             self.start_folder_size_scan();
             self.refresh_current_dir_free_space();

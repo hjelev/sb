@@ -77,7 +77,7 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
     let show_date = term_w >= 50;
     let show_size = term_w >= 70;
     let show_meta = !app.is_preview_mode() && !app.is_dual_panel_mode() && term_w >= 90;
-    let show_pct = app.folder_size_enabled && show_size;
+    let show_pct = app.size.folder_size_enabled && show_size;
     let perms_width = 11usize;
     let group_width = app.meta_group_width.max(1);
     let owner_width = app.meta_owner_width.max(1);
@@ -862,7 +862,7 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
             let right_term_w = right_body_area.width.max(1);
             let right_show_date = right_term_w >= 50;
             let right_show_size = right_term_w >= 70;
-            let right_show_pct = app.folder_size_enabled && right_show_size;
+            let right_show_pct = app.size.folder_size_enabled && right_show_size;
             let right_size_min_max = if right_show_size { app.right.list_aggregates.size_min_max } else { None };
             let right_date_rank_by_ts = &app.right.list_aggregates.date_rank_by_ts;
             let right_size_width = if right_show_size { app.right.list_aggregates.max_size_width } else { 1 };
