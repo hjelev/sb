@@ -91,7 +91,7 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
         }
         spans.push(Span::styled(
             visible_text,
-            Style::default().fg(Color::Rgb(230, 230, 230)),
+            Style::default().fg(active_theme.text_normal),
         ));
         f.render_widget(Paragraph::new(Line::from(spans)), input_area);
 
@@ -155,7 +155,7 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
         f.render_widget(
             Paragraph::new(msg)
                 .wrap(Wrap { trim: true })
-                .style(Style::default().fg(Color::Rgb(140, 200, 255)))
+                .style(Style::default().fg(active_theme.overlay_section))
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
@@ -328,7 +328,7 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
         f.render_widget(
             Paragraph::new(msg)
                 .wrap(Wrap { trim: true })
-                .style(Style::default().fg(Color::Rgb(140, 200, 255)))
+                .style(Style::default().fg(active_theme.overlay_section))
                 .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(" Confirm Extract ").title_style(Style::default().fg(active_theme.text_normal))),
             confirm_area,
         );
@@ -419,19 +419,19 @@ pub(crate) fn render_internal_search_overlay(f: &mut Frame, app: &mut App, ctx: 
 
         let query_box_block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Rgb(95, 95, 95)));
+            .border_style(Style::default().fg(active_theme.border));
         let query_inner = query_box_block.inner(query_box_area);
         f.render_widget(query_box_block, query_box_area);
 
         let (mode_text, mode_style) = if app.search.scope == InternalSearchScope::Content {
             (
                 "Scope: Content".to_string(),
-                Style::default().fg(Color::Rgb(120, 220, 180)),
+                Style::default().fg(active_theme.success),
             )
         } else {
             (
                 "Scope: Filename".to_string(),
-                Style::default().fg(Color::Rgb(120, 170, 255)),
+                Style::default().fg(active_theme.accent_primary),
             )
         };
         let mode_width = UnicodeWidthStr::width(mode_text.as_str()) as u16;
@@ -445,8 +445,8 @@ pub(crate) fn render_internal_search_overlay(f: &mut Frame, app: &mut App, ctx: 
         let query_icon = if app.show_icons && app.nerd_font_active { "\u{f002}" } else { "/" };
         let query_icon_prefix = format!(" {}  ", query_icon);
         let query_line = Line::from(vec![
-            Span::styled(query_icon_prefix.clone(), Style::default().fg(Color::Rgb(120, 180, 255))),
-            Span::styled(app.input_buffer.as_str(), Style::default().fg(Color::Rgb(255, 220, 120))),
+            Span::styled(query_icon_prefix.clone(), Style::default().fg(active_theme.accent_primary)),
+            Span::styled(app.input_buffer.as_str(), Style::default().fg(active_theme.key_label)),
         ]);
         f.render_widget(Paragraph::new(query_line), query_input_area);
         f.render_widget(
@@ -464,7 +464,7 @@ pub(crate) fn render_internal_search_overlay(f: &mut Frame, app: &mut App, ctx: 
         } else if app.search.candidates_truncated {
             lines.push(Line::from(Span::styled(
                 "Indexed first 20000 files (refine query to narrow results)",
-                Style::default().fg(Color::Rgb(160, 160, 160)),
+                Style::default().fg(active_theme.text_dim),
             )));
         }
 
@@ -477,12 +477,12 @@ pub(crate) fn render_internal_search_overlay(f: &mut Frame, app: &mut App, ctx: 
                     limits.max_hits,
                     App::format_size(limits.max_file_bytes as u64)
                 ),
-                Style::default().fg(Color::Rgb(160, 160, 160)),
+                Style::default().fg(active_theme.text_dim),
             )));
 
             if app.search.limits_menu_open {
-                let selected_style = Style::default().fg(Color::Rgb(255, 220, 120)).add_modifier(Modifier::BOLD);
-                let normal_style = Style::default().fg(Color::Rgb(180, 180, 180));
+                let selected_style = Style::default().fg(active_theme.key_label).add_modifier(Modifier::BOLD);
+                let normal_style = Style::default().fg(active_theme.text_dim);
                 let item_line = |idx: usize, label: &str, value: String| {
                     let marker = if idx == app.search.limits_selected { ">" } else { " " };
                     let style = if idx == app.search.limits_selected {
@@ -515,7 +515,7 @@ pub(crate) fn render_internal_search_overlay(f: &mut Frame, app: &mut App, ctx: 
             if let Some(note) = &app.search.content_limit_note {
                 lines.push(Line::from(Span::styled(
                     note.clone(),
-                    Style::default().fg(Color::Rgb(160, 160, 160)),
+                    Style::default().fg(active_theme.text_dim),
                 )));
             }
         }
@@ -538,7 +538,7 @@ pub(crate) fn render_internal_search_overlay(f: &mut Frame, app: &mut App, ctx: 
         if let Some(err) = &app.search.regex_error {
             lines.push(Line::from(Span::styled(
                 format!("Regex error: {}", err),
-                Style::default().fg(Color::Rgb(255, 120, 120)),
+                Style::default().fg(active_theme.error),
             )));
         }
 
@@ -546,7 +546,7 @@ pub(crate) fn render_internal_search_overlay(f: &mut Frame, app: &mut App, ctx: 
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
                 " No matches",
-                Style::default().fg(Color::Rgb(180, 90, 90)),
+                Style::default().fg(active_theme.error),
             )));
         } else {
             for (display_idx, result_idx) in app
@@ -592,7 +592,7 @@ pub(crate) fn render_internal_search_overlay(f: &mut Frame, app: &mut App, ctx: 
                         .fg(active_theme.text_normal)
                         .bg(active_theme.bg_selected)
                 } else {
-                    Style::default().fg(Color::Rgb(200, 200, 200))
+                    Style::default().fg(active_theme.text_normal)
                 };
                 let match_style = if is_selected {
                     Style::default()
@@ -601,7 +601,7 @@ pub(crate) fn render_internal_search_overlay(f: &mut Frame, app: &mut App, ctx: 
                         .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default()
-                        .fg(Color::Rgb(255, 220, 120))
+                        .fg(active_theme.key_label)
                         .add_modifier(Modifier::BOLD)
                 };
                 let mut spans: Vec<Span> = vec![left_cap];
@@ -692,7 +692,7 @@ pub(crate) fn render_internal_search_overlay(f: &mut Frame, app: &mut App, ctx: 
                         if !dir_part.is_empty() {
                             spans.push(Span::styled(
                                 dir_part.to_string(),
-                                base_style.fg(Color::Rgb(150, 190, 255)),
+                                base_style.fg(active_theme.accent_primary),
                             ));
                         }
                         if let Some(icon) = icon_span {
@@ -700,7 +700,7 @@ pub(crate) fn render_internal_search_overlay(f: &mut Frame, app: &mut App, ctx: 
                         }
                         spans.push(Span::styled(
                             format!("{}:{}: ", base_part, line_number),
-                            base_style.fg(Color::Rgb(150, 190, 255)),
+                            base_style.fg(active_theme.accent_primary),
                         ));
                         spans.extend(App::search_spans_with_ranges(
                             line_text,
@@ -753,9 +753,9 @@ pub(crate) fn render_internal_search_overlay(f: &mut Frame, app: &mut App, ctx: 
                 for row in 0..track_h {
                     let in_thumb = row >= thumb_y && row < thumb_y + thumb_h;
                     let (ch, color) = if in_thumb {
-                        ("┃", Color::Rgb(120, 240, 220))
+                        ("┃", active_theme.divider)
                     } else {
-                        ("│", Color::Rgb(80, 200, 180))
+                        ("│", active_theme.divider)
                     };
                     sb_lines.push(Line::from(Span::styled(ch, Style::default().fg(color))));
                 }
@@ -818,12 +818,12 @@ pub(crate) fn render_db_preview_overlay(f: &mut Frame, app: &mut App, ctx: &Rend
 
         let mut table_spans: Vec<Span> = vec![Span::styled(
             "Tables: ",
-            Style::default().fg(Color::Rgb(160, 160, 160)),
+            Style::default().fg(active_theme.text_dim),
         )];
         if app.db_preview_tables.is_empty() {
             table_spans.push(Span::styled(
                 "(none)",
-                Style::default().fg(Color::Rgb(180, 90, 90)),
+                Style::default().fg(active_theme.error),
             ));
         } else {
             for (idx, table_name) in app.db_preview_tables.iter().enumerate() {
@@ -840,10 +840,10 @@ pub(crate) fn render_db_preview_overlay(f: &mut Frame, app: &mut App, ctx: &Rend
                 let style = if idx == app.db_preview_selected {
                     Style::default()
                         .fg(Color::Rgb(20, 20, 20))
-                        .bg(Color::Rgb(120, 220, 140))
+                        .bg(active_theme.success)
                         .add_modifier(Modifier::BOLD)
                 } else {
-                    Style::default().fg(Color::Rgb(170, 210, 255))
+                    Style::default().fg(active_theme.accent_primary)
                 };
                 table_spans.push(Span::styled(display, style));
             }
@@ -854,14 +854,14 @@ pub(crate) fn render_db_preview_overlay(f: &mut Frame, app: &mut App, ctx: &Rend
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
                 err.clone(),
-                Style::default().fg(Color::Rgb(255, 120, 120)),
+                Style::default().fg(active_theme.error),
             )));
         } else {
             lines.push(Line::from(""));
             if app.db_preview_output_lines.is_empty() {
                 lines.push(Line::from(Span::styled(
                     "(no rows)",
-                    Style::default().fg(Color::Rgb(140, 140, 140)),
+                    Style::default().fg(active_theme.text_dim),
                 )));
             } else {
                 let visible_w = popup_area.width.saturating_sub(4) as usize;
@@ -880,7 +880,7 @@ pub(crate) fn render_db_preview_overlay(f: &mut Frame, app: &mut App, ctx: &Rend
                 for row in &app.db_preview_output_lines {
                     lines.push(Line::from(Span::styled(
                         clip_line(row),
-                        Style::default().fg(Color::Rgb(210, 210, 210)),
+                        Style::default().fg(active_theme.text_normal),
                     )));
                 }
             }
@@ -894,7 +894,7 @@ pub(crate) fn render_db_preview_overlay(f: &mut Frame, app: &mut App, ctx: &Rend
                         .borders(Borders::ALL)
                         .title(format!(" SQLite: {} ", db_title))
                         .title_style(Style::default().fg(active_theme.text_normal))
-                        .border_style(Style::default().fg(Color::Rgb(120, 200, 150))),
+                        .border_style(Style::default().fg(active_theme.success)),
                 )
                 .wrap(Wrap { trim: true }),
             popup_area,
@@ -971,7 +971,7 @@ pub(crate) fn render_new_entry_overlay(f: &mut Frame, app: &mut App, ctx: &Rende
             if app.show_icons && !icon_glyph.is_empty() {
                 spans.push(Span::styled(format!("{} ", icon_glyph), icon_style));
             }
-            spans.push(Span::styled(*line, Style::default().fg(Color::Rgb(230, 230, 230))));
+            spans.push(Span::styled(*line, Style::default().fg(active_theme.text_normal)));
             rendered_lines.push(Line::from(spans));
         }
         f.render_widget(Paragraph::new(rendered_lines), list_area);
@@ -1053,7 +1053,7 @@ pub(crate) fn render_ssh_picker_overlay(f: &mut Frame, app: &mut App, ctx: &Rend
 
         let mut lines: Vec<Line> = vec![Line::from("")];
         if app.remote_entries.is_empty() {
-            lines.push(Line::from(Span::styled(" No SSH/rclone/media mounts or mounted archives found", Style::default().fg(Color::Rgb(180, 80, 80)))));
+            lines.push(Line::from(Span::styled(" No SSH/rclone/media mounts or mounted archives found", Style::default().fg(active_theme.error))));
         } else {
             let mounted_aliases: HashSet<String> = app.ssh_mounts
                 .iter()
@@ -1103,9 +1103,9 @@ pub(crate) fn render_ssh_picker_overlay(f: &mut Frame, app: &mut App, ctx: &Rend
                         .bg(active_theme.bg_selected)
                         .add_modifier(Modifier::BOLD)
                 } else if is_mounted {
-                    Style::default().fg(Color::Rgb(80, 220, 160))
+                    Style::default().fg(active_theme.success)
                 } else {
-                    Style::default().fg(Color::Rgb(200, 200, 200))
+                    Style::default().fg(active_theme.text_normal)
                 };
                 let (left_cap, right_cap) = if is_selected {
                     if app.nerd_font_active {

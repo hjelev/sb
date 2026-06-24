@@ -17,12 +17,13 @@ fn dialog_button_spans(
     focus_bg: Color,
     unfocused_fg: Color,
     nerd_font: bool,
+    theme: &ThemeSpec,
 ) -> Vec<Span<'static>> {
     if nerd_font {
         let (text_fg, bg) = if focused {
             (Color::Rgb(20, 20, 30), focus_bg)
         } else {
-            (unfocused_fg, Color::Rgb(55, 58, 70))
+            (unfocused_fg, theme.dialog_unfocus_bg)
         };
         let mut body = Style::default().fg(text_fg).bg(bg);
         if focused {
@@ -168,14 +169,14 @@ pub fn render_confirm_integration_install_dialog(
                     Span::raw(" "),
                     Span::styled(
                         format!("{}:", label),
-                        Style::default().fg(Color::Rgb(140, 200, 255)),
+                        Style::default().fg(theme.accent_primary),
                     ),
                     Span::styled(value.to_string(), Style::default().fg(theme.text_normal)),
                 ])
             } else {
                 Line::from(vec![
                     Span::raw(" "),
-                    Span::styled(content.to_string(), Style::default().fg(Color::Rgb(140, 200, 255))),
+                    Span::styled(content.to_string(), Style::default().fg(theme.accent_primary)),
                 ])
             }
         })
@@ -194,17 +195,19 @@ pub fn render_confirm_integration_install_dialog(
         button_spans.extend(dialog_button_spans(
             "OK",
             ok_focused,
-            Color::Rgb(120, 220, 140),
-            Color::Rgb(200, 220, 200),
+            theme.success,
+            theme.text_dim,
             nerd_font_active,
+            theme,
         ));
         button_spans.push(Span::styled("    ", Style::default()));
         button_spans.extend(dialog_button_spans(
             "Cancel",
             cancel_focused,
-            Color::Rgb(200, 200, 220),
-            Color::Rgb(220, 200, 200),
+            theme.accent_primary,
+            theme.text_dim,
             nerd_font_active,
+            theme,
         ));
         let button_line = Line::from(button_spans);
 
@@ -300,6 +303,7 @@ pub fn render_confirm_delete_buttons(
     button_area: Rect,
     confirm_focused: bool,
     nerd_font_active: bool,
+    theme: &ThemeSpec,
 ) {
     let cancel_focused = !confirm_focused;
 
@@ -307,17 +311,19 @@ pub fn render_confirm_delete_buttons(
     button_spans.extend(dialog_button_spans(
         "Confirm",
         confirm_focused,
-        Color::Rgb(255, 130, 130),
-        Color::Rgb(220, 200, 200),
+        theme.error,
+        theme.text_dim,
         nerd_font_active,
+            theme,
     ));
     button_spans.push(Span::styled("    ", Style::default()));
     button_spans.extend(dialog_button_spans(
         "Cancel",
         cancel_focused,
-        Color::Rgb(200, 200, 220),
-        Color::Rgb(220, 200, 200),
+        theme.accent_primary,
+        theme.text_dim,
         nerd_font_active,
+            theme,
     ));
     f.render_widget(
         Paragraph::new(Line::from(button_spans)).alignment(Alignment::Center),
@@ -369,7 +375,7 @@ where
         .border_type(BorderType::Rounded)
         .title(title)
         .title_style(Style::default().fg(theme.text_normal))
-        .border_style(Style::default().fg(Color::Rgb(255, 100, 100)));
+        .border_style(Style::default().fg(theme.error));
     let inner = block.inner(confirm_area);
     f.render_widget(block, confirm_area);
 
@@ -404,7 +410,7 @@ where
     if to_delete.is_empty() {
         list_lines.push(Line::from(Span::styled(
             "No selected item",
-            Style::default().fg(Color::Rgb(210, 170, 170)),
+            Style::default().fg(theme.text_dim),
         )));
     } else {
         let row_name_max = list_area.width.saturating_sub(2) as usize;
@@ -432,7 +438,7 @@ where
             }
             spans.push(Span::styled(
                 truncate(&name, row_name_max.max(1)),
-                Style::default().fg(Color::Rgb(240, 240, 240)),
+                Style::default().fg(theme.text_normal),
             ));
             list_lines.push(Line::from(spans));
         }
@@ -476,7 +482,7 @@ where
         }
     }
 
-    render_confirm_delete_buttons(f, sections[1], confirm_focused, nerd_font_active);
+    render_confirm_delete_buttons(f, sections[1], confirm_focused, nerd_font_active, theme);
 
     ConfirmDeleteRenderState {
         max_offset: max_scroll as u16,
@@ -497,7 +503,7 @@ pub fn render_confirm_delete_bookmark_dialog(
     let mut lines: Vec<Line<'static>> = vec![
         Line::from(""),
         Line::from(vec![
-            Span::styled("  Bookmark: ", Style::default().fg(Color::Rgb(140, 200, 255))),
+            Span::styled("  Bookmark: ", Style::default().fg(theme.accent_primary)),
             Span::styled(
                 format!("[{}]  {}", bookmark_idx, bookmark_path),
                 Style::default().fg(theme.text_normal),
@@ -507,26 +513,26 @@ pub fn render_confirm_delete_bookmark_dialog(
 
     if from_env {
         lines.push(Line::from(vec![
-            Span::styled("  Source:   ", Style::default().fg(Color::Rgb(140, 200, 255))),
+            Span::styled("  Source:   ", Style::default().fg(theme.accent_primary)),
             Span::styled(
                 format!("$SB_BOOKMARK_{} (environment variable)", bookmark_idx),
-                Style::default().fg(Color::Rgb(220, 180, 80)),
+                Style::default().fg(theme.warning),
             ),
         ]));
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             "  A deleted marker will be saved to config so this",
-            Style::default().fg(Color::Rgb(160, 160, 160)),
+            Style::default().fg(theme.text_dim),
         )));
         lines.push(Line::from(Span::styled(
             "  bookmark stays hidden while the env var is set.",
-            Style::default().fg(Color::Rgb(160, 160, 160)),
+            Style::default().fg(theme.text_dim),
         )));
     } else {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             "  This bookmark will be removed from your config.",
-            Style::default().fg(Color::Rgb(160, 160, 160)),
+            Style::default().fg(theme.text_dim),
         )));
     }
     lines.push(Line::from(""));
@@ -553,7 +559,7 @@ pub fn render_confirm_delete_bookmark_dialog(
         .border_type(BorderType::Rounded)
         .title(title)
         .title_style(Style::default().fg(theme.text_normal))
-        .border_style(Style::default().fg(Color::Rgb(255, 100, 100)));
+        .border_style(Style::default().fg(theme.error));
     let inner = block.inner(confirm_area);
     f.render_widget(block, confirm_area);
 
@@ -570,17 +576,19 @@ pub fn render_confirm_delete_bookmark_dialog(
         button_spans.extend(dialog_button_spans(
             "Delete",
             delete_focused,
-            Color::Rgb(255, 130, 130),
-            Color::Rgb(220, 200, 200),
+            theme.error,
+            theme.text_dim,
             nerd_font_active,
+            theme,
         ));
         button_spans.push(Span::styled("    ", Style::default()));
         button_spans.extend(dialog_button_spans(
             "Cancel",
             !delete_focused,
-            Color::Rgb(200, 200, 220),
-            Color::Rgb(220, 200, 200),
+            theme.accent_primary,
+            theme.text_dim,
             nerd_font_active,
+            theme,
         ));
         f.render_widget(
             Paragraph::new(Line::from(button_spans)).alignment(Alignment::Center),
