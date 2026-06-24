@@ -16,7 +16,14 @@ use ratatui::prelude::*;
 
 use crate::{App, AppMode, DualPanelSide, InternalSearchScope, RemoteEntry};
 
+mod browsing;
+mod internal_search;
 mod key_dispatch_body;
+mod ssh_picker;
+
+use browsing::*;
+use internal_search::*;
+use ssh_picker::*;
 
 pub(crate) enum KeyDispatchOutcome {
     Ok,
