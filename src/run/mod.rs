@@ -4,7 +4,7 @@ mod key_dispatch;
 mod run_loop_body;
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     env,
     io::{self, Stdout},
     time::Duration,

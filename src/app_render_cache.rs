@@ -23,6 +23,38 @@ pub(crate) struct EntryRenderCache {
     pub(crate) modified_unix: Option<u64>,
 }
 
+/// Aggregate values for one file list that depend only on the entry set, not on
+/// per-frame layout. Computed once whenever the panel's `entry_render_cache` is
+/// rebuilt (directory change / sort / setting toggle) and read back during
+/// rendering, so the render path no longer rescans/sorts every frame.
+#[derive(Clone, Default)]
+pub(crate) struct ListAggregates {
+    /// `(min, max)` byte sizes across the list, for the size heat coloring.
+    pub(crate) size_min_max: Option<(u64, u64)>,
+    /// Per-timestamp rank in `[0,1]`, for the date heat coloring.
+    pub(crate) date_rank_by_ts: HashMap<u64, f64>,
+    /// Total bytes for the percent column — `Some` only when every entry has a
+    /// known size (matches `panel_percent_total(.., true)`).
+    pub(crate) percent_total: Option<u64>,
+    /// Widest trimmed size column across the list (min 1).
+    pub(crate) max_size_width: usize,
+}
+
+impl ListAggregates {
+    pub(crate) fn from_cache(cache: &[EntryRenderCache]) -> Self {
+        ListAggregates {
+            size_min_max: ui::list_temperature::size_min_max_from_sizes(
+                cache.iter().map(|entry| entry.size_bytes),
+            ),
+            date_rank_by_ts: ui::list_temperature::date_rank_map_from_unix(
+                cache.iter().map(|entry| entry.modified_unix),
+            ),
+            percent_total: ui::list_metrics::panel_percent_total(cache, true),
+            max_size_width: ui::list_metrics::panel_size_width(cache, true),
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct EntryRenderConfig {
     pub(crate) nerd_font_active: bool,

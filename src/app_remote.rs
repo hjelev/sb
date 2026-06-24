@@ -226,7 +226,7 @@ impl App {
             return Ok(());
         }
         let _ = rtype; // informational only
-        let mount_dir = PathBuf::from(format!("/tmp/sbrs_rclone_{}", name));
+        let mount_dir = crate::util::config::runtime_dir().join(format!("mnt_rclone_{}", name));
         if mount_dir.exists() {
             let _ = fs::remove_dir(&mount_dir);
         }
@@ -292,7 +292,7 @@ impl App {
             self.try_enter_dir_on_active_panel(mount_path);
             return Ok(());
         }
-        let mount_dir = PathBuf::from(format!("/tmp/sbrs_sshfs_{}", host.alias));
+        let mount_dir = crate::util::config::runtime_dir().join(format!("mnt_sshfs_{}", host.alias));
         // Remove stale dir if it exists but isn't mounted
         if mount_dir.exists() {
             let _ = fs::remove_dir(&mount_dir);
