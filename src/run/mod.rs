@@ -1,7 +1,20 @@
 //! Main TUI event loop (extracted from main.rs).
 
 mod key_dispatch;
+mod render_footer;
+mod render_header;
+mod render_overlays;
+mod render_table;
+mod render_types;
+mod render_util;
 mod run_loop_body;
+
+use render_footer::*;
+use render_header::*;
+use render_overlays::*;
+use render_table::*;
+use render_types::*;
+use render_util::*;
 
 use std::{
     collections::HashSet,

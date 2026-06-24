@@ -970,7 +970,7 @@ pub fn render_bookmarks_overlay(
         ]));
     }
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(" Add to your shell config to set bookmarks:", Style::default().fg(Color::Rgb(200, 180, 80)))));
+    lines.push(Line::from(Span::styled(" Add to your shell config to set bookmarks:", Style::default().fg(spec.warning))));
     lines.push(Line::from(Span::styled("  export SB_BOOKMARK_1=\"$HOME/.config\"", Style::default().fg(spec.text_dim))));
     lines.push(Line::from(Span::styled("  export SB_BOOKMARK_2=\"/var/log\"", Style::default().fg(spec.text_dim))));
     let bm_h = (lines.len() as u16 + 4).max(17).min(tab_overlay_anchor.height);
