@@ -94,7 +94,7 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
 
 
     let note_style = Style::default().fg(active_theme.text_dim);
-    let tree_style = Style::default().fg(Color::Rgb(140, 140, 140));
+    let tree_style = Style::default().fg(active_theme.text_dim);
 
     // Keep selected-row background while preserving per-span foreground colors
     // (e.g. filename white, note text gray).
@@ -136,8 +136,8 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
         let pill_selected = is_selected && pill_mode;
         let (icon_style, name_style) = entry_styles(entry_cache.icon_style, entry_cache.name_style, is_selected);
 
-        let group_style = Style::default().fg(Color::Rgb(172, 136, 98));
-        let owner_style = Style::default().fg(Color::Rgb(196, 172, 118));
+        let group_style = Style::default().fg(active_theme.meta_group);
+        let owner_style = Style::default().fg(active_theme.meta_owner);
         let size_style = Style::default().fg(ui::list_temperature::size_color_for(
             entry_cache.size_bytes,
             size_min_max,
@@ -308,7 +308,7 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
         Row::new(cells).style(if is_selected {
             Style::default().bg(left_pill_color)
         } else if is_marked {
-            Style::default().bg(Color::Rgb(0, 100, 150))
+            Style::default().bg(active_theme.search_match_bg)
         } else {
             Style::default()
         })
@@ -379,7 +379,7 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
             Paragraph::new(Line::from(Span::styled(
                 "No files or folders yet. Use the 'n' button to break the silence.",
                 Style::default()
-                        .fg(Color::Rgb(140, 140, 140))
+                        .fg(active_theme.text_dim)
                     .add_modifier(Modifier::ITALIC),
             )))
             .alignment(Alignment::Left),
@@ -565,7 +565,7 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
     let can_draw_scrollbar = tl.can_draw_scrollbar;
     let list_area = tl.list_area;
     let note_style = Style::default().fg(ctx.theme.text_dim);
-    let tree_style = Style::default().fg(Color::Rgb(140, 140, 140));
+    let tree_style = Style::default().fg(active_theme.text_dim);
     let right_selection_style = if app.is_dual_panel_mode() {
         match app.active_panel {
             crate::DualPanelSide::Left => Style::default().bg(ctx.theme.bg_inactive_panel),
@@ -663,7 +663,7 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
             }
             spans.push(Span::styled(
                 display_name.clone(),
-                Style::default().fg(Color::Rgb(220, 220, 220)),
+                Style::default().fg(active_theme.text_normal),
             ));
 
             let used_width = prefix_width + UnicodeWidthStr::width(display_name.as_str());
@@ -765,7 +765,7 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
             if tlines.is_empty() {
                 tlines.push(Line::from(Span::styled(
                     "No preview",
-                    Style::default().fg(Color::Rgb(140, 140, 140)),
+                    Style::default().fg(active_theme.text_dim),
                 )));
             }
             tlines
@@ -777,7 +777,7 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
                 f.render_widget(
                     Paragraph::new(Line::from(Span::styled(
                         footer_text.clone(),
-                        Style::default().fg(Color::Rgb(120, 200, 190)),
+                        Style::default().fg(active_theme.divider),
                     )))
                     .alignment(Alignment::Right),
                     preview_footer_area,
@@ -1018,7 +1018,7 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
                     Row::new(cells).style(if right_is_selected {
                         right_selection_style
                     } else if right_is_marked {
-                        Style::default().bg(Color::Rgb(0, 100, 150))
+                        Style::default().bg(active_theme.search_match_bg)
                     } else {
                         Style::default()
                     })

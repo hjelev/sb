@@ -81,6 +81,18 @@ pub(crate) struct ThemeSpec {
     pub(crate) key_label: Color,
     /// Section / heading text in overlay panels (help, integrations, sort).
     pub(crate) overlay_section: Color,
+    /// Git branch name shown in the header.
+    pub(crate) git_branch: Color,
+    /// Git tag label shown in the header.
+    pub(crate) git_tag: Color,
+    /// File owner column in the metadata view.
+    pub(crate) meta_owner: Color,
+    /// File group column in the metadata view.
+    pub(crate) meta_group: Color,
+    /// Background highlight for the current search match.
+    pub(crate) search_match_bg: Color,
+    /// Background of an unfocused dialog button (focused uses bg_selected/accent).
+    pub(crate) dialog_unfocus_bg: Color,
 }
 
 /// The built-in themes. These seed the runtime [`registry`]; their `id` fields
@@ -116,6 +128,12 @@ pub(crate) const THEMES: [ThemeSpec; 11] = [
         bg_inactive_panel: Color::Rgb(38, 38, 45),
         key_label: Color::Rgb(255, 220, 120),
         overlay_section: Color::Rgb(120, 200, 255),
+        git_branch: Color::Rgb(100, 150, 255),
+        git_tag: Color::Rgb(80, 255, 120),
+        meta_owner: Color::Rgb(196, 172, 118),
+        meta_group: Color::Rgb(172, 136, 98),
+        search_match_bg: Color::Rgb(0, 100, 150),
+        dialog_unfocus_bg: Color::Rgb(55, 58, 70),
     },
     ThemeSpec {
         id: ThemeId(1),
@@ -147,6 +165,12 @@ pub(crate) const THEMES: [ThemeSpec; 11] = [
         bg_inactive_panel: Color::Rgb(36, 41, 52),
         key_label: Color::Rgb(235, 203, 139),
         overlay_section: Color::Rgb(129, 161, 193),
+        git_branch: Color::Rgb(129, 161, 193),
+        git_tag: Color::Rgb(163, 190, 140),
+        meta_owner: Color::Rgb(235, 203, 139),
+        meta_group: Color::Rgb(110, 120, 140),
+        search_match_bg: Color::Rgb(59, 66, 82),
+        dialog_unfocus_bg: Color::Rgb(36, 41, 52),
     },
     ThemeSpec {
         id: ThemeId(2),
@@ -178,6 +202,12 @@ pub(crate) const THEMES: [ThemeSpec; 11] = [
         bg_inactive_panel: Color::Rgb(0, 28, 36),
         key_label: Color::Rgb(181, 137, 0),
         overlay_section: Color::Rgb(38, 139, 210),
+        git_branch: Color::Rgb(38, 139, 210),
+        git_tag: Color::Rgb(133, 153, 0),
+        meta_owner: Color::Rgb(181, 137, 0),
+        meta_group: Color::Rgb(88, 110, 117),
+        search_match_bg: Color::Rgb(7, 54, 66),
+        dialog_unfocus_bg: Color::Rgb(0, 28, 36),
     },
     ThemeSpec {
         id: ThemeId(3),
@@ -209,6 +239,12 @@ pub(crate) const THEMES: [ThemeSpec; 11] = [
         bg_inactive_panel: Color::Rgb(29, 28, 28),
         key_label: Color::Rgb(250, 189, 47),
         overlay_section: Color::Rgb(131, 165, 152),
+        git_branch: Color::Rgb(131, 165, 152),
+        git_tag: Color::Rgb(184, 187, 38),
+        meta_owner: Color::Rgb(250, 189, 47),
+        meta_group: Color::Rgb(146, 131, 116),
+        search_match_bg: Color::Rgb(60, 56, 54),
+        dialog_unfocus_bg: Color::Rgb(29, 28, 28),
     },
     // Hercules monochrome monitor: green phosphor on black.
     ThemeSpec {
@@ -241,6 +277,12 @@ pub(crate) const THEMES: [ThemeSpec; 11] = [
         bg_inactive_panel: Color::Rgb(5, 15, 5),
         key_label: Color::Rgb(180, 255, 120),
         overlay_section: Color::Rgb(120, 255, 150),
+        git_branch: Color::Rgb(120, 255, 150),
+        git_tag: Color::Rgb(80, 255, 120),
+        meta_owner: Color::Rgb(180, 255, 120),
+        meta_group: Color::Rgb(0, 130, 60),
+        search_match_bg: Color::Rgb(0, 80, 30),
+        dialog_unfocus_bg: Color::Rgb(5, 15, 5),
     },
     ThemeSpec {
         id: ThemeId(5),
@@ -272,6 +314,12 @@ pub(crate) const THEMES: [ThemeSpec; 11] = [
         bg_inactive_panel: Color::Rgb(33, 34, 44),
         key_label: Color::Rgb(241, 250, 140),
         overlay_section: Color::Rgb(189, 147, 249),
+        git_branch: Color::Rgb(189, 147, 249),
+        git_tag: Color::Rgb(80, 250, 123),
+        meta_owner: Color::Rgb(241, 250, 140),
+        meta_group: Color::Rgb(98, 114, 164),
+        search_match_bg: Color::Rgb(68, 71, 90),
+        dialog_unfocus_bg: Color::Rgb(33, 34, 44),
     },
     ThemeSpec {
         id: ThemeId(6),
@@ -303,6 +351,12 @@ pub(crate) const THEMES: [ThemeSpec; 11] = [
         bg_inactive_panel: Color::Rgb(31, 29, 46),
         key_label: Color::Rgb(246, 193, 119),
         overlay_section: Color::Rgb(196, 167, 231),
+        git_branch: Color::Rgb(49, 116, 143),
+        git_tag: Color::Rgb(156, 207, 216),
+        meta_owner: Color::Rgb(246, 193, 119),
+        meta_group: Color::Rgb(110, 106, 134),
+        search_match_bg: Color::Rgb(38, 35, 58),
+        dialog_unfocus_bg: Color::Rgb(31, 29, 46),
     },
     ThemeSpec {
         id: ThemeId(7),
@@ -334,6 +388,12 @@ pub(crate) const THEMES: [ThemeSpec; 11] = [
         bg_inactive_panel: Color::Rgb(35, 42, 46),
         key_label: Color::Rgb(219, 188, 127),
         overlay_section: Color::Rgb(127, 187, 179),
+        git_branch: Color::Rgb(127, 187, 179),
+        git_tag: Color::Rgb(167, 192, 128),
+        meta_owner: Color::Rgb(219, 188, 127),
+        meta_group: Color::Rgb(133, 146, 137),
+        search_match_bg: Color::Rgb(71, 82, 88),
+        dialog_unfocus_bg: Color::Rgb(35, 42, 46),
     },
     ThemeSpec {
         id: ThemeId(8),
@@ -365,6 +425,12 @@ pub(crate) const THEMES: [ThemeSpec; 11] = [
         bg_inactive_panel: Color::Rgb(22, 22, 29),
         key_label: Color::Rgb(230, 195, 132),
         overlay_section: Color::Rgb(126, 156, 216),
+        git_branch: Color::Rgb(126, 156, 216),
+        git_tag: Color::Rgb(152, 187, 108),
+        meta_owner: Color::Rgb(230, 195, 132),
+        meta_group: Color::Rgb(114, 113, 105),
+        search_match_bg: Color::Rgb(45, 79, 103),
+        dialog_unfocus_bg: Color::Rgb(22, 22, 29),
     },
     ThemeSpec {
         id: ThemeId(9),
@@ -396,6 +462,12 @@ pub(crate) const THEMES: [ThemeSpec; 11] = [
         bg_inactive_panel: Color::Rgb(33, 37, 43),
         key_label: Color::Rgb(229, 192, 123),
         overlay_section: Color::Rgb(97, 175, 239),
+        git_branch: Color::Rgb(97, 175, 239),
+        git_tag: Color::Rgb(152, 195, 121),
+        meta_owner: Color::Rgb(229, 192, 123),
+        meta_group: Color::Rgb(92, 99, 112),
+        search_match_bg: Color::Rgb(62, 68, 81),
+        dialog_unfocus_bg: Color::Rgb(33, 37, 43),
     },
     // Banana: amber/orange monochrome on black, sibling of aiberto.
     ThemeSpec {
@@ -428,6 +500,12 @@ pub(crate) const THEMES: [ThemeSpec; 11] = [
         bg_inactive_panel: Color::Rgb(15, 10, 0),
         key_label: Color::Rgb(255, 235, 120),
         overlay_section: Color::Rgb(255, 165, 60),
+        git_branch: Color::Rgb(255, 165, 60),
+        git_tag: Color::Rgb(255, 220, 90),
+        meta_owner: Color::Rgb(255, 235, 120),
+        meta_group: Color::Rgb(150, 100, 20),
+        search_match_bg: Color::Rgb(90, 50, 0),
+        dialog_unfocus_bg: Color::Rgb(15, 10, 0),
     },
 ];
 

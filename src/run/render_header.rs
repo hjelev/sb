@@ -87,7 +87,7 @@ pub(crate) fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user:
     };
     if app.integration_enabled("git")
         && let Some((branch, is_dirty, tag_info)) = app.cached_git_info_for_current_dir() {
-            let branch_style = Style::default().fg(Color::Rgb(100, 150, 255));
+            let branch_style = Style::default().fg(active_theme.git_branch);
             left_spans.push(Span::styled(" (", branch_style));
             left_spans.push(Span::styled(branch, branch_style));
             if is_dirty {
@@ -95,7 +95,7 @@ pub(crate) fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user:
             }
             if let Some((tag_name, ahead)) = tag_info {
                 let at_style = Style::default().fg(active_theme.text_dim);
-                let tag_style = Style::default().fg(Color::Rgb(80, 255, 120));
+                let tag_style = Style::default().fg(active_theme.git_tag);
                 let tag_text = if ahead > 0 {
                     format!("{}+{}", tag_name, ahead)
                 } else {
@@ -108,7 +108,7 @@ pub(crate) fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user:
         }
     let mut header_right_is_clock = false;
     let header_right = if let Some(disk_info) = app.current_dir_total_size_header_info() {
-        let icon_style = Style::default().fg(Color::Rgb(100, 160, 240));
+        let icon_style = Style::default().fg(active_theme.accent_primary);
         let text_style = Style::default().fg(active_theme.text_normal);
         let mut spans: Vec<Span> = Vec::new();
 
