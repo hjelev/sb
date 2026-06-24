@@ -191,6 +191,7 @@ Use the installer there if you want the fastest setup without building from sour
 - `I`: integrations panel
 - `b`: bookmarks panel
 - `Ctrl+z`: drop to interactive shell in current directory
+- `/` (in browsing): quick-filter the current folder listing (not available in dual panel mode)
 - `Tab` (in browsing): edit current path inline; supports `/path/^prefix`, `/path/suffix$`, and `/path/~contains` filters
 - `Tab` / `Shift+Tab` in Help/Search/Bookmarks/Remote Mounts/Sorting/Integrations: cycle tabs forward/backward
 - `s`: toggle folder size calculation in listing
@@ -273,6 +274,7 @@ Required behavior:
 Optional integrations (auto-detected, toggle in `I` panel):
 
 - In the Integrations panel, pressing `Enter` on a missing integration asks for confirmation and can install with Homebrew when available (macOS and Linux/Homebrew).
+- Press `/` inside the Integrations panel to search/filter the integration list.
 
 - VCS: `git`
 - Viewers/previews: `bat`, `glow`, `mmdflux`, `jnv`, `csvlens`, `hexyl`, `chafa`, `viu`, `sox`, `pdftotext`, `asciinema`, `links`
@@ -305,6 +307,11 @@ If an optional tool is not available, the feature is skipped or falls back grace
 - `SB_SEARCH_CONTENT_MAX_FILES`: built-in Search content-mode max files scanned (default: `20000`)
 - `SB_SEARCH_CONTENT_MAX_HITS`: built-in Search content-mode max matches returned (default: `2000`)
 - `SB_SEARCH_CONTENT_MAX_FILE_BYTES`: built-in Search content-mode per-file byte cap (default: `2097152` / 2 MiB)
+
+Persistent config (`~/.config/sb/config`, `key = value`) also supports:
+
+- `disable_clock = true`: replace the header clock with a disk-usage pill
+- Nerd Fonts and file name colors can be toggled live from the Themes menu (the choice is persisted here alongside the active theme and view mode)
 
 </details>
 

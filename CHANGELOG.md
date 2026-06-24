@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8] - 2026-06-25
+
+### Added
+- Seven new themes: AIberto, Dracula, Rosé Pine, Everforest, Kanagawa, One Dark, Bannana
+- Option to disable the header clock and show a disk-usage pill instead (`disable_clock` in `~/.config/sb/config`)
+
+### Changed
+- Improve free disk space display in the header
+- Improve mouse support
+- Make CLI list/tree output follow the GUI configs
+- Redesign shortcut pills (rounding suppressed when Nerd Fonts are disabled)
+- Performance improvements
+- Large internal refactors: render submodules, key-dispatch modules, `SizeState` grouping, centralized TUI colors via `ThemeSpec`
+
+### Fixed
+- Dual panel refresh bug
+
+## [0.7] - 2026-06-18
+
+### Added
+- Press `/` to quick-filter the current folder listing
+- Search (`/`) inside the Integrations panel
+- `zellij` support as a tmux-split fallback
+- Toggle Nerd Fonts and file name colors directly from the Themes menu
+- Delete env-defined bookmarks with `d`
+- Deploy all theme skins during installation
+- Auto dark/light mode for the HTML docs site
+
+### Changed
+- Git workflow now pulls before pushing
+- Improve release pipeline
+- Code de-duplication and restructuring across modules
+
+### Fixed
+- Bug in git integration
+- Integrations search no longer blocked toggling with `Space`
+- Homebrew install notes in release output
+- Assorted docs fixes
+
 ## [0.6] - 2026-05-17
 
 ### Added
@@ -126,7 +165,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Keyboard-driven file manager with no runtime config files
 - CI setup with `cargo-dist`
 
-[Unreleased]: https://github.com/hjelev/sb/compare/v0.6.14...HEAD
+[Unreleased]: https://github.com/hjelev/sb/compare/v0.8.3...HEAD
+[0.8]: https://github.com/hjelev/sb/compare/v0.7.6...v0.8.3
+[0.7]: https://github.com/hjelev/sb/compare/v0.6.14...v0.7.6
 [0.6]: https://github.com/hjelev/sb/compare/v0.5.19...v0.6.14
 [0.5]: https://github.com/hjelev/sb/compare/v0.4.19...v0.5.19
 [0.4]: https://github.com/hjelev/sb/compare/v0.3.2...v0.4.19

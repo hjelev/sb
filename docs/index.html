@@ -18,8 +18,9 @@
 <body>
   <!-- NAV -->
   <header class="nav">
-    <a class="nav__brand" href="index.html">
-      <img src="images/logo.png" alt="Shell Buddy" />
+    <a class="nav__brand" href="index.html" aria-label="Shell Buddy — home">
+      <img src="images/favicon.png" alt="" />
+      <span class="nav__brand-name"><span class="brand-shell">Shell</span> <span class="brand-buddy">Buddy</span></span>
     </a>
     <nav class="nav__links">
       <a href="index.html" class="active" aria-current="page">Home</a>
@@ -128,6 +129,11 @@
         <h3>CLI list / tree modes</h3>
         <p><code>sb -l</code>, <code>sb -t</code>, <code>sb -l2</code> produce consistent column output; <code>sb &lt;file&gt;</code> opens with the best viewer.</p>
       </article>
+      <article class="card">
+        <div class="card__key">T</div>
+        <h3>Themeable</h3>
+        <p>Ten-plus built-in themes (Nord, Dracula, Gruvbox, Rosé Pine, Everforest…), with Nerd Fonts and file-name colors toggled live from the Themes menu.</p>
+      </article>
     </div>
   </section>
 
@@ -147,7 +153,10 @@
   </section>
 
   <footer class="footer">
-    <img src="images/logo.png" alt="Shell Buddy" />
+    <a class="footer__brand" href="index.html">
+      <img src="images/favicon.png" alt="" />
+      <span class="footer__brand-name"><span class="brand-shell">Shell</span> <span class="brand-buddy">Buddy</span></span>
+    </a>
     <p>Shell Buddy (<code>sb</code>) — a terminal file manager written in Rust with <code>ratatui</code> + <code>crossterm</code>.</p>
     <p class="footer__links">
       <a href="https://github.com/hjelev/sb" target="_blank" rel="noopener">GitHub</a> ·
