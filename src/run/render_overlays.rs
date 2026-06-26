@@ -589,7 +589,7 @@ pub(crate) fn render_internal_search_overlay(f: &mut Frame, app: &mut App, ctx: 
                 };
                 let base_style = if is_selected {
                     Style::default()
-                        .fg(active_theme.text_normal)
+                        .fg(crate::ui::palette::readable_fg(active_theme.bg_selected, Color::Black, active_theme.text_normal))
                         .bg(active_theme.bg_selected)
                 } else {
                     Style::default().fg(active_theme.text_normal)
@@ -1099,7 +1099,7 @@ pub(crate) fn render_ssh_picker_overlay(f: &mut Frame, app: &mut App, ctx: &Rend
                 };
                 let style = if is_selected {
                     Style::default()
-                        .fg(active_theme.text_normal)
+                        .fg(crate::ui::palette::readable_fg(active_theme.bg_selected, Color::Black, active_theme.text_normal))
                         .bg(active_theme.bg_selected)
                         .add_modifier(Modifier::BOLD)
                 } else if is_mounted {

@@ -154,6 +154,24 @@ impl Palette {
     }
 }
 
+/// Whether `bg` is a light color that needs dark foreground text for contrast.
+///
+/// Non-RGB colors (terminal default / ANSI names) can't be measured, so they
+/// are treated as dark (themes that use them are dark-background themes).
+pub fn is_light_bg(bg: Color) -> bool {
+    match bg {
+        // Perceived luminance (Rec. 601), range 0..=255.
+        Color::Rgb(r, g, b) => 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32 > 150.0,
+        _ => false,
+    }
+}
+
+/// Returns a foreground readable on `bg`: `dark` for light backgrounds,
+/// `light` for dark backgrounds.
+pub fn readable_fg(bg: Color, dark: Color, light: Color) -> Color {
+    if is_light_bg(bg) { dark } else { light }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,5 +183,24 @@ mod tests {
         let _ = Palette::ACCENT_PRIMARY;
         let _ = Palette::ERROR;
         let _ = Palette::default_text();
+    }
+
+    #[test]
+    fn readable_fg_picks_by_luminance() {
+        // Bright yellow (cyberpunk-neon selection bg) → dark text.
+        assert_eq!(
+            readable_fg(Color::Rgb(0xFC, 0xEE, 0x0A), Color::Black, Color::White),
+            Color::Black
+        );
+        // Dark olive (darkened label segment) → light text.
+        assert_eq!(
+            readable_fg(Color::Rgb(0x8C, 0x83, 0x05), Color::Black, Color::White),
+            Color::White
+        );
+        // Unmeasurable terminal default → light fallback.
+        assert_eq!(
+            readable_fg(Color::Reset, Color::Black, Color::White),
+            Color::White
+        );
     }
 }

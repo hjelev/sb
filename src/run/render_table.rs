@@ -136,17 +136,31 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
         let pill_selected = is_selected && pill_mode;
         let (icon_style, name_style) = entry_styles(entry_cache.icon_style, entry_cache.name_style, is_selected);
 
-        let group_style = Style::default().fg(active_theme.meta_group);
-        let owner_style = Style::default().fg(active_theme.meta_owner);
-        let size_style = Style::default().fg(ui::list_temperature::size_color_for(
+        // On a selected row with a light selection background (e.g. cyberpunk
+        // neon's yellow), force a dark foreground so the per-type cell colors
+        // (white names, cyan dirs, temperature shades) stay readable. Dark
+        // selection backgrounds keep the cells' own colors.
+        let sel_fg_override = if pill_selected && ui::palette::is_light_bg(left_pill_color) {
+            Some(Color::Black)
+        } else {
+            None
+        };
+        let apply_sel = |style: Style| match sel_fg_override {
+            Some(fg) => style.fg(fg),
+            None => style,
+        };
+
+        let group_style = apply_sel(Style::default().fg(active_theme.meta_group));
+        let owner_style = apply_sel(Style::default().fg(active_theme.meta_owner));
+        let size_style = apply_sel(Style::default().fg(ui::list_temperature::size_color_for(
             entry_cache.size_bytes,
             size_min_max,
-        ));
+        )));
         let date_style =
-            Style::default().fg(ui::list_temperature::date_color_for(
+            apply_sel(Style::default().fg(ui::list_temperature::date_color_for(
                 entry_cache.modified_unix,
                 date_rank_by_ts,
-            ));
+            )));
         let marker = if app.no_color {
             format!(
                 "{}{} ",
@@ -190,7 +204,7 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
 
         let mut cells = vec![Cell::from(Line::from({
             let mut spans = vec![];
-            let row_fill = Style::default().bg(left_pill_color);
+            let row_fill = apply_sel(Style::default().bg(left_pill_color));
             if pill_mode {
                 if pill_selected {
                     if app.nerd_font_active {
@@ -281,7 +295,7 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
                 perms_width,
             )
             .into_iter()
-            .map(|(text, color)| match color {
+            .map(|(text, color)| match sel_fg_override.or(color) {
                 Some(c) => Span::styled(text, Style::default().fg(c)),
                 None => Span::raw(text),
             })
@@ -900,6 +914,16 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
                 .map(|(idx, entry_cache)| {
                     let right_is_marked = app.right.marked_indices.contains(&idx);
                     let right_is_selected = idx == app.right.selected_index;
+                    // Dark foreground for selected rows on a light selection bg.
+                    let right_sel_override = if right_is_selected && ui::palette::is_light_bg(right_pill_color) {
+                        Some(Color::Black)
+                    } else {
+                        None
+                    };
+                    let right_apply_sel = |style: Style| match right_sel_override {
+                        Some(fg) => style.fg(fg),
+                        None => style,
+                    };
                     let tree_prefix = app
                         .right.tree_row_prefixes
                         .get(idx)
@@ -920,7 +944,7 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
                         .map(|s| s.as_str())
                         .unwrap_or("");
                     let name = truncate_with_ellipsis(&entry_cache.raw_name, available_name_width);
-                    let right_row_fill = Style::default().bg(right_pill_color);
+                    let right_row_fill = right_apply_sel(Style::default().bg(right_pill_color));
                     let mut spans = Vec::new();
                     if right_is_selected {
                         if app.nerd_font_active {
@@ -998,14 +1022,14 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
                     }
                     let name_cell = Cell::from(Line::from(spans));
                     let mut cells = vec![name_cell];
-                    let right_size_style = Style::default().fg(ui::list_temperature::size_color_for(
+                    let right_size_style = right_apply_sel(Style::default().fg(ui::list_temperature::size_color_for(
                         entry_cache.size_bytes,
                         right_size_min_max,
-                    ));
-                    let right_date_style = Style::default().fg(ui::list_temperature::date_color_for(
+                    )));
+                    let right_date_style = right_apply_sel(Style::default().fg(ui::list_temperature::date_color_for(
                         entry_cache.modified_unix,
                         right_date_rank_by_ts,
-                    ));
+                    )));
                     push_metric_cells(
                         &mut cells,
                         entry_cache,

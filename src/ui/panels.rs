@@ -263,11 +263,13 @@ pub fn shortcut_spans(
 ) -> Vec<Span<'static>> {
     let key_bg = spec.bg_selected;
     let label_bg = darken(key_bg, 0.45);
+    let key_fg = crate::ui::palette::readable_fg(key_bg, Color::Black, spec.text_normal);
+    let label_fg = crate::ui::palette::readable_fg(label_bg, Color::Black, spec.text_normal);
     let key_style = Style::default()
-        .fg(spec.text_normal)
+        .fg(key_fg)
         .bg(key_bg)
         .add_modifier(Modifier::BOLD);
-    let label_style = Style::default().fg(spec.text_normal).bg(label_bg);
+    let label_style = Style::default().fg(label_fg).bg(label_bg);
     let mut spans: Vec<Span<'static>> = Vec::new();
 
     if nerd_font {
@@ -493,7 +495,9 @@ pub fn render_integrations_overlay(
             Style::default().fg(spec.error)
         };
         let base_style = if is_selected {
-            Style::default().bg(spec.bg_selected).fg(spec.text_normal)
+            Style::default()
+                .bg(spec.bg_selected)
+                .fg(crate::ui::palette::readable_fg(spec.bg_selected, Color::Black, spec.text_normal))
         } else {
             Style::default().fg(spec.text_normal)
         };
@@ -936,7 +940,9 @@ pub fn render_bookmarks_overlay(
     for (row_idx, (i, path)) in bookmarks.iter().enumerate() {
         let is_selected = row_idx == bookmark_selected;
         let base_style = if is_selected {
-            Style::default().bg(spec.bg_selected).fg(spec.text_normal)
+            Style::default()
+                .bg(spec.bg_selected)
+                .fg(crate::ui::palette::readable_fg(spec.bg_selected, Color::Black, spec.text_normal))
         } else {
             Style::default()
         };
@@ -1049,7 +1055,9 @@ pub fn render_sort_overlay(
             row_text
         };
         let style = if is_selected {
-            Style::default().bg(spec.bg_selected).fg(spec.text_normal)
+            Style::default()
+                .bg(spec.bg_selected)
+                .fg(crate::ui::palette::readable_fg(spec.bg_selected, Color::Black, spec.text_normal))
         } else if is_current {
             Style::default().fg(spec.warning)
         } else {
