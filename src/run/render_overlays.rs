@@ -113,7 +113,7 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             AppMode::ArchiveCreate => " Create Archive (Enter=Confirm, Esc=Cancel) ",
             AppMode::NoteEditing => " Note (Enter=Save, Esc=Cancel) ",
             AppMode::CommandInput => " Command (; Enter=Run, Esc=Cancel) ",
-            AppMode::GitCommitMessage => " Commit Message (Enter=Commit+Push, Esc=Cancel) ",
+            AppMode::GitCommitMessage => " Commit Message (Enter=Commit+Push, Ctrl+G=AI, Esc=Cancel) ",
             AppMode::GitTagInput => " Tag (Enter=Create+Push Tag, Esc=Cancel) ",
             _ => " New Name ",
         };
@@ -279,6 +279,52 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             &options,
             app.sort_menu_selected,
             app.left.sort_mode,
+            &mut app.footer_shortcut_zones,
+        );
+    } else if app.mode == AppMode::Settings {
+        let provider = crate::app_ai::provider_by_key(&app.ai_provider);
+        let model_is_default = app.ai_model.trim().is_empty();
+        let model_display = app.resolve_ai_model();
+        let model_value = if model_is_default {
+            format!("{} (default)", model_display)
+        } else {
+            model_display
+        };
+        let key_value = if !app.ai_api_key.trim().is_empty() {
+            "•".repeat(app.ai_api_key.chars().count().min(24))
+        } else if std::env::var(provider.env_var).map(|v| !v.trim().is_empty()).unwrap_or(false) {
+            format!("(from ${})", provider.env_var)
+        } else {
+            "(not set)".to_string()
+        };
+        let key_is_fallback = app.ai_api_key.trim().is_empty();
+        // Only show a validation glyph once the user has actually set a key.
+        let key_status = if key_is_fallback {
+            ui::panels::SettingsRowStatus::None
+        } else {
+            match app.ai_key_status {
+                crate::AiKeyStatus::Checking => ui::panels::SettingsRowStatus::Checking,
+                crate::AiKeyStatus::Valid => ui::panels::SettingsRowStatus::Valid,
+                crate::AiKeyStatus::Invalid => ui::panels::SettingsRowStatus::Invalid,
+                crate::AiKeyStatus::Unknown => ui::panels::SettingsRowStatus::None,
+            }
+        };
+        use ui::panels::SettingsRowStatus;
+        let rows = [
+            ui::panels::SettingsRow { label: "Provider", value: provider.label, dim_value: false, status: SettingsRowStatus::None },
+            ui::panels::SettingsRow { label: "Model", value: &model_value, dim_value: model_is_default, status: SettingsRowStatus::None },
+            ui::panels::SettingsRow { label: "API Key", value: &key_value, dim_value: key_is_fallback, status: key_status },
+        ];
+        ui::panels::render_settings_overlay(
+            f,
+            ui::panels::OverlayChrome {
+                anchor: tab_overlay_anchor,
+                panel_tab: app.panel_tab,
+                theme_id: app.active_theme,
+                nerd_font: app.nerd_font_active,
+            },
+            &rows,
+            app.settings_selected,
             &mut app.footer_shortcut_zones,
         );
     } else if app.mode == AppMode::SshPicker {

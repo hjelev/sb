@@ -159,6 +159,34 @@ pub(crate) enum NotesLoadMsg {
     Finished(u64, PathBuf, HashMap<String, String>),
 }
 
+/// Result of a background AI commit-message generation request.
+pub(crate) enum AiCommitMsg {
+    Ok(String),
+    Err(String),
+}
+
+/// Validation state of the AI API key shown in the Settings panel.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AiKeyStatus {
+    /// Not checked (no key, or the key changed since the last check).
+    Unknown,
+    /// A validation request is in flight.
+    Checking,
+    /// The provider accepted the key.
+    Valid,
+    /// The provider rejected the key (bad/expired token).
+    Invalid,
+}
+
+/// Result of a background AI API-key validation request. Carries the key that
+/// was checked so a result for a since-changed key can be discarded.
+pub(crate) enum AiKeyCheckMsg {
+    /// The check completed: `valid` is true when the provider authenticated it.
+    Result { key: String, valid: bool },
+    /// The check could not be performed (network/transport error).
+    Error { key: String, message: String },
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ArchiveKind {
     Zip,
@@ -235,6 +263,7 @@ pub(crate) enum AppMode {
     Themes,
     SortMenu,
     SshPicker,
+    Settings,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

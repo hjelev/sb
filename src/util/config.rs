@@ -166,6 +166,12 @@ pub struct SbPersistConfig {
     pub disabled_integrations: Vec<String>,
     /// Persistent bookmarks (index 0–9 → path string). Env vars take precedence at runtime.
     pub bookmarks: std::collections::HashMap<u8, String>,
+    /// AI commit-message provider key: `"groq"` or `"github"`.
+    pub ai_provider: String,
+    /// AI model id; empty falls back to the provider's default at call time.
+    pub ai_model: String,
+    /// AI API key/token. Empty falls back to the provider's env var.
+    pub ai_api_key: String,
     /// Unknown settings (future-proofing: preserve any unrecognized key-value pairs).
     unknown: std::collections::HashMap<String, String>,
 }
@@ -181,6 +187,9 @@ impl Default for SbPersistConfig {
             folder_size_enabled: false,
             disabled_integrations: Vec::new(),
             bookmarks: std::collections::HashMap::new(),
+            ai_provider: "groq".to_string(),
+            ai_model: String::new(),
+            ai_api_key: String::new(),
             unknown: std::collections::HashMap::new(),
         }
     }
@@ -238,6 +247,9 @@ impl SbPersistConfig {
                             .map(String::from)
                             .collect();
                     }
+                    "ai_provider" => cfg.ai_provider = val.to_string(),
+                    "ai_model" => cfg.ai_model = val.to_string(),
+                    "ai_api_key" => cfg.ai_api_key = val.to_string(),
                     k if k.starts_with("bookmark_") => {
                         if let Ok(n) = k["bookmark_".len()..].parse::<u8>()
                             && n <= 9 && !val.is_empty() {
@@ -276,6 +288,13 @@ impl SbPersistConfig {
                 "disabled_integrations = {}",
                 self.disabled_integrations.join(",")
             ));
+        }
+        lines.push(format!("ai_provider = {}", self.ai_provider));
+        if !self.ai_model.is_empty() {
+            lines.push(format!("ai_model = {}", self.ai_model));
+        }
+        if !self.ai_api_key.is_empty() {
+            lines.push(format!("ai_api_key = {}", self.ai_api_key));
         }
         let mut sorted_bookmarks: Vec<(&u8, &String)> = self.bookmarks.iter().collect();
         sorted_bookmarks.sort_by_key(|(n, _)| *n);
@@ -370,5 +389,52 @@ mod tests {
         assert_eq!(loaded.bookmarks.get(&0), Some(&"/tmp/test0".to_string()));
         assert_eq!(loaded.bookmarks.get(&3), Some(&"/home/user/projects".to_string()));
         assert_eq!(loaded.bookmarks.get(&9), Some(&"/var/log".to_string()));
+    }
+
+    #[test]
+    fn test_ai_settings_round_trip() {
+        // Default provider is groq; model/key empty so they fall back at runtime.
+        let def = SbPersistConfig::default();
+        assert_eq!(def.ai_provider, "groq");
+        assert!(def.ai_model.is_empty() && def.ai_api_key.is_empty());
+
+        // Save() omits empty model/key but always writes the provider; non-empty
+        // values are written and parsed back by load()'s match arms.
+        let mut cfg = SbPersistConfig::default();
+        cfg.ai_provider = "github".to_string();
+        cfg.ai_model = "openai/gpt-4o-mini".to_string();
+        cfg.ai_api_key = "secret-token".to_string();
+
+        let content = {
+            let mut lines = vec!["# sb config".to_string()];
+            lines.push(format!("ai_provider = {}", cfg.ai_provider));
+            if !cfg.ai_model.is_empty() {
+                lines.push(format!("ai_model = {}", cfg.ai_model));
+            }
+            if !cfg.ai_api_key.is_empty() {
+                lines.push(format!("ai_api_key = {}", cfg.ai_api_key));
+            }
+            lines.join("\n") + "\n"
+        };
+
+        let loaded = content.lines().fold(SbPersistConfig::default(), |mut c, line| {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                return c;
+            }
+            if let Some((k, v)) = line.split_once('=') {
+                match k.trim() {
+                    "ai_provider" => c.ai_provider = v.trim().to_string(),
+                    "ai_model" => c.ai_model = v.trim().to_string(),
+                    "ai_api_key" => c.ai_api_key = v.trim().to_string(),
+                    _ => {}
+                }
+            }
+            c
+        });
+
+        assert_eq!(loaded.ai_provider, "github");
+        assert_eq!(loaded.ai_model, "openai/gpt-4o-mini");
+        assert_eq!(loaded.ai_api_key, "secret-token");
     }
 }

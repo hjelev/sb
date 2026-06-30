@@ -18,6 +18,7 @@ const PANEL_TABS: &[(&str, u8)] = &[
     (" Sorting ", 4),
     (" Integrations ", 5),
     (" Themes ", 6),
+    (" Settings ", 7),
 ];
 
 // Scroll indicators shown when the tab bar is wider than the available space.
@@ -1098,6 +1099,134 @@ pub fn render_sort_overlay(
     footer_zones.extend(footer_shortcut_zones(footer_entries, sort_chunks[1], nerd_font_active));
 }
 
+/// Validation indicator shown at the end of a Settings row (used for the API
+/// key: ✓ when the provider accepted it, ✗ when rejected, … while checking).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SettingsRowStatus {
+    None,
+    Checking,
+    Valid,
+    Invalid,
+}
+
+/// One editable/selectable row in the Settings panel.
+pub struct SettingsRow<'a> {
+    pub label: &'a str,
+    pub value: &'a str,
+    /// When true, the value is rendered dim (e.g. a placeholder / fallback hint).
+    pub dim_value: bool,
+    /// Optional validation glyph rendered at the right edge of the row.
+    pub status: SettingsRowStatus,
+}
+
+/// Render the Settings panel (AI commit-message configuration). Mirrors
+/// [`render_sort_overlay`]: a list of rows with the selected one highlighted,
+/// the shared tab-bar chrome, and a shortcut footer.
+pub fn render_settings_overlay(
+    f: &mut Frame,
+    chrome: OverlayChrome,
+    rows: &[SettingsRow],
+    selected: usize,
+    footer_zones: &mut Vec<(KeyEvent, u16, u16, u16)>,
+) {
+    let OverlayChrome {
+        anchor: tab_overlay_anchor,
+        panel_tab,
+        theme_id,
+        nerd_font: nerd_font_active,
+    } = chrome;
+    let spec = theme_spec(theme_id);
+    let set_w = tab_overlay_anchor.width;
+    let set_content_w = set_w.saturating_sub(2) as usize;
+    let set_row_inner_w = set_content_w.saturating_sub(2);
+    let label_w = rows
+        .iter()
+        .map(|r| UnicodeWidthStr::width(r.label))
+        .max()
+        .unwrap_or(0);
+
+    let mut lines: Vec<Line> = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            "  AI commit messages — press Ctrl+G in the commit prompt (G) to generate.",
+            Style::default().fg(spec.text_dim),
+        )),
+        Line::from(""),
+    ];
+    for (idx, row) in rows.iter().enumerate() {
+        let is_selected = idx == selected;
+        let label_padded = format!("{:<width$}", row.label, width = label_w);
+        let base_text = format!(" {}   {}", label_padded, row.value);
+        // The validation glyph (with a leading space) sits at the row's right
+        // edge; reserve room for it when padding the selected-row highlight.
+        let glyph: Option<(&str, Color)> = match row.status {
+            SettingsRowStatus::Valid => Some(("✓", Color::Green)),
+            SettingsRowStatus::Invalid => Some(("✗", Color::Red)),
+            SettingsRowStatus::Checking => Some(("…", spec.text_dim)),
+            SettingsRowStatus::None => None,
+        };
+        let glyph_w = glyph
+            .map(|(g, _)| UnicodeWidthStr::width(g) + 1)
+            .unwrap_or(0);
+        let row_text = if is_selected {
+            let used_w = UnicodeWidthStr::width(base_text.as_str()) + glyph_w;
+            if set_row_inner_w > used_w {
+                format!("{}{}", base_text, " ".repeat(set_row_inner_w - used_w))
+            } else {
+                base_text
+            }
+        } else {
+            base_text
+        };
+        let value_fg = if row.dim_value { spec.text_dim } else { spec.text_normal };
+        let style = if is_selected {
+            Style::default()
+                .bg(spec.bg_selected)
+                .fg(crate::ui::palette::readable_fg(spec.bg_selected, Color::Black, spec.text_normal))
+        } else {
+            Style::default().fg(value_fg)
+        };
+        let (left_cap, right_cap) = selector_edge_spans(is_selected, spec, nerd_font_active);
+        let mut spans = vec![left_cap, Span::styled(row_text, style)];
+        if let Some((g, fg)) = glyph {
+            let mut glyph_style = Style::default().fg(fg);
+            if is_selected {
+                glyph_style = glyph_style.bg(spec.bg_selected);
+            }
+            spans.push(Span::styled(format!(" {}", g), glyph_style));
+        }
+        spans.push(right_cap);
+        lines.push(Line::from(spans));
+    }
+
+    let set_h = (lines.len() as u16 + 4).max(10).min(tab_overlay_anchor.height);
+    let set_area = Rect::new(
+        tab_overlay_anchor.x,
+        tab_overlay_anchor.y,
+        set_w,
+        set_h,
+    );
+    f.render_widget(Clear, set_area);
+    let set_inner = render_overlay_block(f, set_area, panel_tab, theme_id, nerd_font_active);
+    let set_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(2)])
+        .split(set_inner);
+    f.render_widget(Paragraph::new(lines), set_chunks[0]);
+    let footer_entries: &[(&'static str, &'static str)] = &[
+        ("↑↓", "navigate"),
+        ("←→", "switch provider"),
+        ("Type", "edit model/key"),
+        ("Tab", "switch tabs"),
+        ("Esc", "close"),
+    ];
+    f.render_widget(
+        Paragraph::new(shortcut_footer_lines(footer_entries, theme_id, nerd_font_active)),
+        set_chunks[1],
+    );
+    footer_zones.extend(footer_shortcut_zones(footer_entries, set_chunks[1], nerd_font_active));
+}
+
 pub fn render_themes_overlay(
     f: &mut Frame,
     tab_overlay_anchor: Rect,
@@ -1325,30 +1454,32 @@ pub fn render_themes_overlay(
 mod tests {
     use super::*;
 
-    // Full padded width of all 7 tabs plus 6 single-column separators.
+    // Full padded width of all tabs plus single-column separators between them.
     fn full_width() -> usize {
         (0..PANEL_TABS.len()).map(tab_label_width).sum::<usize>() + PANEL_TABS.len() - 1
     }
 
     #[test]
     fn window_shows_all_tabs_when_space_is_ample() {
+        let last = PANEL_TABS.len() - 1;
         let avail = full_width();
-        assert_eq!(visible_tab_window(3, avail), (0, 6, false, false));
-        assert_eq!(visible_tab_window(0, avail + 50), (0, 6, false, false));
+        assert_eq!(visible_tab_window(3, avail), (0, last, false, false));
+        assert_eq!(visible_tab_window(0, avail + 50), (0, last, false, false));
     }
 
     #[test]
     fn window_keeps_active_visible_and_flags_hidden_edges() {
+        let last = PANEL_TABS.len() - 1;
         // Narrow bar: active at the far right must stay in view.
-        let (lo, hi, more_left, more_right) = visible_tab_window(6, 30);
-        assert!(lo <= 6 && hi == 6, "active 6 must be visible: {lo}..={hi}");
+        let (lo, hi, more_left, more_right) = visible_tab_window(last as u8 as usize, 30);
+        assert!(lo <= last && hi == last, "active {last} must be visible: {lo}..={hi}");
         assert!(more_left, "tabs are hidden to the left");
         assert!(!more_right, "nothing hidden past the last tab");
 
         // Active at the far left.
         let (lo, hi, more_left, more_right) = visible_tab_window(0, 30);
         assert_eq!(lo, 0);
-        assert!(hi < 6);
+        assert!(hi < last);
         assert!(!more_left);
         assert!(more_right);
     }
@@ -1361,12 +1492,12 @@ mod tests {
         assert_eq!(panel_tab_hit_test(6, 0, avail), None); // separator
         assert_eq!(panel_tab_hit_test(7, 0, avail), Some(1)); // " Search "
 
-        // Narrow + active=6 → window is tabs 5..=6 with a left chevron at x0.
-        let (lo, hi, more_left, more_right) = visible_tab_window(6, 30);
-        assert_eq!((lo, hi, more_left, more_right), (5, 6, true, false));
-        assert_eq!(panel_tab_hit_test(0, 6, 30), Some(4)); // left chevron → tab before window
-        assert_eq!(panel_tab_hit_test(1, 6, 30), Some(5)); // first visible tab
-        assert_eq!(panel_tab_hit_test(16, 6, 30), Some(6)); // active tab
+        // Narrow + active=last → a left chevron at x0, then the trailing tabs.
+        let last = PANEL_TABS.len() - 1;
+        let (lo, hi, more_left, more_right) = visible_tab_window(last, 30);
+        assert!(more_left && !more_right && hi == last && lo > 0);
+        assert_eq!(panel_tab_hit_test(0, last as u8, 30), Some((lo - 1) as u8)); // left chevron
+        assert_eq!(panel_tab_hit_test(1, last as u8, 30), Some(lo as u8)); // first visible tab
     }
 
     #[test]
