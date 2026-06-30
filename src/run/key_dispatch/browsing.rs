@@ -392,35 +392,44 @@ pub(crate) fn handle_browsing_key(
             }
         }
         KeyCode::Enter | KeyCode::Right => return handle_enter_or_right(terminal, app, key),
-        KeyCode::Char('g') => return handle_grep_search_key(terminal, app),
-        KeyCode::Char('G') => {
-            let work_dir = app.active_panel_dir();
-            if !app.integration_active("git") {
-                app.status_tool_not_found("git");
-            } else {
-                match App::get_git_info(&work_dir) {
-                    Some((_, true, _)) => {
-                        let confirmed = app.preview_git_diff_and_confirm_commit()?;
-                        terminal.clear()?;
-                        if confirmed {
-                            app.begin_input_edit(AppMode::GitCommitMessage, String::new());
-                            app.set_status("enter commit message (include --amend to amend+force-push)");
-                        } else {
-                            app.set_status("git commit cancelled");
-                        }
-                    }
-                    Some((_, false, _)) => {
-                        app.set_status("repository is clean");
-                    }
-                    None => {
-                        app.set_status("not a git repository");
-                    }
-                }
-            }
+        KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            return handle_git_commit_workflow(terminal, app);
         }
+        KeyCode::Char('g') => return handle_grep_search_key(terminal, app),
+        KeyCode::Char('G') => return handle_git_commit_workflow(terminal, app),
         KeyCode::Char('f') => return handle_fzf_find_key(terminal, app),
         KeyCode::Char('e') | KeyCode::F(4) => return handle_edit_key(terminal, app),
         _ => {}
+    }
+    Ok(KeyDispatchOutcome::Ok)
+}
+
+fn handle_git_commit_workflow(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    app: &mut App,
+) -> io::Result<KeyDispatchOutcome> {
+    let work_dir = app.active_panel_dir();
+    if !app.integration_active("git") {
+        app.status_tool_not_found("git");
+    } else {
+        match App::get_git_info(&work_dir) {
+            Some((_, true, _)) => {
+                let confirmed = app.preview_git_diff_and_confirm_commit()?;
+                terminal.clear()?;
+                if confirmed {
+                    app.begin_input_edit(AppMode::GitCommitMessage, String::new());
+                    app.set_status("enter commit message (include --amend to amend+force-push)");
+                } else {
+                    app.set_status("git commit cancelled");
+                }
+            }
+            Some((_, false, _)) => {
+                app.set_status("repository is clean");
+            }
+            None => {
+                app.set_status("not a git repository");
+            }
+        }
     }
     Ok(KeyDispatchOutcome::Ok)
 }
