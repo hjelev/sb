@@ -164,6 +164,34 @@ impl App {
         Some((branch, is_dirty, tag_info))
     }
 
+    /// Capture the working-tree diff (tracked changes vs HEAD plus a list of
+    /// untracked files) for AI commit-message generation. Bounded via
+    /// [`crate::app_ai::truncate_diff`] so a huge changeset stays request-sized.
+    pub(crate) fn collect_commit_diff(&self) -> String {
+        let mut diff = CommandBuilder::git_command(&self.left.dir, &["diff", "HEAD"])
+            .ok()
+            .filter(|out| out.status.success())
+            .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+            .unwrap_or_default();
+
+        if let Ok(out) =
+            CommandBuilder::git_command(&self.left.dir, &["ls-files", "--others", "--exclude-standard"])
+        {
+            let untracked = String::from_utf8_lossy(&out.stdout);
+            let untracked = untracked.trim();
+            if !untracked.is_empty() {
+                diff.push_str("\n\n# Untracked files:\n");
+                for name in untracked.lines() {
+                    diff.push_str("# ");
+                    diff.push_str(name);
+                    diff.push('\n');
+                }
+            }
+        }
+
+        crate::app_ai::truncate_diff(&diff)
+    }
+
     pub(crate) fn parse_git_commit_message(raw: &str) -> (String, bool) {
         let mut amend = false;
         let mut parts: Vec<&str> = Vec::new();

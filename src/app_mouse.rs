@@ -49,6 +49,7 @@ impl App {
                     | (4, AppMode::SortMenu)
                     | (5, AppMode::Integrations)
                     | (6, AppMode::Themes)
+                    | (7, AppMode::Settings)
             )
         {
             return;
@@ -94,6 +95,12 @@ impl App {
                 self.theme_panel_clock_selected = false;
                 self.mode = AppMode::Themes;
             }
+            7 => {
+                self.settings_selected = 0;
+                self.panel_tab = 7;
+                self.mode = AppMode::Settings;
+                self.maybe_check_api_key();
+            }
             _ => {}
         }
     }
@@ -111,6 +118,7 @@ impl App {
             | AppMode::Integrations
             | AppMode::Themes
             | AppMode::SortMenu
+            | AppMode::Settings
             | AppMode::SshPicker => {
                 self.mode = AppMode::Browsing;
             }
@@ -127,6 +135,7 @@ impl App {
                 | AppMode::Integrations
                 | AppMode::Themes
                 | AppMode::SortMenu
+                | AppMode::Settings
                 | AppMode::SshPicker
         ) {
             return false;
@@ -151,6 +160,7 @@ impl App {
                 | AppMode::Integrations
                 | AppMode::Themes
                 | AppMode::SortMenu
+                | AppMode::Settings
                 | AppMode::SshPicker
         ) {
             return false;
@@ -619,6 +629,13 @@ impl App {
                     cursor_up(&mut self.integration_selected);
                 } else {
                     cursor_down(&mut self.integration_selected, self.integration_rows_cache.len());
+                }
+            }
+            AppMode::Settings => {
+                if scroll_up {
+                    cursor_up(&mut self.settings_selected);
+                } else {
+                    cursor_down(&mut self.settings_selected, 3);
                 }
             }
             AppMode::SortMenu => {

@@ -183,6 +183,9 @@ pub(crate) fn handle_app_key_event_body(
                 app.set_status("git commit cancelled");
                 terminal.clear()?;
             }
+            KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                app.request_commit_message();
+            }
             KeyCode::Backspace => app.input_backspace(),
             KeyCode::Delete => app.input_delete(),
             KeyCode::Left => app.input_move_left(),
@@ -370,15 +373,10 @@ pub(crate) fn handle_app_key_event_body(
                 app.mode = AppMode::Browsing;
             }
             KeyCode::BackTab => {
-                app.panel_tab = 6;
-                app.theme_selected = theme::themes()
-                    .iter()
-                    .position(|theme| theme.id == app.active_theme)
-                    .unwrap_or(0);
-                app.theme_panel_nerd_selected = false;
-                app.theme_panel_color_selected = false;
-                app.theme_panel_clock_selected = false;
-                app.mode = AppMode::Themes;
+                app.panel_tab = 7;
+                app.settings_selected = 0;
+                app.mode = AppMode::Settings;
+                app.maybe_check_api_key();
             }
             KeyCode::Up => {
                 app.help_scroll_offset = app.help_scroll_offset.saturating_sub(1);
@@ -529,9 +527,10 @@ pub(crate) fn handle_app_key_event_body(
                     app.mode = AppMode::Integrations;
                 }
                 KeyCode::Tab => {
-                    app.panel_tab = 0;
-                    app.help_scroll_offset = 0;
-                    app.mode = AppMode::Help;
+                    app.panel_tab = 7;
+                    app.settings_selected = 0;
+                    app.mode = AppMode::Settings;
+                    app.maybe_check_api_key();
                 }
                 KeyCode::Up => {
                     // Focus order: Nerd Fonts → Filename colors → Disable clock → theme list.
@@ -606,6 +605,59 @@ pub(crate) fn handle_app_key_event_body(
                 _ => {}
             }
         }
+        AppMode::Settings => match key.code {
+            KeyCode::Esc => {
+                app.maybe_check_api_key();
+                app.mode = AppMode::Browsing;
+            }
+            KeyCode::BackTab => {
+                app.maybe_check_api_key();
+                app.panel_tab = 6;
+                app.theme_selected = theme::themes()
+                    .iter()
+                    .position(|theme| theme.id == app.active_theme)
+                    .unwrap_or(0);
+                app.theme_panel_nerd_selected = false;
+                app.theme_panel_color_selected = false;
+                app.theme_panel_clock_selected = false;
+                app.mode = AppMode::Themes;
+            }
+            KeyCode::Tab => {
+                app.maybe_check_api_key();
+                app.panel_tab = 0;
+                app.help_scroll_offset = 0;
+                app.mode = AppMode::Help;
+            }
+            KeyCode::Up => {
+                let was_key = app.settings_selected == 2;
+                cursor_up(&mut app.settings_selected);
+                if was_key && app.settings_selected != 2 {
+                    app.maybe_check_api_key();
+                }
+            }
+            KeyCode::Down => cursor_down(&mut app.settings_selected, 3),
+            KeyCode::Left => {
+                if app.settings_selected == 0 {
+                    app.settings_cycle_provider(false);
+                }
+            }
+            KeyCode::Right => {
+                if app.settings_selected == 0 {
+                    app.settings_cycle_provider(true);
+                }
+            }
+            KeyCode::Enter | KeyCode::Char(' ') if app.settings_selected == 0 => {
+                app.settings_cycle_provider(true);
+            }
+            KeyCode::Backspace => app.settings_input_backspace(),
+            KeyCode::Char(c)
+                if !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key.modifiers.contains(KeyModifiers::ALT) =>
+            {
+                app.settings_input_char(c)
+            }
+            _ => {}
+        },
         AppMode::SshPicker => return handle_ssh_picker_key(terminal, app, key),
         AppMode::Bookmarks => match key.code {
             KeyCode::Esc | KeyCode::Char('b') | KeyCode::Char('q') => { app.mode = AppMode::Browsing; }

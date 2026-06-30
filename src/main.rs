@@ -36,6 +36,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 mod integration;
+mod app_ai;
 mod app_archive;
 mod app_download;
 mod app_entry_iter;
@@ -238,6 +239,26 @@ struct App {
     theme_panel_color_selected: bool,
     /// True when the Themes panel's "Disable clock" toggle row is the selected row.
     theme_panel_clock_selected: bool,
+    /// Selected row in the Settings panel (0=Provider, 1=Model, 2=API Key).
+    settings_selected: usize,
+    /// AI commit-message provider key (`"groq"` / `"github"`), persisted.
+    ai_provider: String,
+    /// AI model id; empty falls back to the provider default at call time.
+    ai_model: String,
+    /// AI API key/token; empty falls back to the provider's env var.
+    ai_api_key: String,
+    /// Channel for an in-flight background AI commit-message request.
+    ai_commit_rx: Option<Receiver<AiCommitMsg>>,
+    /// Validation state of `ai_api_key` (shown as a ✓/✗ in the Settings panel).
+    ai_key_status: AiKeyStatus,
+    /// The key value most recently submitted for validation; guards against
+    /// re-testing an unchanged key.
+    ai_key_checked: Option<String>,
+    /// When the key field was last edited — debounces validation until the
+    /// user pauses typing/pasting. `None` once the pending check has fired.
+    ai_key_edit_at: Option<Instant>,
+    /// Channel for an in-flight background API-key validation request.
+    ai_key_check_rx: Option<Receiver<AiKeyCheckMsg>>,
     search: SearchState,
     notes_by_name: HashMap<String, String>,
     notes_rx: Option<Receiver<NotesLoadMsg>>,
@@ -427,6 +448,15 @@ impl App {
             theme_panel_nerd_selected: false,
             theme_panel_color_selected: false,
             theme_panel_clock_selected: false,
+            settings_selected: 0,
+            ai_provider: "groq".to_string(),
+            ai_model: String::new(),
+            ai_api_key: String::new(),
+            ai_commit_rx: None,
+            ai_key_status: AiKeyStatus::Unknown,
+            ai_key_checked: None,
+            ai_key_edit_at: None,
+            ai_key_check_rx: None,
             search: SearchState {
                 candidates: Vec::new(),
                 results: Vec::new(),
@@ -536,6 +566,10 @@ impl App {
         // Persisted filename-color mode; applied before set_active_theme so the
         // first render-cache build uses it.
         app.filename_color_mode = persist.filename_color_mode;
+        // Restore persisted AI commit-message settings (provider/model/key).
+        app.ai_provider = persist.ai_provider.clone();
+        app.ai_model = persist.ai_model.clone();
+        app.ai_api_key = persist.ai_api_key.clone();
         app.set_active_theme(ui::theme::theme_by_name(&persist.current_theme));
         for key in &persist.disabled_integrations {
             app.integration_overrides.insert(key.clone(), false);
@@ -583,6 +617,9 @@ impl App {
             || self.notes_rx.is_some()
             || self.right_notes_rx.is_some()
             || self.preview_rx.is_some()
+            || self.ai_commit_rx.is_some()
+            || self.ai_key_check_rx.is_some()
+            || self.ai_key_edit_at.is_some()
     }
 
     fn search_spans_with_ranges(
