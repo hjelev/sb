@@ -35,6 +35,7 @@ A terminal file manager (TUI) written in Rust using `ratatui` + `crossterm`.
 ## What sets sb apart
 
 - **In-TUI Git workflow** — diff preview → status review → commit → push → optional tag, all without leaving the file manager (`G`)
+- **AI commit messages** — draft a commit message from the diff with one keypress (Groq or GitHub Models), then edit before committing (`Ctrl+G` in the commit prompt)
 - **Inline path filters** — type `^prefix`, `suffix$`, or `~contains` directly in the path bar to live-filter the listing (`Tab`)
 - **Integration manager with one-key install** — see which optional tools are missing and install them via Homebrew without leaving the TUI (`I`)
 - **Age encryption** — protect or decrypt `.age` files in-place with a single keypress (`p`)
@@ -255,11 +256,13 @@ Press `G` in a Git working tree to:
 - preview the current diff (`delta` side-by-side when available)
 - view `git status`
 - confirm whether to continue
-- enter a commit message inside the TUI
+- enter a commit message inside the TUI — or press `Ctrl+G` to generate one with AI from the current diff (the draft stays editable; `Ctrl+G` again retries)
 - auto-run `git add --all`, `git commit`, and `git push origin HEAD`
 - optionally press `t` immediately after a successful push to create and push a tag
 
 When tagging, the tag input box is prefilled from the latest reachable Git tag when one exists.
+
+AI commit messages use an OpenAI-compatible chat-completions API (Groq or GitHub Models). Pick the provider, model, and API key in the **Settings** panel (open the help overlay with `h`, then `Tab`/`Shift+Tab` to reach Settings). If no key is stored there, the provider's environment variable is used as a fallback (`GROQ_API_KEY` or `GITHUB_TOKEN`).
 
 </details>
 
@@ -307,10 +310,15 @@ If an optional tool is not available, the feature is skipped or falls back grace
 - `SB_SEARCH_CONTENT_MAX_FILES`: built-in Search content-mode max files scanned (default: `20000`)
 - `SB_SEARCH_CONTENT_MAX_HITS`: built-in Search content-mode max matches returned (default: `2000`)
 - `SB_SEARCH_CONTENT_MAX_FILE_BYTES`: built-in Search content-mode per-file byte cap (default: `2097152` / 2 MiB)
+- `GROQ_API_KEY`: API key fallback for AI commit messages when the Groq provider is selected and no key is stored in config
+- `GITHUB_TOKEN`: API key fallback for AI commit messages when the GitHub Models provider is selected and no key is stored in config
 
 Persistent config (`~/.config/sb/config`, `key = value`) also supports:
 
 - `disable_clock = true`: replace the header clock with a disk-usage pill
+- `ai_provider = groq`: AI commit message provider (`groq` or `github`; default `groq`)
+- `ai_model = ...`: model for AI commit messages (leave empty to use the provider default)
+- `ai_api_key = ...`: API key for AI commit messages (overrides the provider environment variable; usually set via the Settings panel)
 - Nerd Fonts and file name colors can be toggled live from the Themes menu (the choice is persisted here alongside the active theme and view mode)
 
 </details>

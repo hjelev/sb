@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- AI-generated commit messages: press `Ctrl+G` in the commit prompt (`G`) to draft a one-line message from the working-tree diff (Groq or GitHub Models), with a new Settings panel to configure provider/model/API key (live key validation), persisted to `~/.config/sb/config`
 - Four new colorful bundled theme skins: Synthwave, Coral Reef, Cyberpunk Neon, and Bubblegum Pop
 
 ## [0.8] - 2026-06-25
