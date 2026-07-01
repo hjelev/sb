@@ -744,6 +744,9 @@ pub(crate) fn handle_app_key_event_body(
         AppMode::ConfirmDelete => {
             app.handle_confirm_delete_key(key);
         }
+        AppMode::Organize => {
+            app.handle_organize_key(key);
+        }
         AppMode::ConfirmExtract => {
             app.handle_confirm_extract_key(key);
         }

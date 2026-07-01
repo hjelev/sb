@@ -191,6 +191,9 @@ pub(crate) fn handle_browsing_key(
             app.run_delta_compare()?;
             terminal.clear()?;
         }
+        KeyCode::Char('o') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            return handle_organize_workflow(app);
+        }
         KeyCode::Char('o') => {
             app.open_selected_with_default_app()?;
             terminal.clear()?;
@@ -434,6 +437,17 @@ fn handle_git_commit_workflow(
             }
         }
     }
+    Ok(KeyDispatchOutcome::Ok)
+}
+
+fn handle_organize_workflow(app: &mut App) -> io::Result<KeyDispatchOutcome> {
+    if app.organize_rx.is_some() {
+        app.set_status("organize plan already generating...");
+        return Ok(KeyDispatchOutcome::Ok);
+    }
+    let work_dir = app.active_panel_dir();
+    app.mode = AppMode::Organize;
+    app.request_organize_plan(work_dir);
     Ok(KeyDispatchOutcome::Ok)
 }
 

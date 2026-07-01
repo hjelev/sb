@@ -780,13 +780,13 @@ pub fn render_help_overlay(
         (
             "System & Git",
             [
-                ("G", "Git: Commit + Push (dirty repos)"),
+                ("G / Ctrl+g", "Git: Commit + Push (dirty repos)"),
                 ("H", "Git: View pretty log graph"),
                 ("Ctrl+z", "Drop to shell in current directory"),
                 ("t", "Open ~/.todo in $EDITOR"),
                 ("h / ?", "Open this help screen"),
                 ("q / Esc", "Quit Shell Buddy"),
-                ("", ""),
+                ("Ctrl+o", "AI: organize current folder"),
                 ("", ""),
                 ("", ""),
                 ("", ""),

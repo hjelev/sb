@@ -48,6 +48,7 @@ mod app_files;
 mod app_meta;
 mod app_mouse;
 mod app_notes;
+mod app_organize;
 mod app_preview;
 mod app_remote;
 mod app_rendering;
@@ -267,6 +268,15 @@ struct App {
     ai_key_edit_at: Option<Instant>,
     /// Channel for an in-flight background API-key validation request.
     ai_key_check_rx: Option<Receiver<AiKeyCheckMsg>>,
+    /// Channel for an in-flight background AI organize-plan request.
+    organize_rx: Option<Receiver<OrganizePlanMsg>>,
+    /// The AI-proposed reorganization plan, shown for review in `AppMode::Organize`.
+    organize_plan: Option<OrganizePlan>,
+    /// Directory the current `organize_plan` applies to.
+    organize_work_dir: Option<PathBuf>,
+    organize_scroll_offset: u16,
+    organize_max_offset: u16,
+    organize_button_focus: u8,
     search: SearchState,
     notes_by_name: HashMap<String, String>,
     notes_rx: Option<Receiver<NotesLoadMsg>>,
@@ -467,6 +477,12 @@ impl App {
             ai_key_checked: None,
             ai_key_edit_at: None,
             ai_key_check_rx: None,
+            organize_rx: None,
+            organize_plan: None,
+            organize_work_dir: None,
+            organize_scroll_offset: 0,
+            organize_max_offset: 0,
+            organize_button_focus: 0,
             search: SearchState {
                 candidates: Vec::new(),
                 results: Vec::new(),
@@ -637,6 +653,7 @@ impl App {
             || self.ai_commit_rx.is_some()
             || self.ai_key_check_rx.is_some()
             || self.ai_key_edit_at.is_some()
+            || self.organize_rx.is_some()
     }
 
     fn search_spans_with_ranges(
@@ -1392,6 +1409,40 @@ impl App {
             }
             KeyCode::Char('n') | KeyCode::Esc => {
                 self.mode = AppMode::Browsing;
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_organize_key(&mut self, key: KeyEvent) {
+        if Self::handle_ok_cancel_focus_key(key.code, &mut self.organize_button_focus, false) {
+            return;
+        }
+
+        match key.code {
+            KeyCode::Up => {
+                self.organize_scroll_offset = self.organize_scroll_offset.saturating_sub(1);
+            }
+            KeyCode::Down => {
+                self.organize_scroll_offset =
+                    (self.organize_scroll_offset + 1).min(self.organize_max_offset);
+            }
+            KeyCode::PageUp => {
+                self.organize_scroll_offset = self.organize_scroll_offset.saturating_sub(8);
+            }
+            KeyCode::PageDown => {
+                self.organize_scroll_offset =
+                    (self.organize_scroll_offset + 8).min(self.organize_max_offset);
+            }
+            KeyCode::Enter | KeyCode::Char('y') => {
+                if key.code == KeyCode::Enter && self.organize_button_focus == 1 {
+                    self.cancel_organize();
+                } else if self.organize_plan.is_some() {
+                    self.apply_organize_plan();
+                }
+            }
+            KeyCode::Char('n') | KeyCode::Esc => {
+                self.cancel_organize();
             }
             _ => {}
         }
