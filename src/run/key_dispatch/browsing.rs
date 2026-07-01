@@ -419,6 +419,9 @@ fn handle_git_commit_workflow(
                 if confirmed {
                     app.begin_input_edit(AppMode::GitCommitMessage, String::new());
                     app.set_status("enter commit message (include --amend to amend+force-push)");
+                    if app.ai_auto_commit {
+                        app.request_commit_message();
+                    }
                 } else {
                     app.set_status("git commit cancelled");
                 }

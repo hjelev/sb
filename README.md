@@ -264,6 +264,11 @@ When tagging, the tag input box is prefilled from the latest reachable Git tag w
 
 AI commit messages use an OpenAI-compatible chat-completions API (Groq or GitHub Models). Pick the provider, model, and API key in the **Settings** panel (open the help overlay with `h`, then `Tab`/`Shift+Tab` to reach Settings). If no key is stored there, the provider's environment variable is used as a fallback (`GROQ_API_KEY` or `GITHUB_TOKEN`).
 
+**Getting an API token:**
+
+- **Groq**: sign up at [console.groq.com](https://console.groq.com), then create a key on the [API Keys page](https://console.groq.com/keys). Groq has a free tier. Paste the key into the Settings panel, or export it as `GROQ_API_KEY`.
+- **GitHub Models**: create a [fine-grained personal access token](https://github.com/settings/personal-access-tokens/new) (or a classic token) — no extra scopes are required, just a valid token from a GitHub account with access to [GitHub Models](https://github.com/marketplace/models). Paste it into the Settings panel, or export it as `GITHUB_TOKEN`.
+
 </details>
 
 <details>

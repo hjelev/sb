@@ -170,8 +170,13 @@ pub struct SbPersistConfig {
     pub ai_provider: String,
     /// AI model id; empty falls back to the provider's default at call time.
     pub ai_model: String,
-    /// AI API key/token. Empty falls back to the provider's env var.
-    pub ai_api_key: String,
+    /// AI API keys/tokens, one per provider (keyed by provider key, e.g.
+    /// `"groq"` / `"github"`). A missing/empty entry falls back to the
+    /// provider's env var at call time.
+    pub ai_api_keys: std::collections::HashMap<String, String>,
+    /// When true, the commit prompt auto-generates an AI message on open
+    /// (no Ctrl+G needed).
+    pub ai_auto_commit: bool,
     /// Unknown settings (future-proofing: preserve any unrecognized key-value pairs).
     unknown: std::collections::HashMap<String, String>,
 }
@@ -189,7 +194,8 @@ impl Default for SbPersistConfig {
             bookmarks: std::collections::HashMap::new(),
             ai_provider: "groq".to_string(),
             ai_model: String::new(),
-            ai_api_key: String::new(),
+            ai_api_keys: std::collections::HashMap::new(),
+            ai_auto_commit: false,
             unknown: std::collections::HashMap::new(),
         }
     }
@@ -205,6 +211,10 @@ impl SbPersistConfig {
             Err(_) => return Self::default(),
         };
         let mut cfg = Self::default();
+        // Legacy single `ai_api_key` value, resolved to a provider after the
+        // parse loop (so it is independent of line order relative to
+        // `ai_provider`).
+        let mut legacy_ai_api_key: Option<String> = None;
         for line in content.lines() {
             let line = line.trim();
             if line.is_empty() || line.starts_with('#') {
@@ -249,7 +259,19 @@ impl SbPersistConfig {
                     }
                     "ai_provider" => cfg.ai_provider = val.to_string(),
                     "ai_model" => cfg.ai_model = val.to_string(),
-                    "ai_api_key" => cfg.ai_api_key = val.to_string(),
+                    "ai_api_key" => legacy_ai_api_key = Some(val.to_string()),
+                    k if k.starts_with("ai_api_key_") => {
+                        let provider = &k["ai_api_key_".len()..];
+                        if !provider.is_empty() && !val.is_empty() {
+                            cfg.ai_api_keys.insert(provider.to_string(), val.to_string());
+                        }
+                    }
+                    "ai_auto_commit" => {
+                        cfg.ai_auto_commit = matches!(
+                            val.to_ascii_lowercase().as_str(),
+                            "1" | "true"
+                        );
+                    }
                     k if k.starts_with("bookmark_") => {
                         if let Ok(n) = k["bookmark_".len()..].parse::<u8>()
                             && n <= 9 && !val.is_empty() {
@@ -260,6 +282,15 @@ impl SbPersistConfig {
                         cfg.unknown.insert(key.to_string(), val.to_string());
                     }
                 }
+            }
+        }
+        // Migrate a legacy single key into the active provider's slot, unless
+        // that provider already has a per-provider key.
+        if let Some(key) = legacy_ai_api_key {
+            if !key.is_empty() {
+                cfg.ai_api_keys
+                    .entry(cfg.ai_provider.clone())
+                    .or_insert(key);
             }
         }
         cfg
@@ -290,11 +321,16 @@ impl SbPersistConfig {
             ));
         }
         lines.push(format!("ai_provider = {}", self.ai_provider));
+        lines.push(format!("ai_auto_commit = {}", self.ai_auto_commit));
         if !self.ai_model.is_empty() {
             lines.push(format!("ai_model = {}", self.ai_model));
         }
-        if !self.ai_api_key.is_empty() {
-            lines.push(format!("ai_api_key = {}", self.ai_api_key));
+        let mut sorted_keys: Vec<(&String, &String)> = self.ai_api_keys.iter().collect();
+        sorted_keys.sort_by(|(a, _), (b, _)| a.cmp(b));
+        for (provider, key) in sorted_keys {
+            if !key.is_empty() {
+                lines.push(format!("ai_api_key_{} = {}", provider, key));
+            }
         }
         let mut sorted_bookmarks: Vec<(&u8, &String)> = self.bookmarks.iter().collect();
         sorted_bookmarks.sort_by_key(|(n, _)| *n);
@@ -391,50 +427,109 @@ mod tests {
         assert_eq!(loaded.bookmarks.get(&9), Some(&"/var/log".to_string()));
     }
 
+    /// Reproduce `load()`'s parse of one config line into `cfg`, including the
+    /// per-provider `ai_api_key_*` and legacy `ai_api_key` handling. Legacy
+    /// migration is applied by the caller after all lines are folded.
+    fn parse_line_into(mut c: SbPersistConfig, line: &str, legacy: &mut Option<String>)
+        -> SbPersistConfig {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            return c;
+        }
+        if let Some((k, v)) = line.split_once('=') {
+            let (k, v) = (k.trim(), v.trim());
+            match k {
+                "ai_provider" => c.ai_provider = v.to_string(),
+                "ai_model" => c.ai_model = v.to_string(),
+                "ai_api_key" => *legacy = Some(v.to_string()),
+                k if k.starts_with("ai_api_key_") => {
+                    let provider = &k["ai_api_key_".len()..];
+                    if !provider.is_empty() && !v.is_empty() {
+                        c.ai_api_keys.insert(provider.to_string(), v.to_string());
+                    }
+                }
+                "ai_auto_commit" => {
+                    c.ai_auto_commit =
+                        matches!(v.to_ascii_lowercase().as_str(), "1" | "true");
+                }
+                _ => {}
+            }
+        }
+        c
+    }
+
     #[test]
     fn test_ai_settings_round_trip() {
-        // Default provider is groq; model/key empty so they fall back at runtime.
+        // Default provider is groq; model/keys empty so they fall back at runtime.
         let def = SbPersistConfig::default();
         assert_eq!(def.ai_provider, "groq");
-        assert!(def.ai_model.is_empty() && def.ai_api_key.is_empty());
+        assert!(def.ai_model.is_empty() && def.ai_api_keys.is_empty());
+        assert!(!def.ai_auto_commit);
 
-        // Save() omits empty model/key but always writes the provider; non-empty
-        // values are written and parsed back by load()'s match arms.
+        // Separate per-provider keys are written as `ai_api_key_<provider>` and
+        // parsed back into the map.
         let mut cfg = SbPersistConfig::default();
         cfg.ai_provider = "github".to_string();
         cfg.ai_model = "openai/gpt-4o-mini".to_string();
-        cfg.ai_api_key = "secret-token".to_string();
+        cfg.ai_api_keys.insert("groq".to_string(), "groq-secret".to_string());
+        cfg.ai_api_keys.insert("github".to_string(), "github-secret".to_string());
+        cfg.ai_auto_commit = true;
 
         let content = {
             let mut lines = vec!["# sb config".to_string()];
             lines.push(format!("ai_provider = {}", cfg.ai_provider));
+            lines.push(format!("ai_auto_commit = {}", cfg.ai_auto_commit));
             if !cfg.ai_model.is_empty() {
                 lines.push(format!("ai_model = {}", cfg.ai_model));
             }
-            if !cfg.ai_api_key.is_empty() {
-                lines.push(format!("ai_api_key = {}", cfg.ai_api_key));
+            let mut sorted: Vec<(&String, &String)> = cfg.ai_api_keys.iter().collect();
+            sorted.sort_by(|(a, _), (b, _)| a.cmp(b));
+            for (provider, key) in sorted {
+                lines.push(format!("ai_api_key_{} = {}", provider, key));
             }
             lines.join("\n") + "\n"
         };
 
-        let loaded = content.lines().fold(SbPersistConfig::default(), |mut c, line| {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                return c;
-            }
-            if let Some((k, v)) = line.split_once('=') {
-                match k.trim() {
-                    "ai_provider" => c.ai_provider = v.trim().to_string(),
-                    "ai_model" => c.ai_model = v.trim().to_string(),
-                    "ai_api_key" => c.ai_api_key = v.trim().to_string(),
-                    _ => {}
-                }
-            }
-            c
-        });
+        let mut legacy = None;
+        let loaded = content
+            .lines()
+            .fold(SbPersistConfig::default(), |c, line| {
+                parse_line_into(c, line, &mut legacy)
+            });
 
         assert_eq!(loaded.ai_provider, "github");
         assert_eq!(loaded.ai_model, "openai/gpt-4o-mini");
-        assert_eq!(loaded.ai_api_key, "secret-token");
+        assert_eq!(loaded.ai_api_keys.get("groq"), Some(&"groq-secret".to_string()));
+        assert_eq!(
+            loaded.ai_api_keys.get("github"),
+            Some(&"github-secret".to_string())
+        );
+        assert!(loaded.ai_auto_commit);
+    }
+
+    #[test]
+    fn test_legacy_ai_api_key_migrates_to_active_provider() {
+        // An old config with a single `ai_api_key` line should migrate that key
+        // into the active provider's slot on load.
+        let content = "ai_provider = github\nai_api_key = old-token\n";
+        let mut legacy = None;
+        let mut loaded = content
+            .lines()
+            .fold(SbPersistConfig::default(), |c, line| {
+                parse_line_into(c, line, &mut legacy)
+            });
+        // Apply the same post-loop migration as load().
+        if let Some(key) = legacy {
+            if !key.is_empty() {
+                loaded
+                    .ai_api_keys
+                    .entry(loaded.ai_provider.clone())
+                    .or_insert(key);
+            }
+        }
+        assert_eq!(
+            loaded.ai_api_keys.get("github"),
+            Some(&"old-token".to_string())
+        );
     }
 }

@@ -251,8 +251,22 @@ impl App {
             .position(|p| p.key == self.ai_provider)
             .unwrap_or(0);
         let next = if forward { (idx + 1) % n } else { (idx + n - 1) % n };
+        // Save the current provider's key, then switch and load the new
+        // provider's key into the live buffer so the Settings field shows it.
+        self.ai_api_keys
+            .insert(self.ai_provider.clone(), self.ai_api_key.clone());
         self.ai_provider = AI_PROVIDERS[next].key.to_string();
+        self.ai_api_key = self
+            .ai_api_keys
+            .get(&self.ai_provider)
+            .cloned()
+            .unwrap_or_default();
+        // Reset validation state for the newly-shown key, then re-validate it.
+        self.ai_key_status = AiKeyStatus::Unknown;
+        self.ai_key_checked = None;
+        self.ai_key_edit_at = None;
         self.persist_ai_settings();
+        self.maybe_check_api_key();
         self.set_status(format!("AI provider: {}", AI_PROVIDERS[next].label));
     }
 
@@ -262,6 +276,7 @@ impl App {
             1 => self.ai_model.push(c),
             2 => {
                 self.ai_api_key.push(c);
+                self.sync_active_api_key();
                 self.note_ai_key_edited();
             }
             _ => return,
@@ -277,11 +292,19 @@ impl App {
             }
             2 => {
                 self.ai_api_key.pop();
+                self.sync_active_api_key();
                 self.note_ai_key_edited();
             }
             _ => return,
         }
         self.persist_ai_settings();
+    }
+
+    /// Mirror the live API-key buffer into the active provider's slot so the
+    /// per-provider store stays authoritative between provider switches.
+    fn sync_active_api_key(&mut self) {
+        self.ai_api_keys
+            .insert(self.ai_provider.clone(), self.ai_api_key.clone());
     }
 
     /// Mark the API key as just-edited: clear any prior validation result (the
@@ -356,16 +379,31 @@ impl App {
         }
     }
 
-    /// Persist the current AI settings (provider/model/key) to the config file.
+    /// Persist the current AI settings (provider/model/key/auto-commit) to the
+    /// config file.
     fn persist_ai_settings(&self) {
         let provider = self.ai_provider.clone();
         let model = self.ai_model.clone();
-        let key = self.ai_api_key.clone();
+        let keys = self.ai_api_keys.clone();
+        let auto = self.ai_auto_commit;
         crate::util::config::SbPersistConfig::update(move |cfg| {
             cfg.ai_provider = provider;
             cfg.ai_model = model;
-            cfg.ai_api_key = key;
+            cfg.ai_api_keys = keys;
+            cfg.ai_auto_commit = auto;
         });
+    }
+
+    /// Toggle the "auto AI commit message" setting (Settings row 3) and persist
+    /// it. When enabled, opening the commit prompt generates an AI message
+    /// automatically without pressing Ctrl+G.
+    pub(crate) fn settings_toggle_auto_commit(&mut self) {
+        self.ai_auto_commit = !self.ai_auto_commit;
+        self.persist_ai_settings();
+        self.set_status(format!(
+            "Auto AI commit: {}",
+            if self.ai_auto_commit { "on" } else { "off" }
+        ));
     }
 
     /// Poll the AI commit-message channel. On success, prefill the (still

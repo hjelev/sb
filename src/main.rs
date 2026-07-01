@@ -239,14 +239,22 @@ struct App {
     theme_panel_color_selected: bool,
     /// True when the Themes panel's "Disable clock" toggle row is the selected row.
     theme_panel_clock_selected: bool,
-    /// Selected row in the Settings panel (0=Provider, 1=Model, 2=API Key).
+    /// Selected row in the Settings panel (0=Provider, 1=Model, 2=API Key,
+    /// 3=Auto commit).
     settings_selected: usize,
     /// AI commit-message provider key (`"groq"` / `"github"`), persisted.
     ai_provider: String,
     /// AI model id; empty falls back to the provider default at call time.
     ai_model: String,
-    /// AI API key/token; empty falls back to the provider's env var.
+    /// AI API key/token for the **active** provider; empty falls back to the
+    /// provider's env var. This is the live edit buffer shown in Settings.
     ai_api_key: String,
+    /// Stored AI API keys for every provider (keyed by provider key). Lets the
+    /// Settings panel swap the displayed key when the provider changes.
+    ai_api_keys: HashMap<String, String>,
+    /// When true, opening the commit prompt auto-generates an AI message
+    /// (no Ctrl+G needed). Persisted in `SbPersistConfig`.
+    ai_auto_commit: bool,
     /// Channel for an in-flight background AI commit-message request.
     ai_commit_rx: Option<Receiver<AiCommitMsg>>,
     /// Validation state of `ai_api_key` (shown as a ✓/✗ in the Settings panel).
@@ -452,6 +460,8 @@ impl App {
             ai_provider: "groq".to_string(),
             ai_model: String::new(),
             ai_api_key: String::new(),
+            ai_api_keys: HashMap::new(),
+            ai_auto_commit: false,
             ai_commit_rx: None,
             ai_key_status: AiKeyStatus::Unknown,
             ai_key_checked: None,
@@ -569,7 +579,14 @@ impl App {
         // Restore persisted AI commit-message settings (provider/model/key).
         app.ai_provider = persist.ai_provider.clone();
         app.ai_model = persist.ai_model.clone();
-        app.ai_api_key = persist.ai_api_key.clone();
+        app.ai_api_keys = persist.ai_api_keys.clone();
+        // The live buffer shows the active provider's key.
+        app.ai_api_key = app
+            .ai_api_keys
+            .get(&app.ai_provider)
+            .cloned()
+            .unwrap_or_default();
+        app.ai_auto_commit = persist.ai_auto_commit;
         app.set_active_theme(ui::theme::theme_by_name(&persist.current_theme));
         for key in &persist.disabled_integrations {
             app.integration_overrides.insert(key.clone(), false);

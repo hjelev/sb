@@ -635,7 +635,7 @@ impl App {
                 if scroll_up {
                     cursor_up(&mut self.settings_selected);
                 } else {
-                    cursor_down(&mut self.settings_selected, 3);
+                    cursor_down(&mut self.settings_selected, 4);
                 }
             }
             AppMode::SortMenu => {

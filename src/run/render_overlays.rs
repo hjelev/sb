@@ -314,6 +314,7 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             ui::panels::SettingsRow { label: "Provider", value: provider.label, dim_value: false, status: SettingsRowStatus::None },
             ui::panels::SettingsRow { label: "Model", value: &model_value, dim_value: model_is_default, status: SettingsRowStatus::None },
             ui::panels::SettingsRow { label: "API Key", value: &key_value, dim_value: key_is_fallback, status: key_status },
+            ui::panels::SettingsRow { label: "Auto AI commit message", value: if app.ai_auto_commit { "On" } else { "Off" }, dim_value: !app.ai_auto_commit, status: SettingsRowStatus::None },
         ];
         ui::panels::render_settings_overlay(
             f,

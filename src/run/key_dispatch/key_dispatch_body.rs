@@ -635,7 +635,13 @@ pub(crate) fn handle_app_key_event_body(
                     app.maybe_check_api_key();
                 }
             }
-            KeyCode::Down => cursor_down(&mut app.settings_selected, 3),
+            KeyCode::Down => {
+                let was_key = app.settings_selected == 2;
+                cursor_down(&mut app.settings_selected, 4);
+                if was_key && app.settings_selected != 2 {
+                    app.maybe_check_api_key();
+                }
+            }
             KeyCode::Left => {
                 if app.settings_selected == 0 {
                     app.settings_cycle_provider(false);
@@ -648,6 +654,9 @@ pub(crate) fn handle_app_key_event_body(
             }
             KeyCode::Enter | KeyCode::Char(' ') if app.settings_selected == 0 => {
                 app.settings_cycle_provider(true);
+            }
+            KeyCode::Enter | KeyCode::Char(' ') if app.settings_selected == 3 => {
+                app.settings_toggle_auto_commit();
             }
             KeyCode::Backspace => app.settings_input_backspace(),
             KeyCode::Char(c)
