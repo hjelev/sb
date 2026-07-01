@@ -187,6 +187,27 @@ pub(crate) enum AiKeyCheckMsg {
     Error { key: String, message: String },
 }
 
+/// A single proposed relocation within an [`OrganizePlan`]: move the entry
+/// named `name` (a top-level entry of the organized directory) into `folder`
+/// (a single path segment, new or existing).
+pub(crate) struct OrganizeMove {
+    pub(crate) name: String,
+    pub(crate) folder: String,
+}
+
+/// An AI-proposed reorganization of a directory's top-level entries.
+pub(crate) struct OrganizePlan {
+    /// Folder names to create (if they don't already exist) before applying `moves`.
+    pub(crate) folders: Vec<String>,
+    pub(crate) moves: Vec<OrganizeMove>,
+}
+
+/// Result of a background AI organize-plan generation request.
+pub(crate) enum OrganizePlanMsg {
+    Ok(OrganizePlan),
+    Err(String),
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ArchiveKind {
     Zip,
@@ -256,6 +277,7 @@ pub(crate) enum AppMode {
     ConfirmIntegrationInstall,
     Help,
     ConfirmDelete,
+    Organize,
     Bookmarks,
     BookmarkEditing,
     ConfirmDeleteBookmark,

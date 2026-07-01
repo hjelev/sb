@@ -4,6 +4,7 @@ use ratatui::{
 };
 use std::path::{Path, PathBuf};
 use crate::ui::theme::ThemeSpec;
+use crate::OrganizeMove;
 
 /// Build the spans for a single dialog button.
 ///
@@ -594,5 +595,143 @@ pub fn render_confirm_delete_bookmark_dialog(
             Paragraph::new(Line::from(button_spans)).alignment(Alignment::Center),
             button_area,
         );
+    }
+}
+
+/// The inputs to [`render_organize_plan_dialog`] (everything except the frame
+/// and target area).
+pub struct OrganizePlanView<'a> {
+    pub title: &'a str,
+    pub folders: &'a [String],
+    pub moves: &'a [OrganizeMove],
+    pub scroll_offset: u16,
+    pub confirm_focused: bool,
+    pub nerd_font_active: bool,
+    pub theme: &'a ThemeSpec,
+}
+
+/// Renders the AI-proposed organize plan for review: a bordered box with a
+/// scrollable list (new folders as headers, moved entries indented beneath)
+/// followed by Confirm/Cancel buttons. Mirrors
+/// [`render_confirm_delete_dialog`]'s layout and scrolling.
+pub fn render_organize_plan_dialog(f: &mut Frame, area: Rect, view: &OrganizePlanView) -> ConfirmDeleteRenderState {
+    let &OrganizePlanView {
+        title,
+        folders,
+        moves,
+        scroll_offset,
+        confirm_focused,
+        nerd_font_active,
+        theme,
+    } = view;
+
+    let confirm_area = confirm_delete_dialog_area(area, title);
+    f.render_widget(Clear, confirm_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title(title)
+        .title_style(Style::default().fg(theme.text_normal))
+        .border_style(Style::default().fg(theme.accent_primary));
+    let inner = block.inner(confirm_area);
+    f.render_widget(block, confirm_area);
+
+    if inner.width <= 2 || inner.height <= 2 {
+        return ConfirmDeleteRenderState {
+            max_offset: 0,
+            clamped_offset: 0,
+        };
+    }
+
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+
+    let list_block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme.border));
+    let list_frame_area = sections[0];
+    let list_inner = list_block.inner(list_frame_area);
+    f.render_widget(list_block, list_frame_area);
+
+    let mut rows: Vec<Line> = Vec::new();
+    if moves.is_empty() {
+        rows.push(Line::from(Span::styled(
+            "No changes proposed",
+            Style::default().fg(theme.text_dim),
+        )));
+    } else {
+        let folder_style = Style::default()
+            .fg(theme.accent_primary)
+            .add_modifier(Modifier::BOLD);
+        let name_style = Style::default().fg(theme.text_normal);
+        for folder in folders {
+            rows.push(Line::from(Span::styled(format!("📁 {}/", folder), folder_style)));
+            for mv in moves.iter().filter(|m| &m.folder == folder) {
+                rows.push(Line::from(Span::styled(format!("   {}", mv.name), name_style)));
+            }
+        }
+        let orphaned: Vec<&OrganizeMove> = moves
+            .iter()
+            .filter(|m| !folders.iter().any(|f| f == &m.folder))
+            .collect();
+        if !orphaned.is_empty() {
+            rows.push(Line::from(Span::styled("📁 (other)/", folder_style)));
+            for mv in orphaned {
+                rows.push(Line::from(Span::styled(format!("   {}", mv.name), name_style)));
+            }
+        }
+    }
+
+    let total_rows = rows.len();
+    let needs_scroll = total_rows > list_inner.height as usize;
+    let can_draw_scrollbar = list_inner.width > 2 && needs_scroll;
+    let list_area = list_inner;
+    let visible_rows = list_area.height.max(1) as usize;
+    let max_scroll = total_rows.saturating_sub(visible_rows);
+    let offset = (scroll_offset as usize).min(max_scroll);
+
+    let visible: Vec<Line> = rows.into_iter().skip(offset).take(visible_rows).collect();
+    f.render_widget(Paragraph::new(visible), list_area);
+
+    if can_draw_scrollbar {
+        let sb_area = Rect::new(
+            list_frame_area.x + list_frame_area.width.saturating_sub(1),
+            list_inner.y,
+            1,
+            list_inner.height,
+        );
+        let track_h = sb_area.height as usize;
+        if track_h > 0 {
+            let mut sb_lines: Vec<Line> = Vec::with_capacity(track_h);
+            let thumb_h = (visible_rows * track_h).div_ceil(total_rows).max(1).min(track_h);
+            let scroll_space = track_h.saturating_sub(thumb_h);
+            let thumb_y = if max_scroll == 0 {
+                0
+            } else {
+                (offset * scroll_space + (max_scroll / 2)) / max_scroll
+            };
+
+            for row in 0..track_h {
+                let in_thumb = row >= thumb_y && row < thumb_y + thumb_h;
+                let (ch, color) = if in_thumb {
+                    ("┃", theme.divider)
+                } else {
+                    ("│", theme.border)
+                };
+                sb_lines.push(Line::from(Span::styled(ch, Style::default().fg(color))));
+            }
+            f.render_widget(Paragraph::new(sb_lines), sb_area);
+        }
+    }
+
+    render_confirm_delete_buttons(f, sections[1], confirm_focused, nerd_font_active, theme);
+
+    ConfirmDeleteRenderState {
+        max_offset: max_scroll as u16,
+        clamped_offset: offset as u16,
     }
 }

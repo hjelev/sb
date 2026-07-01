@@ -36,6 +36,7 @@ A terminal file manager (TUI) written in Rust using `ratatui` + `crossterm`.
 
 - **In-TUI Git workflow** — diff preview → status review → commit → push → optional tag, all without leaving the file manager (`G`)
 - **AI commit messages** — draft a commit message from the diff with one keypress (Groq or GitHub Models), then edit before committing (`Ctrl+G` in the commit prompt)
+- **AI folder organization** — propose grouping the current folder's files into new or existing subfolders, review the plan, then confirm before anything moves (`Ctrl+O`)
 - **Inline path filters** — type `^prefix`, `suffix$`, or `~contains` directly in the path bar to live-filter the listing (`Tab`)
 - **Integration manager with one-key install** — see which optional tools are missing and install them via Homebrew without leaving the TUI (`I`)
 - **Age encryption** — protect or decrypt `.age` files in-place with a single keypress (`p`)
@@ -251,12 +252,12 @@ The active filter remains visible in the header until you change directories.
 <details>
 <summary><strong>Git Workflow</strong></summary>
 
-Press `G` in a Git working tree to:
+Press `G` (or `Ctrl+G`) in a Git working tree to:
 
 - preview the current diff (`delta` side-by-side when available)
 - view `git status`
 - confirm whether to continue
-- enter a commit message inside the TUI — or press `Ctrl+G` to generate one with AI from the current diff (the draft stays editable; `Ctrl+G` again retries)
+- enter a commit message inside the TUI — or, once in the commit prompt, press `Ctrl+G` again to generate one with AI from the current diff (the draft stays editable; `Ctrl+G` again retries)
 - auto-run `git add --all`, `git commit`, and `git push origin HEAD`
 - optionally press `t` immediately after a successful push to create and push a tag
 
@@ -268,6 +269,19 @@ AI commit messages use an OpenAI-compatible chat-completions API (Groq or GitHub
 
 - **Groq**: sign up at [console.groq.com](https://console.groq.com), then create a key on the [API Keys page](https://console.groq.com/keys). Groq has a free tier. Paste the key into the Settings panel, or export it as `GROQ_API_KEY`.
 - **GitHub Models**: create a [fine-grained personal access token](https://github.com/settings/personal-access-tokens/new) (or a classic token) — no extra scopes are required, just a valid token from a GitHub account with access to [GitHub Models](https://github.com/marketplace/models). Paste it into the Settings panel, or export it as `GITHUB_TOKEN`.
+
+</details>
+
+<details>
+<summary><strong>AI Organize</strong></summary>
+
+Press `Ctrl+O` on the active pane's current folder to:
+
+- send the folder's top-level entry names to the same AI provider configured for commit messages (see **Settings** above)
+- review the proposed plan — new or reused subfolders and which entries would move into each
+- press **Confirm** to create the folders and move the entries, or **Cancel**/`Esc` to discard the plan with no filesystem changes
+
+Nothing is applied until you explicitly confirm. Hidden (dot) entries are never included, and any AI-proposed name that doesn't match a real entry, or any folder name containing a path separator, is dropped before the plan is even shown.
 
 </details>
 

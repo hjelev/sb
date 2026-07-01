@@ -421,6 +421,57 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
         );
         app.confirm_delete_max_offset = delete_state.max_offset;
         app.confirm_delete_scroll_offset = delete_state.clamped_offset;
+    } else if app.mode == AppMode::Organize {
+        let area = f.size();
+        match &app.organize_plan {
+            Some(plan) => {
+                let title = format!(
+                    " Organize Preview ({} folder(s), {} move(s)) ",
+                    plan.folders.len(),
+                    plan.moves.len()
+                );
+                let organize_state = ui::dialogs::render_organize_plan_dialog(
+                    f,
+                    area,
+                    &ui::dialogs::OrganizePlanView {
+                        title: &title,
+                        folders: &plan.folders,
+                        moves: &plan.moves,
+                        scroll_offset: app.organize_scroll_offset,
+                        confirm_focused: app.organize_button_focus == 0,
+                        nerd_font_active: app.nerd_font_active,
+                        theme: &active_theme,
+                    },
+                );
+                app.organize_max_offset = organize_state.max_offset;
+                app.organize_scroll_offset = organize_state.clamped_offset;
+            }
+            None => {
+                let title = " Organize ";
+                let msg = "Generating organize plan...";
+                let dialog_w = (msg.len() as u16 + 6).max(36).min(area.width.saturating_sub(4));
+                let dialog_h = 5u16.min(area.height.saturating_sub(4));
+                let box_area = Rect::new(
+                    (area.width.saturating_sub(dialog_w)) / 2,
+                    (area.height.saturating_sub(dialog_h)) / 2,
+                    dialog_w,
+                    dialog_h,
+                );
+                f.render_widget(Clear, box_area);
+                let block = Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .title(title)
+                    .title_style(Style::default().fg(active_theme.text_normal))
+                    .border_style(Style::default().fg(active_theme.accent_primary));
+                let inner = block.inner(box_area);
+                f.render_widget(block, box_area);
+                f.render_widget(
+                    Paragraph::new(msg).alignment(Alignment::Center),
+                    inner,
+                );
+            }
+        }
     }
 
 }

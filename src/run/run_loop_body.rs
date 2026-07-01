@@ -32,6 +32,7 @@ pub(crate) fn run_tui_body(
         app.pump_preview_progress();
         app.pump_ai_commit();
         app.pump_ai_key_check();
+        app.pump_ai_organize();
         app.request_preview_for_selected();
         let text_input_cursor = matches!(
             app.mode,
