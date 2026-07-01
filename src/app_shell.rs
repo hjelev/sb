@@ -181,7 +181,7 @@ impl App {
     ) -> io::Result<()> {
         // zellij has no scriptable session/split API like tmux, so describe the
         // split as a temporary KDL layout. Both panes close on exit so quitting
-        // the viewer/editor and exiting the shell returns to sbrs.
+        // the viewer/editor and exiting the shell returns to sb.
         let layout = format!(
             "layout {{\n    \
                  pane split_direction=\"vertical\" {{\n        \
@@ -246,7 +246,7 @@ impl App {
         let shell = Self::login_shell();
         let mut cmd = Command::new(&shell);
         // Non-interactive mode avoids shell job-control side effects that can
-        // suspend sbrs when returning from the command runner.
+        // suspend sb when returning from the command runner.
         cmd.args(["-c", trimmed]);
 
         let status = cmd.current_dir(&self.left.dir).status();

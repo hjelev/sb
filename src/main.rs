@@ -220,7 +220,7 @@ struct App {
     confirm_delete_button_focus: u8,
     confirm_integration_install_button_focus: u8,
     git_info_cache: Option<GitInfoCache>,
-    git_info_rx: Option<Receiver<(PathBuf, Option<(String, bool, Option<(String, u64)>)>)>>,
+    git_info_rx: Option<Receiver<(PathBuf, Option<GitInfo>)>>,
     git_last_check_at: Option<Instant>,
     /// When true, the top-right header clock is replaced by the disk-usage pill
     /// (without the recursive folder-size prefix). Persisted to config.
@@ -310,7 +310,7 @@ struct App {
     preview_rx: Option<Receiver<PreviewContentMsg>>,
     preview_request_id: u64,
     preview_pending: bool,
-    preview_cache: HashMap<PathBuf, (Vec<String>, Vec<PreviewLineKind>, Option<String>)>,
+    preview_cache: HashMap<PathBuf, PreviewCacheEntry>,
     preview_native_area: Option<Rect>,
     preview_native_last_key: Option<String>,
     preview_image_rgb: Option<(Vec<u8>, u32, u32)>,
@@ -1691,10 +1691,20 @@ fn main() -> io::Result<()> {
         MoveTo(0, 0)
     )?;
     // Best-effort: the optional shell `cd`-on-exit snippet (see README) reads this
-    // fixed path. Intentionally fire-and-forget — the app is already exiting and a
+    // path. Intentionally fire-and-forget — the app is already exiting and a
     // failed write only means the shell won't follow us into the last directory.
     // The path is a documented contract with that snippet; do not relocate it here
     // without updating the README integration.
-    let _ = std::fs::write("/tmp/sb_path", app.active_panel_dir().to_string_lossy().as_bytes());
+    let last_path = util::config::last_path_file();
+    if let Some(parent) = last_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if std::fs::write(&last_path, app.active_panel_dir().to_string_lossy().as_bytes()).is_ok() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&last_path, std::fs::Permissions::from_mode(0o600));
+        }
+    }
     Ok(())
 }

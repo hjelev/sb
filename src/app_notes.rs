@@ -3,7 +3,7 @@ use std::{
     env,
     fs,
     io,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Command,
 };
 
@@ -18,7 +18,7 @@ use crate::{App, AppMode, DualPanelSide, NotesLoadMsg};
 
 impl App {
 
-    pub(crate) fn notes_file_path(dir: &PathBuf) -> PathBuf {
+    pub(crate) fn notes_file_path(dir: &Path) -> PathBuf {
         dir.join(".sb")
     }
 
@@ -57,7 +57,7 @@ impl App {
         Some(out)
     }
 
-    pub(crate) fn load_notes_map_for_dir(dir: &PathBuf) -> HashMap<String, String> {
+    pub(crate) fn load_notes_map_for_dir(dir: &Path) -> HashMap<String, String> {
         let path = Self::notes_file_path(dir);
         let Ok(raw) = fs::read_to_string(path) else {
             return HashMap::new();
@@ -188,7 +188,7 @@ impl App {
         names
     }
 
-    pub(crate) fn write_notes_map(dir: &PathBuf, notes: &HashMap<String, String>, scan_id: u64) -> io::Result<()> {
+    pub(crate) fn write_notes_map(dir: &Path, notes: &HashMap<String, String>, scan_id: u64) -> io::Result<()> {
         let notes_path = Self::notes_file_path(dir);
         if notes.is_empty() {
             match fs::remove_file(&notes_path) {

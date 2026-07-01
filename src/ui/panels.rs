@@ -93,8 +93,7 @@ pub fn panel_tab_bar_line(
     if more_left {
         spans.push(Span::styled(TAB_MORE_LEFT, indicator_style));
     }
-    for i in lo..=hi {
-        let (label, idx) = PANEL_TABS[i];
+    for (i, &(label, idx)) in PANEL_TABS.iter().enumerate().take(hi + 1).skip(lo) {
         if i > lo {
             spans.push(Span::styled("─", sep_style));
         }
@@ -210,7 +209,7 @@ pub fn panel_tab_hit_test(relative_x: u16, active: u8, avail_width: u16) -> Opti
         cursor = cursor.saturating_add(1);
     }
 
-    for i in lo..=hi {
+    for (i, &(_, idx)) in PANEL_TABS.iter().enumerate().take(hi + 1).skip(lo) {
         if i > lo {
             if relative_x == cursor {
                 return None;
@@ -220,7 +219,7 @@ pub fn panel_tab_hit_test(relative_x: u16, active: u8, avail_width: u16) -> Opti
 
         let width = tab_label_width(i) as u16;
         if relative_x >= cursor && relative_x < cursor.saturating_add(width) {
-            return Some(PANEL_TABS[i].1);
+            return Some(idx);
         }
         cursor = cursor.saturating_add(width);
     }
@@ -440,15 +439,19 @@ pub struct OverlayChrome {
     pub nerd_font: bool,
 }
 
+pub struct IntegrationsOverlayState<'a> {
+    pub integrations: &'a [IntegrationRow],
+    pub integration_selected: usize,
+    pub search_active: bool,
+    pub search_query: &'a str,
+    pub show_icons: bool,
+}
+
 pub fn render_integrations_overlay(
     f: &mut Frame,
     area: Rect,
     chrome: OverlayChrome,
-    integrations: &[IntegrationRow],
-    integration_selected: usize,
-    search_active: bool,
-    search_query: &str,
-    show_icons: bool,
+    state: IntegrationsOverlayState,
     footer_zones: &mut Vec<(KeyEvent, u16, u16, u16)>,
 ) {
     let OverlayChrome {
@@ -457,6 +460,13 @@ pub fn render_integrations_overlay(
         theme_id,
         nerd_font,
     } = chrome;
+    let IntegrationsOverlayState {
+        integrations,
+        integration_selected,
+        search_active,
+        search_query,
+        show_icons,
+    } = state;
     let spec = theme_spec(theme_id);
     let int_w = (area.width * 5 / 6).max(70).min(tab_overlay_anchor.width);
     let int_content_w = int_w.saturating_sub(2) as usize;
@@ -481,13 +491,8 @@ pub fn render_integrations_overlay(
             row.state.as_str(),
             "[required]" | "[active]" | "[partial]" | "[on]"
         );
-        let status_text = if row.required || (is_enabled && row.available) {
-            " ✓ ".to_string()
-        } else if is_enabled && row.partially_supported {
-            " ✓ ".to_string()
-        } else {
-            " ✕ ".to_string()
-        };
+        let is_ok = row.required || (is_enabled && (row.available || row.partially_supported));
+        let status_text = if is_ok { " ✓ ".to_string() } else { " ✕ ".to_string() };
         let status_style = if row.required || (is_enabled && row.available) {
             Style::default().fg(spec.success)
         } else if is_enabled && row.partially_supported {
@@ -925,14 +930,17 @@ pub fn render_help_overlay(
 
 pub fn render_bookmarks_overlay(
     f: &mut Frame,
-    tab_overlay_anchor: Rect,
-    panel_tab: u8,
-    theme_id: ThemeId,
+    chrome: OverlayChrome,
     bookmarks: &[(usize, Option<PathBuf>)],
     bookmark_selected: usize,
-    nerd_font: bool,
     footer_zones: &mut Vec<(KeyEvent, u16, u16, u16)>,
 ) {
+    let OverlayChrome {
+        anchor: tab_overlay_anchor,
+        panel_tab,
+        theme_id,
+        nerd_font,
+    } = chrome;
     let spec = theme_spec(theme_id);
     let mut lines: Vec<Line> = vec![Line::from("")];
     let bm_w = tab_overlay_anchor.width;
@@ -1227,20 +1235,35 @@ pub fn render_settings_overlay(
     footer_zones.extend(footer_shortcut_zones(footer_entries, set_chunks[1], nerd_font_active));
 }
 
+pub struct ThemesOverlayState {
+    pub selected: usize,
+    pub nerd_focus: bool,
+    pub color_mode: crate::FilenameColorMode,
+    pub color_focus: bool,
+    pub disable_clock: bool,
+    pub clock_focus: bool,
+}
+
 pub fn render_themes_overlay(
     f: &mut Frame,
-    tab_overlay_anchor: Rect,
-    panel_tab: u8,
-    theme_id: ThemeId,
-    selected: usize,
-    nerd_font: bool,
-    nerd_focus: bool,
-    color_mode: crate::FilenameColorMode,
-    color_focus: bool,
-    disable_clock: bool,
-    clock_focus: bool,
+    chrome: OverlayChrome,
+    state: ThemesOverlayState,
     footer_zones: &mut Vec<(KeyEvent, u16, u16, u16)>,
 ) {
+    let OverlayChrome {
+        anchor: tab_overlay_anchor,
+        panel_tab,
+        theme_id,
+        nerd_font,
+    } = chrome;
+    let ThemesOverlayState {
+        selected,
+        nerd_focus,
+        color_mode,
+        color_focus,
+        disable_clock,
+        clock_focus,
+    } = state;
     let current = theme_spec(theme_id);
     let theme_w = tab_overlay_anchor.width;
     let theme_content_w = theme_w.saturating_sub(2) as usize;

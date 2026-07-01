@@ -1146,13 +1146,9 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
         }
         .or_else(|| app.panel_status_message(active_side).map(|s| s.to_string()));
 
-        let active_frame_area = if app.is_dual_panel_mode() && active_side == crate::DualPanelSide::Right {
-            preview_frame_area
-        } else if app.is_preview_mode() && app.preview_focus_is_preview() {
-            preview_frame_area
-        } else {
-            Some(list_frame_area)
-        };
+        let use_preview_frame = (app.is_dual_panel_mode() && active_side == crate::DualPanelSide::Right)
+            || (app.is_preview_mode() && app.preview_focus_is_preview());
+        let active_frame_area = if use_preview_frame { preview_frame_area } else { Some(list_frame_area) };
 
         if let (Some(status_text), Some(frame_area)) = (active_status, active_frame_area) {
             let lower_msg = status_text.to_ascii_lowercase();

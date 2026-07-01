@@ -112,9 +112,16 @@ pub(crate) struct SshMount {
     pub(crate) remote_os_icon: Option<(&'static str, Color)>,
 }
 
+/// Branch name, dirty flag, and an optional (tag name, commits-ahead) pair.
+pub(crate) type GitInfo = (String, bool, Option<(String, u64)>);
+
+/// Borrowed view of [`GitInfo`], returned by cache readers that don't need to
+/// clone the strings.
+pub(crate) type GitInfoRef<'a> = (&'a str, bool, Option<(&'a str, u64)>);
+
 pub(crate) struct GitInfoCache {
     pub(crate) path: PathBuf,
-    pub(crate) info: Option<(String, bool, Option<(String, u64)>)>,
+    pub(crate) info: Option<GitInfo>,
 }
 
 pub(crate) enum CopyProgressMsg {
@@ -393,6 +400,10 @@ pub(crate) enum InternalSearchCandidatesMsg {
         truncated: bool,
     },
 }
+
+/// Loaded preview text, styled line kinds, and an optional footer, as cached
+/// per-path in [`crate::App`]'s preview cache.
+pub(crate) type PreviewCacheEntry = (Vec<String>, Vec<PreviewLineKind>, Option<String>);
 
 pub(crate) enum PreviewContentMsg {
     Ready {

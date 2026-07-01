@@ -13,7 +13,7 @@ use crossterm::{
     },
 };
 
-use crate::{App, AppMode, GitInfoCache};
+use crate::{App, AppMode, GitInfo, GitInfoCache, GitInfoRef};
 use crate::util::background::spawn_worker;
 use crate::util::command::CommandBuilder;
 use crate::util::tui::{resume_tui, resume_tui_cleared, suspend_tui};
@@ -72,7 +72,7 @@ impl App {
         }));
     }
 
-    pub(crate) fn cached_git_info_for_current_dir(&self) -> Option<(&str, bool, Option<(&str, u64)>)> {
+    pub(crate) fn cached_git_info_for_current_dir(&self) -> Option<GitInfoRef<'_>> {
         let cache = self.git_info_cache.as_ref()?;
         if cache.path != self.left.dir {
             return None;
@@ -83,7 +83,7 @@ impl App {
         })
     }
 
-    pub(crate) fn get_git_info(path: &PathBuf) -> Option<(String, bool, Option<(String, u64)>)> {
+    pub(crate) fn get_git_info(path: &PathBuf) -> Option<GitInfo> {
         let branch = CommandBuilder::git_command(path, &["symbolic-ref", "--short", "-q", "HEAD"])
             .ok()
             .and_then(|out| {

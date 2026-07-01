@@ -141,6 +141,31 @@ fn persist_config_path() -> std::path::PathBuf {
     config_dir().join("config")
 }
 
+/// Returns the path used to hand the last-visited directory to the optional
+/// shell `cd`-on-exit integration (see README). Lives under [`runtime_dir`]
+/// (per-user, not world-writable) rather than a fixed `/tmp/...` name, to
+/// avoid the symlink/TOCTOU and cross-user-visibility exposure of a shared,
+/// guessable path.
+pub fn last_path_file() -> std::path::PathBuf {
+    runtime_dir().join("last_path")
+}
+
+/// Restrict `path` to owner-only read/write (`0600`) on Unix. Used for files
+/// that may contain secrets (API keys) or otherwise shouldn't be readable by
+/// other local users. No-op on non-Unix platforms.
+fn restrict_to_owner(path: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(())
+    }
+}
+
 /// Persistent (file-based) configuration stored in `~/.config/sb/config`.
 ///
 /// This is separate from [`AppConfig`] (which is env-only / runtime flags).
@@ -286,13 +311,12 @@ impl SbPersistConfig {
         }
         // Migrate a legacy single key into the active provider's slot, unless
         // that provider already has a per-provider key.
-        if let Some(key) = legacy_ai_api_key {
-            if !key.is_empty() {
+        if let Some(key) = legacy_ai_api_key
+            && !key.is_empty() {
                 cfg.ai_api_keys
                     .entry(cfg.ai_provider.clone())
                     .or_insert(key);
             }
-        }
         cfg
     }
 
@@ -341,7 +365,10 @@ impl SbPersistConfig {
             lines.push(format!("{} = {}", key, val));
         }
         let content = lines.join("\n") + "\n";
-        std::fs::write(&path, content)
+        std::fs::write(&path, content)?;
+        // Config may contain plaintext AI provider API keys; keep it unreadable
+        // by other local users regardless of the process umask.
+        restrict_to_owner(&path)
     }
 
     /// Load the persisted config, apply `f` to it, and save the result back to
@@ -358,6 +385,20 @@ impl SbPersistConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(unix)]
+    fn test_restrict_to_owner_sets_0600() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config");
+        std::fs::write(&path, "ai_api_key_groq = secret\n").unwrap();
+        restrict_to_owner(&path).unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
 
     #[test]
     fn test_config_from_env_defaults() {
@@ -413,11 +454,9 @@ mod tests {
             if line.is_empty() || line.starts_with('#') { return c; }
             if let Some((k, v)) = line.split_once('=') {
                 let k = k.trim(); let v = v.trim();
-                if k.starts_with("bookmark_") {
-                    if let Ok(n) = k["bookmark_".len()..].parse::<u8>() {
-                        if n <= 9 && !v.is_empty() { c.bookmarks.insert(n, v.to_string()); }
-                    }
-                }
+                if k.starts_with("bookmark_")
+                    && let Ok(n) = k["bookmark_".len()..].parse::<u8>()
+                        && n <= 9 && !v.is_empty() { c.bookmarks.insert(n, v.to_string()); }
             }
             c
         });
@@ -468,8 +507,10 @@ mod tests {
 
         // Separate per-provider keys are written as `ai_api_key_<provider>` and
         // parsed back into the map.
-        let mut cfg = SbPersistConfig::default();
-        cfg.ai_provider = "github".to_string();
+        let mut cfg = SbPersistConfig {
+            ai_provider: "github".to_string(),
+            ..Default::default()
+        };
         cfg.ai_model = "openai/gpt-4o-mini".to_string();
         cfg.ai_api_keys.insert("groq".to_string(), "groq-secret".to_string());
         cfg.ai_api_keys.insert("github".to_string(), "github-secret".to_string());
@@ -519,14 +560,13 @@ mod tests {
                 parse_line_into(c, line, &mut legacy)
             });
         // Apply the same post-loop migration as load().
-        if let Some(key) = legacy {
-            if !key.is_empty() {
+        if let Some(key) = legacy
+            && !key.is_empty() {
                 loaded
                     .ai_api_keys
                     .entry(loaded.ai_provider.clone())
                     .or_insert(key);
             }
-        }
         assert_eq!(
             loaded.ai_api_keys.get("github"),
             Some(&"old-token".to_string())

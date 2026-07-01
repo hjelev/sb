@@ -80,12 +80,7 @@ impl App {
                 crate::integration::probe::TerminalImageProtocol::Iterm2Inline
                 | crate::integration::probe::TerminalImageProtocol::Sixel => {
                     if let Some(area) = self.preview_native_area {
-                        let _ = Self::clear_preview_pane_area(
-                            area.x,
-                            area.y,
-                            area.width,
-                            area.height,
-                        );
+                        let _ = Self::clear_preview_pane_area(area);
                     }
                 }
                 _ => {}

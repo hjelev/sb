@@ -350,10 +350,11 @@ To enable automatic directory change on exit, add the following function to your
 ```bash
 sb() {
     "$HOME/.cargo/bin/sb" "$@"
-    if [ -f /tmp/sb_path ]
+    sb_last_path="${XDG_RUNTIME_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}}/sb/last_path"
+    if [ -f "$sb_last_path" ]
     then
-        cd "$(cat /tmp/sb_path)"
-        rm -i -f /tmp/sb_path
+        cd "$(cat "$sb_last_path")"
+        rm -i -f "$sb_last_path"
     fi
 }
 ```

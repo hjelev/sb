@@ -163,8 +163,8 @@ pub fn list_current_directory(
         rows.push(RowData { path, tree_prefix, cache, entry_total_bytes: None });
     }
 
-    group_width = group_width.min(16).max(1);
-    owner_width = owner_width.min(20).max(1);
+    group_width = group_width.clamp(1, 16);
+    owner_width = owner_width.clamp(1, 20);
 
     // Override size columns for all entries when include_total_size=true
     if include_total_size {

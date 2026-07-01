@@ -491,16 +491,24 @@ where
     }
 }
 
-pub fn render_confirm_delete_bookmark_dialog(
-    f: &mut Frame,
-    area: Rect,
-    bookmark_idx: usize,
-    bookmark_path: &str,
-    from_env: bool,
-    button_focus: u8,
-    nerd_font_active: bool,
-    theme: &ThemeSpec,
-) {
+pub struct ConfirmDeleteBookmarkView<'a> {
+    pub bookmark_idx: usize,
+    pub bookmark_path: &'a str,
+    pub from_env: bool,
+    pub button_focus: u8,
+    pub nerd_font_active: bool,
+    pub theme: &'a ThemeSpec,
+}
+
+pub fn render_confirm_delete_bookmark_dialog(f: &mut Frame, area: Rect, view: &ConfirmDeleteBookmarkView) {
+    let &ConfirmDeleteBookmarkView {
+        bookmark_idx,
+        bookmark_path,
+        from_env,
+        button_focus,
+        nerd_font_active,
+        theme,
+    } = view;
     let mut lines: Vec<Line<'static>> = vec![
         Line::from(""),
         Line::from(vec![

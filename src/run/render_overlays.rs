@@ -172,12 +172,14 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
         }
         ui::panels::render_bookmarks_overlay(
             f,
-            tab_overlay_anchor,
-            app.panel_tab,
-            app.active_theme,
+            ui::panels::OverlayChrome {
+                anchor: tab_overlay_anchor,
+                panel_tab: app.panel_tab,
+                theme_id: app.active_theme,
+                nerd_font: app.nerd_font_active,
+            },
             &bookmarks,
             app.bookmark_selected,
-            app.nerd_font_active,
             &mut app.footer_shortcut_zones,
         );
         if app.mode == AppMode::BookmarkEditing {
@@ -219,12 +221,14 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             ui::dialogs::render_confirm_delete_bookmark_dialog(
                 f,
                 area,
-                bm_idx,
-                &path_str,
-                from_env,
-                app.confirm_delete_bookmark_button_focus,
-                app.nerd_font_active,
-                &active_theme,
+                &ui::dialogs::ConfirmDeleteBookmarkView {
+                    bookmark_idx: bm_idx,
+                    bookmark_path: &path_str,
+                    from_env,
+                    button_focus: app.confirm_delete_bookmark_button_focus,
+                    nerd_font_active: app.nerd_font_active,
+                    theme: &active_theme,
+                },
             );
         }
     } else if app.mode == AppMode::Integrations {
@@ -244,26 +248,32 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
                 theme_id: app.active_theme,
                 nerd_font: app.nerd_font_active,
             },
-            &app.integration_rows_cache,
-            app.integration_selected,
-            app.integration_search_active,
-            &app.integration_search_query,
-            app.show_icons,
+            ui::panels::IntegrationsOverlayState {
+                integrations: &app.integration_rows_cache,
+                integration_selected: app.integration_selected,
+                search_active: app.integration_search_active,
+                search_query: &app.integration_search_query,
+                show_icons: app.show_icons,
+            },
             &mut app.footer_shortcut_zones,
         );
     } else if app.mode == AppMode::Themes {
         ui::panels::render_themes_overlay(
             f,
-            tab_overlay_anchor,
-            app.panel_tab,
-            app.active_theme,
-            app.theme_selected,
-            app.nerd_font_active,
-            app.theme_panel_nerd_selected,
-            app.filename_color_mode,
-            app.theme_panel_color_selected,
-            app.disable_clock,
-            app.theme_panel_clock_selected,
+            ui::panels::OverlayChrome {
+                anchor: tab_overlay_anchor,
+                panel_tab: app.panel_tab,
+                theme_id: app.active_theme,
+                nerd_font: app.nerd_font_active,
+            },
+            ui::panels::ThemesOverlayState {
+                selected: app.theme_selected,
+                nerd_focus: app.theme_panel_nerd_selected,
+                color_mode: app.filename_color_mode,
+                color_focus: app.theme_panel_color_selected,
+                disable_clock: app.disable_clock,
+                clock_focus: app.theme_panel_clock_selected,
+            },
             &mut app.footer_shortcut_zones,
         );
     } else if app.mode == AppMode::SortMenu {
@@ -334,7 +344,7 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
         let area = f.size();
         let to_extract = &app.archive.extract_targets;
         let mut msg_lines: Vec<String> = vec!["Extract selected archives?".to_string(), String::new()];
-        let max_list_rows = ((area.height.saturating_sub(10) as usize).min(14)).max(1);
+        let max_list_rows = (area.height.saturating_sub(10) as usize).clamp(1, 14);
         for (idx, path) in to_extract.iter().enumerate() {
             if idx >= max_list_rows {
                 break;

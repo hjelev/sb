@@ -349,11 +349,10 @@ impl App {
     /// Fire the debounced key check after the user pauses, and poll the
     /// validation channel. Results for a since-changed key are discarded.
     pub(crate) fn pump_ai_key_check(&mut self) {
-        if let Some(edited) = self.ai_key_edit_at {
-            if edited.elapsed() >= KEY_CHECK_DEBOUNCE {
+        if let Some(edited) = self.ai_key_edit_at
+            && edited.elapsed() >= KEY_CHECK_DEBOUNCE {
                 self.maybe_check_api_key();
             }
-        }
         let Some(rx) = self.ai_key_check_rx.as_ref() else {
             return;
         };

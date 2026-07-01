@@ -619,9 +619,8 @@ fn handle_enter_or_right(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app:
                 else if App::is_image_file(&selected_path)
                     || (App::is_svg_file(&selected_path) && app.integration_active("resvg")) {
                     let is_bitmap_image = App::is_image_file(&selected_path);
-                    if app.preview_images_with_native(selected_path.clone())? {
-                        terminal.clear()?;
-                    } else if app.preview_images_with_halfblock_fullscreen(selected_path.clone())? {
+                    if app.preview_images_with_native(selected_path.clone())?
+                        || app.preview_images_with_halfblock_fullscreen(selected_path.clone())? {
                         terminal.clear()?;
                     } else if is_bitmap_image && app.integration_active("viu") {
                         app.preview_images_with_viu(selected_path)?;

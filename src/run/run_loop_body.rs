@@ -146,36 +146,19 @@ pub(crate) fn run_tui_body(
                                 png,
                                 *iw,
                                 *ih,
-                                fit.x,
-                                fit.y,
-                                fit.width,
-                                fit.height,
+                                fit,
                                 crate::app_images::KITTY_IMAGE_ID_PREVIEW,
                             );
                         }
                         crate::integration::probe::TerminalImageProtocol::Iterm2Inline => {
                             // Use the full preview pane bounds so clearing removes
                             // remnants from previously larger images.
-                            let _ = App::emit_iterm2_pane(
-                                png,
-                                area.x,
-                                area.y,
-                                area.width,
-                                area.height,
-                            );
+                            let _ = App::emit_iterm2_pane(png, area);
                         }
                         crate::integration::probe::TerminalImageProtocol::Sixel => {
                             // Pass the full pane area: emit_sixel_pane handles its
                             // own pixel-aware sizing and clears stale content first.
-                            let _ = App::emit_sixel_pane(
-                                rgb,
-                                *iw,
-                                *ih,
-                                area.x,
-                                area.y,
-                                area.width,
-                                area.height,
-                            );
+                            let _ = App::emit_sixel_pane(rgb, *iw, *ih, area);
                         }
                         _ => {}
                     }
@@ -190,12 +173,7 @@ pub(crate) fn run_tui_body(
                     crate::integration::probe::TerminalImageProtocol::Iterm2Inline
                     | crate::integration::probe::TerminalImageProtocol::Sixel => {
                         if let Some(area) = app.preview_native_area {
-                            let _ = App::clear_preview_pane_area(
-                                area.x,
-                                area.y,
-                                area.width,
-                                area.height,
-                            );
+                            let _ = App::clear_preview_pane_area(area);
                         }
                     }
                     _ => {}
@@ -211,12 +189,7 @@ pub(crate) fn run_tui_body(
                 crate::integration::probe::TerminalImageProtocol::Iterm2Inline
                 | crate::integration::probe::TerminalImageProtocol::Sixel => {
                     if let Some(area) = app.preview_native_area {
-                        let _ = App::clear_preview_pane_area(
-                            area.x,
-                            area.y,
-                            area.width,
-                            area.height,
-                        );
+                        let _ = App::clear_preview_pane_area(area);
                     }
                 }
                 _ => {}
@@ -241,23 +214,18 @@ pub(crate) fn run_tui_body(
                                 png,
                                 iw,
                                 ih,
-                                fit.x,
-                                fit.y,
-                                fit.width,
-                                fit.height,
+                                fit,
                                 crate::app_images::KITTY_IMAGE_ID_HELP_LOGO,
                             );
                         }
                         crate::integration::probe::TerminalImageProtocol::Iterm2Inline => {
-                            let _ = App::emit_iterm2_pane(png, fit.x, fit.y, fit.width, fit.height);
+                            let _ = App::emit_iterm2_pane(png, fit);
                         }
                         crate::integration::probe::TerminalImageProtocol::Sixel => {
                             if let Some((rgb, rw, rh)) = ui::panels::help_logo_rgb_for_sixel(
                                 ui::theme::theme_spec(app.active_theme).bg_panel,
                             ) {
-                                let _ = App::emit_sixel_pane(
-                                    &rgb, rw, rh, fit.x, fit.y, fit.width, fit.height,
-                                );
+                                let _ = App::emit_sixel_pane(&rgb, rw, rh, fit);
                             }
                         }
                         _ => {}
@@ -274,7 +242,7 @@ pub(crate) fn run_tui_body(
                     crate::integration::probe::TerminalImageProtocol::Iterm2Inline
                     | crate::integration::probe::TerminalImageProtocol::Sixel => {
                         if let Some(area) = app.help_logo_native_last_area {
-                            let _ = App::clear_preview_pane_area(area.x, area.y, area.width, area.height);
+                            let _ = App::clear_preview_pane_area(area);
                         }
                     }
                     _ => {}
@@ -291,7 +259,7 @@ pub(crate) fn run_tui_body(
                 crate::integration::probe::TerminalImageProtocol::Iterm2Inline
                 | crate::integration::probe::TerminalImageProtocol::Sixel => {
                     if let Some(area) = app.help_logo_native_last_area {
-                        let _ = App::clear_preview_pane_area(area.x, area.y, area.width, area.height);
+                        let _ = App::clear_preview_pane_area(area);
                     }
                 }
                 _ => {}

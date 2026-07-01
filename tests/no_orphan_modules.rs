@@ -1,10 +1,5 @@
 //! Guard against orphaned source files.
 //!
-//! `sbrs` was once half-refactored into modules that were never added to the
-//! `mod` tree: the files existed in `src/` but were not compiled, while their
-//! code lived duplicated inside `main.rs`. The `dead_code` lint cannot catch
-//! this — an un-declared file is simply never compiled, so nothing lints it.
-//!
 //! This test walks `src/` and asserts every `.rs` file is reachable as a
 //! module, so a future dropped `mod` declaration fails the build instead of
 //! rotting silently.
@@ -36,11 +31,9 @@ fn collect_mod_declarations(src: &Path) -> HashSet<String> {
                         .strip_prefix("pub(crate) mod ")
                         .or_else(|| line.strip_prefix("pub mod "))
                         .or_else(|| line.strip_prefix("mod "))
-                    {
-                        if let Some(name) = rest.strip_suffix(';') {
+                        && let Some(name) = rest.strip_suffix(';') {
                             decls.insert(name.trim().to_string());
                         }
-                    }
                 }
             }
         }

@@ -1,7 +1,7 @@
 use std::{
     collections::HashSet,
     env, fs, io,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Command,
     thread,
     time::Duration,
@@ -131,7 +131,7 @@ impl App {
         mounts
     }
 
-    pub(crate) fn wait_for_mount_ready(path: &PathBuf) {
+    pub(crate) fn wait_for_mount_ready(path: &Path) {
         // Some backends (notably rclone --daemon) return before the mount is fully ready.
         // Poll briefly so the first directory read after enter is accurate.
         for _ in 0..20 {

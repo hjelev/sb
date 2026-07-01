@@ -1,7 +1,7 @@
 use std::{
     env, fs,
     io::{self, Read},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -85,7 +85,7 @@ impl App {
         None
     }
 
-    pub(crate) fn is_image_file(path: &PathBuf) -> bool {
+    pub(crate) fn is_image_file(path: &Path) -> bool {
         const IMAGE_EXTENSIONS: &[&str] = &[
             "png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff", "avif", "heic", "ico",
         ];
@@ -96,14 +96,14 @@ impl App {
             .unwrap_or(false)
     }
 
-    pub(crate) fn is_svg_file(path: &PathBuf) -> bool {
+    pub(crate) fn is_svg_file(path: &Path) -> bool {
         path.extension()
             .and_then(|ext| ext.to_str())
             .map(|ext| ext.eq_ignore_ascii_case("svg"))
             .unwrap_or(false)
     }
 
-    pub(crate) fn is_audio_file(path: &PathBuf) -> bool {
+    pub(crate) fn is_audio_file(path: &Path) -> bool {
         const AUDIO_EXTENSIONS: &[&str] = &[
             "mp3", "flac", "wav", "ogg", "opus", "m4a", "aac", "wma", "aiff", "aif", "alac", "mid", "midi",
         ];
@@ -114,7 +114,7 @@ impl App {
             .unwrap_or(false)
     }
 
-    pub(crate) fn is_json_file(path: &PathBuf) -> bool {
+    pub(crate) fn is_json_file(path: &Path) -> bool {
         const JSON_EXTENSIONS: &[&str] = &["json", "jsonc", "jsonl", "ndjson", "geojson"];
 
         path.extension()
@@ -123,7 +123,7 @@ impl App {
             .unwrap_or(false)
     }
 
-    pub(crate) fn is_markdown_file(path: &PathBuf) -> bool {
+    pub(crate) fn is_markdown_file(path: &Path) -> bool {
         const MARKDOWN_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkd", "mkdn"];
 
         path.extension()
@@ -132,7 +132,7 @@ impl App {
             .unwrap_or(false)
     }
 
-    pub(crate) fn is_html_file(path: &PathBuf) -> bool {
+    pub(crate) fn is_html_file(path: &Path) -> bool {
         const HTML_EXTENSIONS: &[&str] = &["html", "htm", "xhtml"];
         path.extension()
             .and_then(|ext| ext.to_str())
@@ -140,35 +140,35 @@ impl App {
             .unwrap_or(false)
     }
 
-    pub(crate) fn is_mermaid_file(path: &PathBuf) -> bool {
+    pub(crate) fn is_mermaid_file(path: &Path) -> bool {
         path.extension()
             .and_then(|ext| ext.to_str())
             .map(|ext| ext.eq_ignore_ascii_case("mmd"))
             .unwrap_or(false)
     }
 
-    pub(crate) fn is_pdf_file(path: &PathBuf) -> bool {
+    pub(crate) fn is_pdf_file(path: &Path) -> bool {
         path.extension()
             .and_then(|ext| ext.to_str())
             .map(|ext| ext.eq_ignore_ascii_case("pdf"))
             .unwrap_or(false)
     }
 
-    pub(crate) fn is_cast_file(path: &PathBuf) -> bool {
+    pub(crate) fn is_cast_file(path: &Path) -> bool {
         path.extension()
             .and_then(|ext| ext.to_str())
             .map(|ext| ext.eq_ignore_ascii_case("cast"))
             .unwrap_or(false)
     }
 
-    pub(crate) fn is_age_protected_file(path: &PathBuf) -> bool {
+    pub(crate) fn is_age_protected_file(path: &Path) -> bool {
         path.extension()
             .and_then(|ext| ext.to_str())
             .map(|ext| ext.eq_ignore_ascii_case("age"))
             .unwrap_or(false)
     }
 
-    pub(crate) fn age_protected_output_path(path: &PathBuf) -> PathBuf {
+    pub(crate) fn age_protected_output_path(path: &Path) -> PathBuf {
         PathBuf::from(format!("{}.age", path.to_string_lossy()))
     }
 
@@ -203,7 +203,7 @@ impl App {
         Ok((tmp_dir, tmp_path))
     }
 
-    pub(crate) fn is_delimited_text_file(path: &PathBuf) -> bool {
+    pub(crate) fn is_delimited_text_file(path: &Path) -> bool {
         const DELIMITED_EXTENSIONS: &[&str] = &["csv", "tsv", "tab", "psv", "dsv", "ssv"];
 
         path.extension()
@@ -212,7 +212,7 @@ impl App {
             .unwrap_or(false)
     }
 
-    pub(crate) fn is_sqlite_db_file(path: &PathBuf) -> bool {
+    pub(crate) fn is_sqlite_db_file(path: &Path) -> bool {
         const SQLITE_EXTENSIONS: &[&str] = &[
             "db",
             "sqlite",

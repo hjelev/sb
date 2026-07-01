@@ -3,7 +3,7 @@ use std::{
     env, fs,
     hash::{Hash, Hasher},
     io::{self, Cursor, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -78,7 +78,7 @@ fn avg_pixel(
 }
 
 impl App {
-    fn supports_image_slideshow_path(&self, path: &PathBuf) -> bool {
+    fn supports_image_slideshow_path(&self, path: &Path) -> bool {
         Self::is_image_file(path) || (self.integration_active("resvg") && Self::is_svg_file(path))
     }
 
@@ -477,19 +477,14 @@ impl App {
         out.flush()
     }
 
-    pub(crate) fn clear_preview_pane_area(
-        pane_x: u16,
-        pane_y: u16,
-        cols: u16,
-        rows: u16,
-    ) -> io::Result<()> {
+    pub(crate) fn clear_preview_pane_area(pane: Rect) -> io::Result<()> {
         use crossterm::cursor::MoveTo;
         use crossterm::execute;
 
         let mut out = io::stdout();
-        let blank = " ".repeat(cols as usize);
-        for row in 0..rows {
-            execute!(out, MoveTo(pane_x, pane_y + row), ResetColor)?;
+        let blank = " ".repeat(pane.width as usize);
+        for row in 0..pane.height {
+            execute!(out, MoveTo(pane.x, pane.y + row), ResetColor)?;
             write!(out, "{}", blank)?;
         }
         out.flush()
@@ -499,10 +494,7 @@ impl App {
         png_data: &[u8],
         img_w: u32,
         img_h: u32,
-        pane_x: u16,
-        pane_y: u16,
-        cols: u16,
-        rows: u16,
+        pane: Rect,
         image_id: u32,
     ) -> io::Result<()> {
         use crossterm::cursor::MoveTo;
@@ -511,7 +503,7 @@ impl App {
         let chunk_size = 4096;
         let bytes = payload.as_bytes();
         let mut out = io::stdout();
-        execute!(out, MoveTo(pane_x, pane_y))?;
+        execute!(out, MoveTo(pane.x, pane.y))?;
         let mut offset = 0;
         while offset < bytes.len() {
             let end = (offset + chunk_size).min(bytes.len());
@@ -521,7 +513,7 @@ impl App {
                 write!(
                     out,
                     "\x1b_Ga=T,f=100,i={},s={},v={},c={},r={},m={};{}\x1b\\",
-                    image_id, img_w, img_h, cols, rows, more,
+                    image_id, img_w, img_h, pane.width, pane.height, more,
                     std::str::from_utf8(chunk).unwrap_or("")
                 )?;
             } else {
@@ -533,47 +525,33 @@ impl App {
         out.flush()
     }
 
-    pub(crate) fn emit_iterm2_pane(
-        png_data: &[u8],
-        pane_x: u16,
-        pane_y: u16,
-        cols: u16,
-        rows: u16,
-    ) -> io::Result<()> {
+    pub(crate) fn emit_iterm2_pane(png_data: &[u8], pane: Rect) -> io::Result<()> {
         use crossterm::cursor::MoveTo;
         use crossterm::execute;
 
         // Clear stale image from previous file before drawing the new one.
-        Self::clear_preview_pane_area(pane_x, pane_y, cols, rows)?;
+        Self::clear_preview_pane_area(pane)?;
 
         let payload = BASE64_STANDARD.encode(png_data);
         let mut out = io::stdout();
-        execute!(out, MoveTo(pane_x, pane_y))?;
+        execute!(out, MoveTo(pane.x, pane.y))?;
         write!(
             out,
             "\x1b]1337;File=inline=1;preserveAspectRatio=1;width={};height={};doNotMoveCursor=1:{}\x07",
-            cols,
-            rows,
+            pane.width,
+            pane.height,
             payload
         )?;
         out.flush()
     }
 
-    pub(crate) fn emit_sixel_pane(
-        rgb_data: &[u8],
-        img_w: u32,
-        img_h: u32,
-        pane_x: u16,
-        pane_y: u16,
-        cols: u16,
-        rows: u16,
-    ) -> io::Result<()> {
+    pub(crate) fn emit_sixel_pane(rgb_data: &[u8], img_w: u32, img_h: u32, pane: Rect) -> io::Result<()> {
         use crossterm::cursor::MoveTo;
         use crossterm::execute;
         use crossterm::terminal::window_size;
         use image::RgbImage;
 
-        if rgb_data.is_empty() || img_w == 0 || img_h == 0 || cols == 0 || rows == 0 {
+        if rgb_data.is_empty() || img_w == 0 || img_h == 0 || pane.width == 0 || pane.height == 0 {
             return Ok(());
         }
 
@@ -592,11 +570,11 @@ impl App {
         };
 
         // Clear the pane area so previous Sixel frames do not bleed through.
-        Self::clear_preview_pane_area(pane_x, pane_y, cols, rows)?;
+        Self::clear_preview_pane_area(pane)?;
 
         // Compute pixel budget for the full pane, then aspect-preserve resize into it.
-        let max_w = (cols as u32) * cell_px_w;
-        let max_h = (rows as u32) * cell_px_h;
+        let max_w = (pane.width as u32) * cell_px_w;
+        let max_h = (pane.height as u32) * cell_px_h;
         let resized = image::DynamicImage::ImageRgb8(base_img)
             .resize(max_w, max_h, FilterType::Lanczos3)
             .to_rgb8();
@@ -618,7 +596,7 @@ impl App {
         let sixel_out = image.encode().map_err(io::Error::other)?;
 
         let mut out = io::stdout();
-        execute!(out, MoveTo(pane_x, pane_y))?;
+        execute!(out, MoveTo(pane.x, pane.y))?;
         out.write_all(sixel_out.as_bytes())?;
         out.flush()
     }
@@ -835,7 +813,7 @@ impl App {
             .entries
             .iter()
             .map(|e| e.path())
-            .filter(Self::is_image_file)
+            .filter(|p| Self::is_image_file(p))
             .collect();
 
         if images.is_empty() {
@@ -934,7 +912,7 @@ printf '%s\n' "${paths[$idx]}" > "$out_file"
             .entries
             .iter()
             .map(|e| e.path())
-            .filter(Self::is_image_file)
+            .filter(|p| Self::is_image_file(p))
             .collect();
 
         if images.is_empty() {
