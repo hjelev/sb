@@ -6,7 +6,7 @@ use std::{
     io::{self},
     path::PathBuf,
 };
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_width::UnicodeWidthStr;
 
 use crate::app_render_cache::{EntryRenderCache, EntryRenderConfig};
 use crate::ui::list_render;
@@ -70,42 +70,7 @@ pub fn list_current_directory(
     let pct_width = 6usize;
     let perms_width = 11usize;
 
-    fn truncate_to(s: &str, max: usize) -> String {
-        if s.chars().count() <= max {
-            return s.to_string();
-        }
-        if max <= 1 {
-            return "…".to_string();
-        }
-        let mut out = String::new();
-        for ch in s.chars().take(max - 1) {
-            out.push(ch);
-        }
-        out.push('…');
-        out
-    }
-
-    fn truncate_to_display_width(s: &str, max: usize) -> String {
-        if UnicodeWidthStr::width(s) <= max {
-            return s.to_string();
-        }
-        if max <= 1 {
-            return "…".to_string();
-        }
-        let mut out = String::new();
-        let mut used = 0usize;
-        let target = max - 1;
-        for ch in s.chars() {
-            let ch_width = UnicodeWidthChar::width(ch).unwrap_or(0);
-            if used + ch_width > target {
-                break;
-            }
-            out.push(ch);
-            used += ch_width;
-        }
-        out.push('…');
-        out
-    }
+    use crate::util::format::{truncate_display_width, truncate_with_ellipsis};
 
     let tree_rows = tree_depth.map(|depth| {
         crate::ui::tree::collect_tree_rows(
@@ -238,7 +203,7 @@ pub fn list_current_directory(
         let prefix_width = UnicodeWidthStr::width(tree_prefix.as_str());
         let icon_width = UnicodeWidthStr::width(icon_prefix.as_str());
         let base_name_width = name_width.saturating_sub(prefix_width + icon_width).max(1);
-        let rendered_name = truncate_to_display_width(&cache.raw_name, base_name_width);
+        let rendered_name = truncate_display_width(&cache.raw_name, base_name_width);
         let rendered_name_width = UnicodeWidthStr::width(rendered_name.as_str());
         let used_name_width = prefix_width + icon_width + rendered_name_width;
         let trailing_pad = " ".repeat(name_width.saturating_sub(used_name_width));
@@ -259,12 +224,12 @@ pub fn list_current_directory(
             let perms_col = cache.perms_col.trim_end();
             let group_col = format!(
                 "{:>width$}",
-                truncate_to(&cache.group_name, group_width),
+                truncate_with_ellipsis(&cache.group_name, group_width),
                 width = group_width
             );
             let owner_col = format!(
                 "{:<width$}",
-                truncate_to(&cache.owner_name, owner_width),
+                truncate_with_ellipsis(&cache.owner_name, owner_width),
                 width = owner_width
             );
             // size_col pre-padded to 6 chars; date_col pre-padded to 16 chars by the cache builder

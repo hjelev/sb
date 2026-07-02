@@ -64,6 +64,7 @@ pub(crate) fn handle_internal_search_key(app: &mut App, key: KeyEvent) -> io::Re
             app.cancel_internal_search_candidate_scan();
             app.cancel_internal_search_content_request();
             app.panel_tab = 2;
+            app.refresh_bookmarks_cache();
             app.mode = AppMode::Bookmarks;
         }
         KeyCode::Enter => {

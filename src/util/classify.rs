@@ -44,6 +44,19 @@ pub fn display_name(path: &Path) -> String {
     path_file_name(path).unwrap_or_else(|| path.to_string_lossy().into_owned())
 }
 
+/// Returns true if `path`'s extension case-insensitively matches one of `exts`.
+///
+/// Replaces the repeated
+/// `path.extension().and_then(|e| e.to_str())
+///      .map(|e| EXTS.iter().any(|x| e.eq_ignore_ascii_case(x))).unwrap_or(false)`
+/// used by the `is_*_file` classifiers.
+pub fn has_ext(path: &Path, exts: &[&str]) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| exts.iter().any(|e| ext.eq_ignore_ascii_case(e)))
+        .unwrap_or(false)
+}
+
 /// Returns true if `path` itself is a symbolic link.
 ///
 /// Uses `symlink_metadata()` so the link is inspected rather than its target;
@@ -82,6 +95,18 @@ mod tests {
         assert_eq!(display_name(&PathBuf::from("/a/b/c.txt")), "c.txt");
         // No final component → falls back to the whole path.
         assert_eq!(display_name(&PathBuf::from("/")), "/");
+    }
+
+    #[test]
+    fn test_has_ext() {
+        let exts = &["jpg", "png"];
+        assert!(has_ext(Path::new("photo.jpg"), exts));
+        assert!(has_ext(Path::new("photo.JPG"), exts));
+        assert!(has_ext(Path::new("/a/b/pic.PnG"), exts));
+        assert!(!has_ext(Path::new("photo.jpeg"), exts));
+        assert!(!has_ext(Path::new("noext"), exts));
+        // A dotfile has no extension in std's model.
+        assert!(!has_ext(Path::new(".jpg"), exts));
     }
 
     #[test]

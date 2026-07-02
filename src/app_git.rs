@@ -1,7 +1,6 @@
 use std::{
     io::{self, Write},
     path::PathBuf,
-    sync::mpsc,
     time::{Duration, Instant},
 };
 use crossterm::{
@@ -14,24 +13,14 @@ use crossterm::{
 };
 
 use crate::{App, AppMode, GitInfo, GitInfoCache, GitInfoRef};
-use crate::util::background::spawn_worker;
+use crate::util::background::{pump_once, spawn_worker};
 use crate::util::command::CommandBuilder;
 use crate::util::tui::{resume_tui, resume_tui_cleared, suspend_tui};
 
 impl App {
     pub(crate) fn pump_git_info(&mut self) {
-        let Some(rx) = self.git_info_rx.as_ref() else {
-            return;
-        };
-        match rx.try_recv() {
-            Ok((path, info)) => {
-                self.git_info_cache = Some(GitInfoCache { path, info });
-                self.git_info_rx = None;
-            }
-            Err(mpsc::TryRecvError::Empty) => {}
-            Err(mpsc::TryRecvError::Disconnected) => {
-                self.git_info_rx = None;
-            }
+        if let Some((path, info)) = pump_once(&mut self.git_info_rx) {
+            self.git_info_cache = Some(GitInfoCache { path, info });
         }
     }
 

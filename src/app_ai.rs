@@ -6,11 +6,9 @@
 //! and the result is delivered back over an `mpsc` channel, polled each frame by
 //! [`App::pump_ai_commit`].
 
-use std::sync::mpsc;
-
 use std::time::{Duration, Instant};
 
-use crate::util::background::spawn_worker;
+use crate::util::background::{pump_once, spawn_worker};
 use crate::{AiCommitMsg, AiKeyCheckMsg, AiKeyStatus, App, AppMode};
 
 /// Wait this long after the last keystroke before validating the API key, so a
@@ -20,6 +18,11 @@ const KEY_CHECK_DEBOUNCE: Duration = Duration::from_millis(600);
 /// Cap on a single key-validation request so a stalled connection can't leak a
 /// worker thread indefinitely.
 const KEY_CHECK_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Cap on a full generation request (commit message, organize plan) for the
+/// same reason — `ureq` has no default timeout, so without one a stalled
+/// connection would leave the UI on "generating..." forever.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// A supported AI provider: its endpoint, default model, and the env var that
 /// holds the API key when one is not set in the persisted config.
@@ -152,25 +155,23 @@ fn parse_commit_message(value: &serde_json::Value) -> Result<String, String> {
     }
 }
 
-/// Perform the blocking HTTP request. Runs on a worker thread.
-fn generate_commit_message(
+/// POST a chat-completions request and return the parsed JSON response.
+/// Blocking — runs on a worker thread. Shared by commit-message generation
+/// and the organize-plan request in [`crate::app_organize`].
+pub(crate) fn post_chat_completions(
     endpoint: &str,
     api_key: &str,
-    model: &str,
-    diff: &str,
-) -> Result<String, String> {
-    let body = build_request_body(model, diff);
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
     match ureq::post(endpoint)
+        .timeout(REQUEST_TIMEOUT)
         .set("Authorization", &format!("Bearer {}", api_key))
         .set("Content-Type", "application/json")
         .send_json(body)
     {
-        Ok(resp) => {
-            let value: serde_json::Value = resp
-                .into_json()
-                .map_err(|e| format!("invalid AI response: {}", e))?;
-            parse_commit_message(&value)
-        }
+        Ok(resp) => resp
+            .into_json()
+            .map_err(|e| format!("invalid AI response: {}", e)),
         Err(ureq::Error::Status(code, resp)) => {
             let detail: String = resp
                 .into_string()
@@ -182,6 +183,17 @@ fn generate_commit_message(
         }
         Err(e) => Err(format!("AI request failed: {}", e)),
     }
+}
+
+/// Perform the blocking HTTP request. Runs on a worker thread.
+fn generate_commit_message(
+    endpoint: &str,
+    api_key: &str,
+    model: &str,
+    diff: &str,
+) -> Result<String, String> {
+    let value = post_chat_completions(endpoint, api_key, build_request_body(model, diff))?;
+    parse_commit_message(&value)
 }
 
 impl App {
@@ -353,44 +365,40 @@ impl App {
             && edited.elapsed() >= KEY_CHECK_DEBOUNCE {
                 self.maybe_check_api_key();
             }
-        let Some(rx) = self.ai_key_check_rx.as_ref() else {
-            return;
-        };
-        match rx.try_recv() {
-            Ok(AiKeyCheckMsg::Result { key, valid }) => {
-                self.ai_key_check_rx = None;
+        match pump_once(&mut self.ai_key_check_rx) {
+            Some(AiKeyCheckMsg::Result { key, valid }) => {
                 if self.ai_api_key.trim() == key {
                     self.ai_key_status =
                         if valid { AiKeyStatus::Valid } else { AiKeyStatus::Invalid };
                 }
             }
-            Ok(AiKeyCheckMsg::Error { key, message }) => {
-                self.ai_key_check_rx = None;
+            Some(AiKeyCheckMsg::Error { key, message }) => {
                 if self.ai_api_key.trim() == key {
                     self.ai_key_status = AiKeyStatus::Unknown;
                     self.set_status(message);
                 }
             }
-            Err(mpsc::TryRecvError::Empty) => {}
-            Err(mpsc::TryRecvError::Disconnected) => {
-                self.ai_key_check_rx = None;
-            }
+            None => {}
         }
     }
 
     /// Persist the current AI settings (provider/model/key/auto-commit) to the
-    /// config file.
-    fn persist_ai_settings(&self) {
+    /// config file. A failed write would silently lose the user's API key, so
+    /// it is surfaced as a status message.
+    fn persist_ai_settings(&mut self) {
         let provider = self.ai_provider.clone();
         let model = self.ai_model.clone();
         let keys = self.ai_api_keys.clone();
         let auto = self.ai_auto_commit;
-        crate::util::config::SbPersistConfig::update(move |cfg| {
+        let result = crate::util::config::SbPersistConfig::update(move |cfg| {
             cfg.ai_provider = provider;
             cfg.ai_model = model;
             cfg.ai_api_keys = keys;
             cfg.ai_auto_commit = auto;
         });
+        if let Err(e) = result {
+            self.set_status(format!("failed to save AI settings: {}", e));
+        }
     }
 
     /// Toggle the "auto AI commit message" setting (Settings row 3) and persist
@@ -408,25 +416,17 @@ impl App {
     /// Poll the AI commit-message channel. On success, prefill the (still
     /// editable) commit-message input if the user is still entering one.
     pub(crate) fn pump_ai_commit(&mut self) {
-        let Some(rx) = self.ai_commit_rx.as_ref() else {
-            return;
-        };
-        match rx.try_recv() {
-            Ok(AiCommitMsg::Ok(text)) => {
-                self.ai_commit_rx = None;
+        match pump_once(&mut self.ai_commit_rx) {
+            Some(AiCommitMsg::Ok(text)) => {
                 if self.mode == AppMode::GitCommitMessage {
                     self.begin_input_edit(AppMode::GitCommitMessage, text);
                     self.set_status("AI message ready — edit and Enter to commit, or Ctrl+G to retry");
                 }
             }
-            Ok(AiCommitMsg::Err(err)) => {
-                self.ai_commit_rx = None;
+            Some(AiCommitMsg::Err(err)) => {
                 self.set_status(err);
             }
-            Err(mpsc::TryRecvError::Empty) => {}
-            Err(mpsc::TryRecvError::Disconnected) => {
-                self.ai_commit_rx = None;
-            }
+            None => {}
         }
     }
 }

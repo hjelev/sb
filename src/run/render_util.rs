@@ -23,46 +23,7 @@ pub(crate) fn bar_span(text: String, in_used: bool, used_bg: Option<Color>, free
     }
 }
 
-pub(crate) fn truncate_display_width(s: &str, max_width: usize) -> String {
-    if max_width == 0 {
-        return String::new();
-    }
-    let full_width = UnicodeWidthStr::width(s);
-    if full_width <= max_width {
-        return s.to_string();
-    }
-    if max_width == 1 {
-        return "…".to_string();
-    }
-    let mut out = String::new();
-    let mut used = 0usize;
-    for ch in s.chars() {
-        let ch_s = ch.to_string();
-        let ch_width = UnicodeWidthStr::width(ch_s.as_str());
-        if used + ch_width >= max_width {
-            break;
-        }
-        out.push(ch);
-        used += ch_width;
-    }
-    out.push('…');
-    out
-}
-
-pub(crate) fn truncate_with_ellipsis(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        return s.to_string();
-    }
-    if max <= 1 {
-        return "…".to_string();
-    }
-    let mut out = String::new();
-    for ch in s.chars().take(max - 1) {
-        out.push(ch);
-    }
-    out.push('…');
-    out
-}
+pub(crate) use crate::util::format::{truncate_display_width, truncate_with_ellipsis};
 
 /// The display-style inputs a panel title needs: the active theme plus the
 /// icon-rendering flags. Grouping them keeps `build_panel_title`'s signature

@@ -607,34 +607,16 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
             1,
             table_area.height,
         );
-        let track_h = sb_area.height as usize;
-        if track_h > 0 {
-            let visible_rows = list_area.height.max(1) as usize;
-            let total_rows = app.left.entries.len();
-            let max_scroll = total_rows.saturating_sub(visible_rows);
-            let offset = app.left.table_state.offset().min(max_scroll);
-            let thumb_h = ((visible_rows * track_h + total_rows.saturating_sub(1)) / total_rows)
-                .max(1)
-                .min(track_h);
-            let scroll_space = track_h.saturating_sub(thumb_h);
-            let thumb_y = if max_scroll == 0 {
-                0
-            } else {
-                (offset * scroll_space + (max_scroll / 2)) / max_scroll
-            };
-
-            let mut sb_lines: Vec<Line> = Vec::with_capacity(track_h);
-            for row in 0..track_h {
-                let in_thumb = row >= thumb_y && row < thumb_y + thumb_h;
-                let (ch, color) = if in_thumb {
-                    ("┃", active_theme.divider)
-                } else {
-                    ("│", active_theme.border)
-                };
-                sb_lines.push(Line::from(Span::styled(ch, Style::default().fg(color))));
-            }
-            f.render_widget(Paragraph::new(sb_lines), sb_area);
-        }
+        let visible_rows = list_area.height.max(1) as usize;
+        ui::scrollbar::render_scrollbar_track(
+            f,
+            sb_area,
+            app.left.entries.len(),
+            visible_rows,
+            app.left.table_state.offset(),
+            active_theme.divider,
+            active_theme.border,
+        );
     }
 
     app.preview_native_area = None;
@@ -805,30 +787,15 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
                 1,
                 preview_body.height,
             );
-            let track_h = sb_area.height as usize;
-            if track_h > 0 {
-                let thumb_h = ((visible_rows * track_h + app.preview_lines.len().saturating_sub(1))
-                    / app.preview_lines.len())
-                    .max(1)
-                    .min(track_h);
-                let scroll_space = track_h.saturating_sub(thumb_h);
-                let thumb_y = if max_scroll == 0 {
-                    0
-                } else {
-                    (offset * scroll_space + (max_scroll / 2)) / max_scroll
-                };
-                let mut sb_lines: Vec<Line> = Vec::with_capacity(track_h);
-                for row in 0..track_h {
-                    let in_thumb = row >= thumb_y && row < thumb_y + thumb_h;
-                    let (ch, color) = if in_thumb {
-                        ("┃", active_theme.divider)
-                    } else {
-                        ("│", active_theme.border)
-                    };
-                    sb_lines.push(Line::from(Span::styled(ch, Style::default().fg(color))));
-                }
-                f.render_widget(Paragraph::new(sb_lines), sb_area);
-            }
+            ui::scrollbar::render_scrollbar_track(
+                f,
+                sb_area,
+                app.preview_lines.len(),
+                visible_rows,
+                offset,
+                active_theme.divider,
+                active_theme.border,
+            );
         }
         } else if app.is_dual_panel_mode() {
             let right_path = if app.right.dir.as_os_str().is_empty() {
@@ -1101,34 +1068,16 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
                     1,
                     right_body_area.height,
                 );
-                let right_track_h = right_sb_area.height as usize;
-                if right_track_h > 0 {
-                    let right_visible_rows = right_body_area.height.max(1) as usize;
-                    let right_total_rows = app.right.entries.len();
-                    let right_max_scroll = right_total_rows.saturating_sub(right_visible_rows);
-                    let right_offset = app.right.table_state.offset().min(right_max_scroll);
-                    let right_thumb_h = ((right_visible_rows * right_track_h + right_total_rows.saturating_sub(1)) / right_total_rows)
-                        .max(1)
-                        .min(right_track_h);
-                    let right_scroll_space = right_track_h.saturating_sub(right_thumb_h);
-                    let right_thumb_y = if right_max_scroll == 0 {
-                        0
-                    } else {
-                        (right_offset * right_scroll_space + (right_max_scroll / 2)) / right_max_scroll
-                    };
-
-                    let mut right_sb_lines: Vec<Line> = Vec::with_capacity(right_track_h);
-                    for row in 0..right_track_h {
-                        let in_thumb = row >= right_thumb_y && row < right_thumb_y + right_thumb_h;
-                        let (ch, color) = if in_thumb {
-                            ("┃", active_theme.divider)
-                        } else {
-                            ("│", active_theme.border)
-                        };
-                        right_sb_lines.push(Line::from(Span::styled(ch, Style::default().fg(color))));
-                    }
-                    f.render_widget(Paragraph::new(right_sb_lines), right_sb_area);
-                }
+                let right_visible_rows = right_body_area.height.max(1) as usize;
+                ui::scrollbar::render_scrollbar_track(
+                    f,
+                    right_sb_area,
+                    app.right.entries.len(),
+                    right_visible_rows,
+                    app.right.table_state.offset(),
+                    active_theme.divider,
+                    active_theme.border,
+                );
             }
         }
     }

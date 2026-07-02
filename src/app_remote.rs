@@ -257,18 +257,33 @@ impl App {
         }
     }
 
+    /// Expand a leading `~` in an ssh_config IdentityFile path. Only the
+    /// leading tilde is a home reference; if `HOME` is unset the path is kept
+    /// literal rather than silently becoming `/.ssh/...`.
+    fn expand_identity_file(idf: &str) -> String {
+        let Some(rest) = idf.strip_prefix('~') else {
+            return idf.to_string();
+        };
+        match env::var("HOME") {
+            Ok(home) if !home.is_empty() => format!("{}{}", home, rest),
+            _ => idf.to_string(),
+        }
+    }
+
     pub(crate) fn detect_ssh_remote_os_icon(host: &SshHost, theme_id: ui::theme::ThemeId) -> Option<(&'static str, Color)> {
         let target = match &host.user {
             Some(u) => format!("{}@{}", u, host.hostname),
             None => host.hostname.clone(),
         };
         let mut cmd = Command::new("ssh");
+        // Runs synchronously on the UI thread: bound the connect and refuse
+        // interactive prompts so an unreachable host can't hang the TUI.
+        cmd.args(["-o", "ConnectTimeout=3", "-o", "BatchMode=yes"]);
         if let Some(port) = host.port {
             cmd.args(["-p", &port.to_string()]);
         }
         if let Some(idf) = &host.identity_file {
-            let expanded = idf.replace('~', &env::var("HOME").unwrap_or_default());
-            cmd.args(["-i", &expanded]);
+            cmd.args(["-i", &Self::expand_identity_file(idf)]);
         }
         let output = cmd.args([&target, "cat", "/etc/os-release"]).output().ok()?;
         if !output.status.success() {
@@ -307,8 +322,7 @@ impl App {
             cmd.args(["-p", &port.to_string()]);
         }
         if let Some(idf) = &host.identity_file {
-            let expanded = idf.replace('~', &env::var("HOME").unwrap_or_default());
-            cmd.args(["-o", &format!("IdentityFile={}", expanded)]);
+            cmd.args(["-o", &format!("IdentityFile={}", Self::expand_identity_file(idf))]);
         }
         cmd.arg(&remote_spec).arg(&mount_dir);
         let status = cmd.status()?;

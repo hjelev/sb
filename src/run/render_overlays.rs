@@ -166,7 +166,7 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             confirm_area,
         );
     } else if app.mode == AppMode::Bookmarks || app.mode == AppMode::BookmarkEditing || app.mode == AppMode::ConfirmDeleteBookmark {
-        let bookmarks = App::load_bookmarks();
+        let bookmarks = app.bookmarks().to_vec();
         if !bookmarks.is_empty() && app.bookmark_selected >= bookmarks.len() {
             app.bookmark_selected = bookmarks.len() - 1;
         }
@@ -210,8 +210,8 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
         } else if app.mode == AppMode::ConfirmDeleteBookmark {
             let area = f.size();
             let bm_idx = app.bookmark_delete_idx;
-            let bookmarks = App::load_bookmarks();
-            let path_str = bookmarks
+            let path_str = app
+                .bookmarks()
                 .iter()
                 .find(|(i, _)| *i == bm_idx)
                 .and_then(|(_, p)| p.as_ref())
@@ -403,22 +403,16 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
         );
     } else if app.mode == AppMode::ConfirmDelete {
         let area = f.size();
-        let to_delete = app.delete_targets();
-        let (mut file_count, mut folder_count) = (0usize, 0usize);
-        for path in &to_delete {
-            if path.is_dir() {
-                folder_count += 1;
-            } else {
-                file_count += 1;
-            }
-        }
+        let to_delete = &app.confirm_delete_targets;
+        let folder_count = to_delete.iter().filter(|t| t.is_dir).count();
+        let file_count = to_delete.len() - folder_count;
         let title = ui::dialogs::confirm_delete_title(file_count, folder_count);
         let delete_state = ui::dialogs::render_confirm_delete_dialog(
             f,
             area,
             &ui::dialogs::ConfirmDeleteView {
                 title: &title,
-                to_delete: &to_delete,
+                to_delete,
                 scroll_offset: app.confirm_delete_scroll_offset,
                 confirm_focused: app.confirm_delete_button_focus == 0,
                 show_icons: app.show_icons,
@@ -718,9 +712,11 @@ pub(crate) fn render_internal_search_overlay(f: &mut Frame, app: &mut App, ctx: 
                     InternalSearchResult::Filename { rel_path, .. } => rel_path,
                     InternalSearchResult::Content { rel_path, .. } => rel_path,
                 };
-                let abs_path = app.left.dir.join(rel_path_for_icon);
-                let is_symlink = crate::util::classify::is_symlink(&abs_path);
-                let is_dir = abs_path.is_dir();
+                // Candidates are collected with `is_file()` (dirs are traversed,
+                // not listed), so results are never directories; the symlink flag
+                // was captured during the walk. No stat calls while drawing.
+                let is_symlink = app.search.candidate_symlinks.contains(rel_path_for_icon.as_path());
+                let is_dir = false;
                 let icon_name = rel_path_for_icon
                     .file_name()
                     .and_then(|n| n.to_str())
@@ -845,30 +841,15 @@ pub(crate) fn render_internal_search_overlay(f: &mut Frame, app: &mut App, ctx: 
                 1,
                 body_area.height,
             );
-            let track_h = sb_area.height as usize;
-            if track_h > 0 {
-                let thumb_h = ((max_rows * track_h + search_total_rows.saturating_sub(1)) / search_total_rows)
-                    .max(1)
-                    .min(track_h);
-                let scroll_space = track_h.saturating_sub(thumb_h);
-                let thumb_y = if search_max_scroll == 0 {
-                    0
-                } else {
-                    (search_scroll_offset * scroll_space + (search_max_scroll / 2)) / search_max_scroll
-                };
-
-                let mut sb_lines: Vec<Line> = Vec::with_capacity(track_h);
-                for row in 0..track_h {
-                    let in_thumb = row >= thumb_y && row < thumb_y + thumb_h;
-                    let (ch, color) = if in_thumb {
-                        ("┃", active_theme.divider)
-                    } else {
-                        ("│", active_theme.divider)
-                    };
-                    sb_lines.push(Line::from(Span::styled(ch, Style::default().fg(color))));
-                }
-                f.render_widget(Paragraph::new(sb_lines), sb_area);
-            }
+            ui::scrollbar::render_scrollbar_track(
+                f,
+                sb_area,
+                search_total_rows,
+                max_rows,
+                search_scroll_offset,
+                active_theme.divider,
+                active_theme.divider,
+            );
         }
         let search_footer_entries: &[(&'static str, &'static str)] = &[
             ("↑↓", "navigate"),
@@ -973,21 +954,9 @@ pub(crate) fn render_db_preview_overlay(f: &mut Frame, app: &mut App, ctx: &Rend
                 )));
             } else {
                 let visible_w = popup_area.width.saturating_sub(4) as usize;
-                let clip_line = |text: &str| -> String {
-                    if text.chars().count() <= visible_w {
-                        return text.to_string();
-                    }
-                    if visible_w <= 1 {
-                        return "…".to_string();
-                    }
-                    let mut out = text.chars().take(visible_w - 1).collect::<String>();
-                    out.push('…');
-                    out
-                };
-
                 for row in &app.db_preview_output_lines {
                     lines.push(Line::from(Span::styled(
-                        clip_line(row),
+                        truncate_with_ellipsis(row, visible_w),
                         Style::default().fg(active_theme.text_normal),
                     )));
                 }
@@ -1141,23 +1110,7 @@ pub(crate) fn render_ssh_picker_overlay(f: &mut Frame, app: &mut App, ctx: &Rend
             available_for_alias_and_detail
         };
         let detail_w = available_for_alias_and_detail.saturating_sub(alias_w);
-        let trunc = |s: &str, max: usize| -> String {
-            if max == 0 {
-                return String::new();
-            }
-            if s.chars().count() <= max {
-                return s.to_string();
-            }
-            if max == 1 {
-                return "…".to_string();
-            }
-            let mut out = String::new();
-            for ch in s.chars().take(max - 1) {
-                out.push(ch);
-            }
-            out.push('…');
-            out
-        };
+        let trunc = truncate_with_ellipsis;
 
         let mut lines: Vec<Line> = vec![Line::from("")];
         if app.remote_entries.is_empty() {

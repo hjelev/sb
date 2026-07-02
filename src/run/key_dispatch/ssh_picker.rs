@@ -10,6 +10,7 @@ pub(crate) fn handle_ssh_picker_key(
         KeyCode::Esc | KeyCode::Char('q') => { app.mode = AppMode::Browsing; }
         KeyCode::BackTab => {
             app.panel_tab = 2;
+            app.refresh_bookmarks_cache();
             app.mode = AppMode::Bookmarks;
         }
         KeyCode::Tab => {

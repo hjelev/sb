@@ -79,7 +79,7 @@ impl App {
                 self.request_preview_for_selected();
             }
         }
-        crate::util::config::SbPersistConfig::update(persist);
+        let _ = crate::util::config::SbPersistConfig::update(persist);
     }
 
     /// Flip Nerd Font glyph mode, re-render the file list, and persist the

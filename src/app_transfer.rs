@@ -3,7 +3,7 @@ use std::{
     io::{self, Read, Write},
     path::PathBuf,
     process::{Command, Stdio},
-    sync::mpsc::{self, Sender},
+    sync::mpsc::Sender,
     time::Instant,
 };
 
@@ -12,7 +12,7 @@ use crossterm::{
     execute,
 };
 
-use crate::util::background::spawn_worker;
+use crate::util::background::{drain_channel, pump_once, spawn_worker};
 use crate::util::tui::{resume_tui, suspend_tui};
 use crate::{util, App, AppMode, CopyProgressMsg, DualPanelSide};
 
@@ -118,19 +118,8 @@ impl App {
     }
 
     pub(crate) fn pump_copy_total_prescan(&mut self) {
-        let Some(rx) = self.copy.total_rx.take() else {
-            return;
-        };
-        match rx.try_recv() {
-            Ok(total) => {
-                self.copy.total_bytes = total;
-            }
-            Err(mpsc::TryRecvError::Empty) => {
-                self.copy.total_rx = Some(rx);
-            }
-            Err(mpsc::TryRecvError::Disconnected) => {
-                self.copy.total_rx = None;
-            }
+        if let Some(total) = pump_once(&mut self.copy.total_rx) {
+            self.copy.total_bytes = total;
         }
     }
 
@@ -426,34 +415,31 @@ impl App {
     }
 
     pub(crate) fn pump_copy_progress(&mut self) {
-        let Some(rx) = self.copy.rx.take() else {
+        if self.copy.rx.is_none() {
             return;
-        };
+        }
 
         let mut done_result: Option<Result<(), String>> = None;
-        loop {
-            match rx.try_recv() {
-                Ok(CopyProgressMsg::TotalBytes(total)) => {
+        for msg in drain_channel(&mut self.copy.rx) {
+            match msg {
+                CopyProgressMsg::TotalBytes(total) => {
                     self.copy.job_total_bytes = total;
                 }
-                Ok(CopyProgressMsg::CopiedBytes(done)) => {
+                CopyProgressMsg::CopiedBytes(done) => {
                     self.copy.done_bytes = self.copy.done_before_job.saturating_add(done);
                 }
-                Ok(CopyProgressMsg::Finished(result)) => {
+                CopyProgressMsg::Finished(result) => {
                     done_result = Some(result);
-                    break;
-                }
-                Err(mpsc::TryRecvError::Empty) => {
-                    break;
-                }
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    done_result = Some(Err("copy worker disconnected".to_string()));
-                    break;
                 }
             }
         }
+        // Sender dropped without a `Finished` message: the worker died.
+        if done_result.is_none() && self.copy.rx.is_none() {
+            done_result = Some(Err("copy worker disconnected".to_string()));
+        }
 
         if let Some(result) = done_result {
+            self.copy.rx = None;
             match result {
                 Ok(()) => {
                     if self.paste_move_mode
@@ -499,7 +485,6 @@ impl App {
             }
             self.advance_paste_queue();
         } else {
-            self.copy.rx = Some(rx);
             self.update_copy_status();
         }
     }

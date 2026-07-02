@@ -337,11 +337,19 @@ pub struct ConfirmDeleteRenderState {
     pub clamped_offset: u16,
 }
 
+/// A pending delete target with its stat flags, captured once when the
+/// confirm-delete dialog opens so rendering never stats paths per frame.
+pub struct DeleteTarget {
+    pub path: PathBuf,
+    pub is_dir: bool,
+    pub is_symlink: bool,
+}
+
 /// The inputs to [`render_confirm_delete_dialog`] (everything except the frame,
 /// the target area, and the per-row icon callback).
 pub struct ConfirmDeleteView<'a> {
     pub title: &'a str,
-    pub to_delete: &'a [PathBuf],
+    pub to_delete: &'a [DeleteTarget],
     pub scroll_offset: u16,
     pub confirm_focused: bool,
     pub show_icons: bool,
@@ -415,30 +423,15 @@ where
         )));
     } else {
         let row_name_max = list_area.width.saturating_sub(2) as usize;
-        let truncate = |s: &str, max: usize| -> String {
-            if max <= 1 {
-                return "…".to_string();
-            }
-            let len = s.chars().count();
-            if len <= max {
-                return s.to_string();
-            }
-            s.chars().take(max - 1).collect::<String>() + "…"
-        };
-
-        for path in to_delete.iter().skip(offset).take(visible_rows) {
-            let name = crate::util::classify::display_name(path.as_path());
-            let path_is_symlink = path
-                .symlink_metadata()
-                .map(|m| m.file_type().is_symlink())
-                .unwrap_or(false);
-            let (icon_glyph, icon_style) = icon_for_path(path, path_is_symlink);
+        for target in to_delete.iter().skip(offset).take(visible_rows) {
+            let name = crate::util::classify::display_name(target.path.as_path());
+            let (icon_glyph, icon_style) = icon_for_path(&target.path, target.is_symlink);
             let mut spans: Vec<Span> = Vec::new();
             if show_icons && !icon_glyph.is_empty() {
                 spans.push(Span::styled(format!("{} ", icon_glyph), icon_style));
             }
             spans.push(Span::styled(
-                truncate(&name, row_name_max.max(1)),
+                crate::util::format::truncate_with_ellipsis(&name, row_name_max.max(1)),
                 Style::default().fg(theme.text_normal),
             ));
             list_lines.push(Line::from(spans));
@@ -453,34 +446,9 @@ where
             1,
             list_inner.height,
         );
-        let track_h = sb_area.height as usize;
-        if track_h > 0 {
-            let mut sb_lines: Vec<Line> = Vec::with_capacity(track_h);
-            let thumb_h = if to_delete.is_empty() {
-                track_h
-            } else {
-                (visible_rows * track_h).div_ceil(to_delete.len())
-                    .max(1)
-                    .min(track_h)
-            };
-            let scroll_space = track_h.saturating_sub(thumb_h);
-            let thumb_y = if max_scroll == 0 {
-                0
-            } else {
-                (offset * scroll_space + (max_scroll / 2)) / max_scroll
-            };
-
-            for row in 0..track_h {
-                let in_thumb = row >= thumb_y && row < thumb_y + thumb_h;
-                let (ch, color) = if in_thumb {
-                    ("┃", theme.divider)
-                } else {
-                    ("│", theme.border)
-                };
-                sb_lines.push(Line::from(Span::styled(ch, Style::default().fg(color))));
-            }
-            f.render_widget(Paragraph::new(sb_lines), sb_area);
-        }
+        crate::ui::scrollbar::render_scrollbar_track(
+            f, sb_area, to_delete.len(), visible_rows, offset, theme.divider, theme.border,
+        );
     }
 
     render_confirm_delete_buttons(f, sections[1], confirm_focused, nerd_font_active, theme);
@@ -712,28 +680,9 @@ pub fn render_organize_plan_dialog(f: &mut Frame, area: Rect, view: &OrganizePla
             1,
             list_inner.height,
         );
-        let track_h = sb_area.height as usize;
-        if track_h > 0 {
-            let mut sb_lines: Vec<Line> = Vec::with_capacity(track_h);
-            let thumb_h = (visible_rows * track_h).div_ceil(total_rows).max(1).min(track_h);
-            let scroll_space = track_h.saturating_sub(thumb_h);
-            let thumb_y = if max_scroll == 0 {
-                0
-            } else {
-                (offset * scroll_space + (max_scroll / 2)) / max_scroll
-            };
-
-            for row in 0..track_h {
-                let in_thumb = row >= thumb_y && row < thumb_y + thumb_h;
-                let (ch, color) = if in_thumb {
-                    ("┃", theme.divider)
-                } else {
-                    ("│", theme.border)
-                };
-                sb_lines.push(Line::from(Span::styled(ch, Style::default().fg(color))));
-            }
-            f.render_widget(Paragraph::new(sb_lines), sb_area);
-        }
+        crate::ui::scrollbar::render_scrollbar_track(
+            f, sb_area, total_rows, visible_rows, offset, theme.divider, theme.border,
+        );
     }
 
     render_confirm_delete_buttons(f, sections[1], confirm_focused, nerd_font_active, theme);

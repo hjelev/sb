@@ -373,12 +373,13 @@ impl SbPersistConfig {
 
     /// Load the persisted config, apply `f` to it, and save the result back to
     /// disk. Centralizes the common load → mutate → save dance so callers that
-    /// only flip a single field don't have to repeat it. Save errors are
-    /// ignored, matching the existing `let _ = cfg.save();` call sites.
-    pub fn update(f: impl FnOnce(&mut Self)) {
+    /// only flip a single field don't have to repeat it. Returns the save
+    /// result; callers persisting cosmetic state may ignore it, but anything
+    /// the user typed (e.g. API keys) should surface a failure.
+    pub fn update(f: impl FnOnce(&mut Self)) -> std::io::Result<()> {
         let mut cfg = Self::load();
         f(&mut cfg);
-        let _ = cfg.save();
+        cfg.save()
     }
 }
 

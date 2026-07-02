@@ -1,9 +1,8 @@
 //! Download flow: URL-input parsing, file-name derivation, job spawning,
 //! and progress pumping. Extracted from main.rs (impl App).
 
-use std::sync::mpsc;
-
 use crate::util;
+use crate::util::background::drain_channel;
 use crate::{App, AppMode, DownloadProgressMsg};
 
 impl App {
@@ -231,28 +230,23 @@ impl App {
     /// message was already delivered as `Ok(Finished)` in this same drain loop (never skip the
     /// `finished` block by returning early on `Disconnected`).
     pub(crate) fn pump_download_progress(&mut self) {
-        let Some(rx) = self.download_rx.take() else {
+        if self.download_rx.is_none() {
             return;
-        };
+        }
 
         let mut finished: Option<(String, Result<(), String>)> = None;
         let mut latest_status: Option<String> = None;
-        let mut channel_closed = false;
-        loop {
-            match rx.try_recv() {
-                Ok(DownloadProgressMsg::Status(s)) => latest_status = Some(s),
-                Ok(DownloadProgressMsg::Finished { file_name, result }) => {
+        for msg in drain_channel(&mut self.download_rx) {
+            match msg {
+                DownloadProgressMsg::Status(s) => latest_status = Some(s),
+                DownloadProgressMsg::Finished { file_name, result } => {
                     finished = Some((file_name, result));
-                }
-                Err(mpsc::TryRecvError::Empty) => break,
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    // Queue empty and all senders dropped. If the worker exited normally, we already
-                    // received `Ok(Finished)` above; otherwise `finished` stays empty.
-                    channel_closed = true;
-                    break;
                 }
             }
         }
+        // Queue empty and all senders dropped. If the worker exited normally, we already
+        // received `Finished` above; otherwise `finished` stays empty.
+        let channel_closed = self.download_rx.is_none();
 
         if let Some((file_name, result)) = finished {
             self.download_rx = None;
@@ -286,7 +280,5 @@ impl App {
                 self.set_status(format!("downloading {} — {}", name, s));
             }
         }
-
-        self.download_rx = Some(rx);
     }
 }

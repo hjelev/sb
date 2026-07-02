@@ -1,10 +1,9 @@
 use crate::{App, DualPanelSide, EntryRenderConfig, PreviewPaneFocus, ViewMode};
-use crate::util::background::spawn_worker;
+use crate::util::background::{pump_once, spawn_worker};
 use std::fs;
 use std::io::{self, Read};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::mpsc;
 use std::time::Duration;
 use crossterm::cursor::MoveTo;
 use crossterm::event::{self, Event, KeyCode};
@@ -276,11 +275,11 @@ impl App {
 
 impl App {
     pub(crate) fn pump_preview_progress(&mut self) {
-        let Some(rx) = self.preview_rx.take() else {
+        if self.preview_rx.is_none() {
             return;
-        };
-        match rx.try_recv() {
-            Ok(PreviewContentMsg::Ready {
+        }
+        match pump_once(&mut self.preview_rx) {
+            Some(PreviewContentMsg::Ready {
                 request_id,
                 path,
                 lines,
@@ -307,7 +306,7 @@ impl App {
                     self.preview_scroll_offset = 0;
                 }
             }
-            Ok(PreviewContentMsg::Failed {
+            Some(PreviewContentMsg::Failed {
                 request_id,
                 path,
                 message,
@@ -323,11 +322,12 @@ impl App {
                     self.preview_scroll_offset = 0;
                 }
             }
-            Err(mpsc::TryRecvError::Empty) => {
-                self.preview_rx = Some(rx);
-            }
-            Err(mpsc::TryRecvError::Disconnected) => {
-                self.preview_pending = false;
+            None => {
+                // `pump_once` drops the receiver when the worker disconnected
+                // without sending; stop showing the pending state in that case.
+                if self.preview_rx.is_none() {
+                    self.preview_pending = false;
+                }
             }
         }
     }

@@ -809,105 +809,27 @@ impl App {
     }
 
     pub(crate) fn preview_images_with_chafa(&mut self, start_path: PathBuf) -> io::Result<()> {
-        let images: Vec<PathBuf> = self.left
-            .entries
-            .iter()
-            .map(|e| e.path())
-            .filter(|p| Self::is_image_file(p))
-            .collect();
-
-        if images.is_empty() {
-            return Ok(());
-        }
-
-        let mut idx = images.iter().position(|p| *p == start_path).unwrap_or(0);
-
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let result_file = env::temp_dir().join(format!(
-            "sbrs_chafa_sel_{}_{}",
-            std::process::id(),
-            stamp
-        ));
-
-        suspend_tui()?;
-
-        let script = r#"
-idx="$1"
-out_file="$2"
-shift 2
-paths=("$@")
-count="${#paths[@]}"
-
-if [[ "$count" -eq 0 ]]; then
-  exit 1
-fi
-
-while true; do
-  clear
-    chafa --format symbols --colors none --polite on --relative off --optimize 0 -- "${paths[$idx]}"
-  printf '\n[←/→ prev/next (exits at ends), q/Esc/Enter exit]\n'
-
-  IFS= read -rsn1 key || break
-  if [[ "$key" == $'\x1b' ]]; then
-        # Read arrow-sequence tail without blocking so lone Esc exits immediately.
-        IFS= read -rsn2 -t 0.02 key2 || key2=""
-    key+="$key2"
-  fi
-
-  case "$key" in
-    $'\x1b[D')
-      if (( idx == 0 )); then break; fi
-      ((idx--))
-      ;;
-    $'\x1b[C')
-      if (( idx + 1 >= count )); then break; fi
-      ((idx++))
-      ;;
-    q|$'\x1b'|$'\n'|$'\r')
-      break
-      ;;
-  esac
-done
-
-printf '%s\n' "${paths[$idx]}" > "$out_file"
-"#;
-
-        let mut cmd = Command::new("bash");
-        cmd.arg("-lc")
-            .arg(script)
-            .arg("--")
-            .arg(idx.to_string())
-            .arg(result_file.to_string_lossy().to_string());
-        for image in &images {
-            cmd.arg(image);
-        }
-        let _ = cmd.status();
-
-        if let Ok(selected_path) = fs::read_to_string(&result_file) {
-            let selected = selected_path.trim();
-            if !selected.is_empty() {
-                let selected_buf = PathBuf::from(selected);
-                if let Some(pos) = images.iter().position(|p| *p == selected_buf) {
-                    idx = pos;
-                }
-            }
-        }
-        let _ = fs::remove_file(&result_file);
-
-        resume_tui()?;
-        Self::drain_pending_terminal_events();
-
-        if let Some(name) = images[idx].file_name() {
-            self.select_entry_named(&name.to_string_lossy());
-        }
-
-        Ok(())
+        self.preview_images_with_tool(
+            start_path,
+            "chafa",
+            "chafa --format symbols --colors none --polite on --relative off --optimize 0",
+        )
     }
 
     pub(crate) fn preview_images_with_viu(&mut self, start_path: PathBuf) -> io::Result<()> {
+        self.preview_images_with_tool(start_path, "viu", "viu -b")
+    }
+
+    /// Full-screen image slideshow over the current directory's images,
+    /// navigated in a suspended-TUI bash loop. `viewer_invocation` is the
+    /// trusted, hardcoded viewer command line (see the wrappers above); image
+    /// paths are passed as positional arguments, never interpolated.
+    fn preview_images_with_tool(
+        &mut self,
+        start_path: PathBuf,
+        tool_tag: &str,
+        viewer_invocation: &str,
+    ) -> io::Result<()> {
         let images: Vec<PathBuf> = self.left
             .entries
             .iter()
@@ -926,7 +848,8 @@ printf '%s\n' "${paths[$idx]}" > "$out_file"
             .map(|d| d.as_nanos())
             .unwrap_or(0);
         let result_file = env::temp_dir().join(format!(
-            "sbrs_viu_sel_{}_{}",
+            "sbrs_{}_sel_{}_{}",
+            tool_tag,
             std::process::id(),
             stamp
         ));
@@ -946,7 +869,7 @@ fi
 
 while true; do
   clear
-    viu -b -- "${paths[$idx]}"
+    __VIEWER__ -- "${paths[$idx]}"
   printf '\n[←/→ prev/next (exits at ends), q/Esc/Enter exit]\n'
 
   IFS= read -rsn1 key || break
@@ -972,7 +895,8 @@ while true; do
 done
 
 printf '%s\n' "${paths[$idx]}" > "$out_file"
-"#;
+"#
+        .replace("__VIEWER__", viewer_invocation);
 
         let mut cmd = Command::new("bash");
         cmd.arg("-lc")

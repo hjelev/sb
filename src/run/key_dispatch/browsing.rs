@@ -241,7 +241,11 @@ pub(crate) fn handle_browsing_key(
                 }
             }
         }
-        KeyCode::Char('b') => { app.panel_tab = 2; app.mode = AppMode::Bookmarks; }
+        KeyCode::Char('b') => {
+            app.panel_tab = 2;
+            app.refresh_bookmarks_cache();
+            app.mode = AppMode::Bookmarks;
+        }
         KeyCode::Char('I') => {
             app.integration_selected = 0;
             app.reset_integration_search();

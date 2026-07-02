@@ -121,12 +121,7 @@ impl App {
                 // Draft/partial names in interactive prompts (e.g. empty line, '/')
                 // can lack a valid filename component; avoid calling devicons in that case.
                 ("\u{f15b}".to_string(), Style::default().fg(theme.text_normal))
-            } else if Path::new(name)
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .map(|ext| ext.eq_ignore_ascii_case("age"))
-                .unwrap_or(false)
-            {
+            } else if crate::util::classify::has_ext(Path::new(name), &["age"]) {
                 ("\u{f023}".to_string(), Style::default().fg(Palette::WARNING_ALT))
             } else if let Some((custom_icon, _)) = named_file_icon(name) {
                 (custom_icon.to_string(), Style::default().fg(theme.icon_default_file))
@@ -160,10 +155,7 @@ impl App {
             "zip", "tar", "gz", "tgz", "bz2", "tbz", "tbz2", "xz", "txz", "zst", "tzst", "7z",
             "rar", "lz", "lzma", "lz4", "z", "cpio", "ar", "iso", "jar", "war", "deb", "rpm",
         ];
-        path.extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ARCHIVE_EXTENSIONS.iter().any(|e| ext.eq_ignore_ascii_case(e)))
-            .unwrap_or(false)
+        crate::util::classify::has_ext(path, ARCHIVE_EXTENSIONS)
     }
 
     pub(crate) fn build_entry_render_cache(

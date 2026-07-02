@@ -1,7 +1,7 @@
 use std::{
+    collections::HashSet,
     env, fs,
     path::PathBuf,
-    sync::mpsc,
 };
 
 use regex::{Regex, RegexBuilder};
@@ -11,7 +11,7 @@ use crate::{
     InternalSearchPattern, InternalSearchResult, InternalSearchScope, PathFilterMode,
     PathInputFilter,
 };
-use crate::util::background::spawn_worker;
+use crate::util::background::{pump_once, spawn_worker};
 
 impl App {
     pub(crate) fn build_path_filter_regex(filter: &PathInputFilter) -> Result<Regex, String> {
@@ -31,8 +31,12 @@ impl App {
         filter_regex.is_match(name)
     }
 
-    pub(crate) fn collect_internal_search_candidates(root: &PathBuf, max_items: usize) -> Vec<PathBuf> {
+    pub(crate) fn collect_internal_search_candidates(
+        root: &PathBuf,
+        max_items: usize,
+    ) -> (Vec<PathBuf>, HashSet<PathBuf>) {
         let mut out: Vec<PathBuf> = Vec::new();
+        let mut symlinks: HashSet<PathBuf> = HashSet::new();
         let mut stack: Vec<PathBuf> = vec![root.clone()];
 
         while let Some(dir) = stack.pop() {
@@ -51,6 +55,11 @@ impl App {
                     stack.push(path);
                 } else if path.is_file()
                     && let Ok(rel) = path.strip_prefix(root) {
+                        // The entry's own type (no follow) is already known from
+                        // readdir; remember symlinks so rendering needn't stat.
+                        if entry.file_type().map(|t| t.is_symlink()).unwrap_or(false) {
+                            symlinks.insert(rel.to_path_buf());
+                        }
                         out.push(rel.to_path_buf());
                     }
 
@@ -65,7 +74,7 @@ impl App {
         }
 
         out.sort_by(|a, b| a.to_string_lossy().cmp(&b.to_string_lossy()));
-        out
+        (out, symlinks)
     }
 
     pub(crate) fn fuzzy_score_and_ranges(candidate: &str, query: &str) -> Option<(i64, Vec<(usize, usize)>)> {
@@ -496,45 +505,34 @@ impl App {
     }
 
     pub(crate) fn pump_internal_search_content_progress(&mut self) {
-        let Some(rx) = self.search.content_rx.take() else {
+        if self.search.content_rx.is_none() {
             return;
-        };
-
-        let mut keep_rx = true;
-        loop {
-            match rx.try_recv() {
-                Ok(InternalSearchContentMsg::Finished {
-                    request_id,
-                    results,
-                    limit_note,
-                }) => {
-                    if request_id == self.search.content_request_id {
-                        self.search.results = results;
-                        self.search.content_limit_note = limit_note;
-                        self.search.content_pending = false;
-                        if self.search.results.is_empty() {
-                            self.search.selected = 0;
-                        } else {
-                            self.search.selected = self
-                                .search.selected
-                                .min(self.search.results.len() - 1);
-                        }
-                        keep_rx = false;
+        }
+        match pump_once(&mut self.search.content_rx) {
+            Some(InternalSearchContentMsg::Finished {
+                request_id,
+                results,
+                limit_note,
+            }) => {
+                if request_id == self.search.content_request_id {
+                    self.search.results = results;
+                    self.search.content_limit_note = limit_note;
+                    self.search.content_pending = false;
+                    if self.search.results.is_empty() {
+                        self.search.selected = 0;
                     } else {
-                        keep_rx = false;
+                        self.search.selected = self
+                            .search.selected
+                            .min(self.search.results.len() - 1);
                     }
                 }
-                Err(mpsc::TryRecvError::Empty) => break,
-                Err(mpsc::TryRecvError::Disconnected) => {
+            }
+            None => {
+                // Worker disconnected without sending (receiver dropped).
+                if self.search.content_rx.is_none() {
                     self.search.content_pending = false;
-                    keep_rx = false;
-                    break;
                 }
             }
-        }
-
-        if keep_rx {
-            self.search.content_rx = Some(rx);
         }
     }
 
@@ -600,6 +598,7 @@ impl App {
         self.cancel_internal_search_candidate_scan();
         self.search.candidates_truncated = false;
         self.search.candidates.clear();
+        self.search.candidate_symlinks.clear();
         self.search.results.clear();
         self.search.selected = 0;
 
@@ -609,58 +608,51 @@ impl App {
 
         let root = self.left.dir.clone();
         self.search.candidates_rx = Some(spawn_worker(move |tx| {
-            let candidates = App::collect_internal_search_candidates(&root, INTERNAL_SEARCH_MAX_ITEMS);
+            let (candidates, symlinks) =
+                App::collect_internal_search_candidates(&root, INTERNAL_SEARCH_MAX_ITEMS);
             let truncated = candidates.len() >= INTERNAL_SEARCH_MAX_ITEMS;
             let _ = tx.send(InternalSearchCandidatesMsg::Finished {
                 scan_id,
                 candidates,
+                symlinks,
                 truncated,
             });
         }));
     }
 
     pub(crate) fn pump_internal_search_candidates_progress(&mut self) {
-        let Some(rx) = self.search.candidates_rx.take() else {
+        if self.search.candidates_rx.is_none() {
             return;
-        };
+        }
+        match pump_once(&mut self.search.candidates_rx) {
+            Some(InternalSearchCandidatesMsg::Finished {
+                scan_id,
+                candidates,
+                symlinks,
+                truncated,
+            }) => {
+                if scan_id == self.search.candidates_scan_id {
+                    self.search.candidates = candidates;
+                    self.search.candidate_symlinks = symlinks;
+                    self.search.candidates_truncated = truncated;
+                    self.search.candidates_pending = false;
+                    self.refresh_internal_search_results();
 
-        let mut keep_rx = true;
-        loop {
-            match rx.try_recv() {
-                Ok(InternalSearchCandidatesMsg::Finished {
-                    scan_id,
-                    candidates,
-                    truncated,
-                }) => {
-                    if scan_id == self.search.candidates_scan_id {
-                        self.search.candidates = candidates;
-                        self.search.candidates_truncated = truncated;
-                        self.search.candidates_pending = false;
-                        self.refresh_internal_search_results();
-
-                        if self.search.candidates.is_empty() {
-                            self.set_status("search: no files found");
-                        } else if self.search.candidates_truncated {
-                            self.set_status("search indexed first 20000 files");
-                        } else if self.status_message == "search: indexing files asynchronously..." {
-                            self.status_message.clear();
-                        }
-                        keep_rx = false;
-                    } else {
-                        keep_rx = false;
+                    if self.search.candidates.is_empty() {
+                        self.set_status("search: no files found");
+                    } else if self.search.candidates_truncated {
+                        self.set_status("search indexed first 20000 files");
+                    } else if self.status_message == "search: indexing files asynchronously..." {
+                        self.status_message.clear();
                     }
                 }
-                Err(mpsc::TryRecvError::Empty) => break,
-                Err(mpsc::TryRecvError::Disconnected) => {
+            }
+            None => {
+                // Worker disconnected without sending (receiver dropped).
+                if self.search.candidates_rx.is_none() {
                     self.search.candidates_pending = false;
-                    keep_rx = false;
-                    break;
                 }
             }
-        }
-
-        if keep_rx {
-            self.search.candidates_rx = Some(rx);
         }
     }
 

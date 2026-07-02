@@ -67,6 +67,7 @@ impl App {
             }
             2 => {
                 self.panel_tab = 2;
+                self.refresh_bookmarks_cache();
                 self.mode = AppMode::Bookmarks;
             }
             3 => {
@@ -185,15 +186,8 @@ impl App {
             return false;
         }
 
-        let to_delete = self.delete_targets();
-        let (mut file_count, mut folder_count) = (0usize, 0usize);
-        for path in &to_delete {
-            if path.is_dir() {
-                folder_count += 1;
-            } else {
-                file_count += 1;
-            }
-        }
+        let folder_count = self.confirm_delete_targets.iter().filter(|t| t.is_dir).count();
+        let file_count = self.confirm_delete_targets.len() - folder_count;
         let title = ui::dialogs::confirm_delete_title(file_count, folder_count);
         let confirm_area = ui::dialogs::confirm_delete_dialog_area(area, &title);
         let Some((button_area, confirm_start, confirm_w, cancel_start, cancel_w)) =
@@ -381,13 +375,13 @@ impl App {
             }
             AppMode::Bookmarks => {
                 let overlay = Self::tab_overlay_anchor(area);
-                let bookmarks = Self::load_bookmarks();
-                if bookmarks.is_empty() {
+                let bookmarks_len = self.bookmarks().len();
+                if bookmarks_len == 0 {
                     return None;
                 }
 
                 let bm_w = (area.width * 2 / 3).max(50).min(overlay.width);
-                let mut line_count = 1usize + bookmarks.len();
+                let mut line_count = 1usize + bookmarks_len;
                 line_count += 4; // trailing helper lines
                 let bm_h = (line_count as u16 + 4).max(17).min(overlay.height);
                 let bm_area = Rect::new(overlay.x, overlay.y, bm_w, bm_h);
@@ -406,7 +400,7 @@ impl App {
                 }
 
                 let line_idx = row.saturating_sub(content.y) as usize;
-                if line_idx >= 1 && line_idx <= bookmarks.len() {
+                if line_idx >= 1 && line_idx <= bookmarks_len {
                     self.bookmark_selected = line_idx - 1;
                     return Some(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
                 }
@@ -621,7 +615,8 @@ impl App {
                 if scroll_up {
                     cursor_up(&mut self.bookmark_selected);
                 } else {
-                    cursor_down(&mut self.bookmark_selected, Self::load_bookmarks().len());
+                    let len = self.bookmarks().len();
+                    cursor_down(&mut self.bookmark_selected, len);
                 }
             }
             AppMode::Integrations => {
@@ -887,9 +882,7 @@ impl App {
             return;
         }
 
-        let thumb_h = ((visible_rows * track_h + total_rows.saturating_sub(1)) / total_rows)
-            .max(1)
-            .min(track_h);
+        let (_, thumb_h) = ui::scrollbar::scrollbar_thumb(total_rows, visible_rows, 0, track_h);
         let scroll_space = track_h.saturating_sub(thumb_h);
         if scroll_space == 0 {
             return;
@@ -1001,9 +994,7 @@ impl App {
             return;
         }
 
-        let thumb_h = ((visible_rows * track_h + total_rows.saturating_sub(1)) / total_rows)
-            .max(1)
-            .min(track_h);
+        let (_, thumb_h) = ui::scrollbar::scrollbar_thumb(total_rows, visible_rows, 0, track_h);
         let scroll_space = track_h.saturating_sub(thumb_h);
         if scroll_space == 0 {
             return;

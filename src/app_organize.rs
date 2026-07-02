@@ -12,8 +12,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::mpsc;
 
-use crate::app_ai::provider_by_key;
-use crate::util::background::spawn_worker;
+use crate::app_ai::{post_chat_completions, provider_by_key};
+use crate::util::background::{pump_once, spawn_worker};
 use crate::{App, AppMode, OrganizeMove, OrganizePlan, OrganizePlanMsg};
 
 /// Cap on the number of directory entries sent to the AI, so a huge directory
@@ -157,28 +157,8 @@ fn generate_organize_plan(
     valid_names: &HashSet<String>,
 ) -> Result<OrganizePlan, String> {
     let body = build_organize_request_body(model, entries, existing_folders);
-    match ureq::post(endpoint)
-        .set("Authorization", &format!("Bearer {}", api_key))
-        .set("Content-Type", "application/json")
-        .send_json(body)
-    {
-        Ok(resp) => {
-            let value: serde_json::Value = resp
-                .into_json()
-                .map_err(|e| format!("invalid AI response: {}", e))?;
-            parse_organize_plan(&value, valid_names)
-        }
-        Err(ureq::Error::Status(code, resp)) => {
-            let detail: String = resp
-                .into_string()
-                .unwrap_or_default()
-                .chars()
-                .take(200)
-                .collect();
-            Err(format!("AI API error {}: {}", code, detail))
-        }
-        Err(e) => Err(format!("AI request failed: {}", e)),
-    }
+    let value = post_chat_completions(endpoint, api_key, body)?;
+    parse_organize_plan(&value, valid_names)
 }
 
 impl App {
@@ -264,12 +244,8 @@ impl App {
     /// Poll the AI organize-plan channel. On success, stores the plan for
     /// review; on failure, drops back to browsing with a status message.
     pub(crate) fn pump_ai_organize(&mut self) {
-        let Some(rx) = self.organize_rx.as_ref() else {
-            return;
-        };
-        match rx.try_recv() {
-            Ok(OrganizePlanMsg::Ok(plan)) => {
-                self.organize_rx = None;
+        match pump_once(&mut self.organize_rx) {
+            Some(OrganizePlanMsg::Ok(plan)) => {
                 if self.mode == AppMode::Organize {
                     self.organize_plan = Some(plan);
                     self.organize_scroll_offset = 0;
@@ -277,18 +253,14 @@ impl App {
                     self.set_status("organize plan ready — review and Confirm");
                 }
             }
-            Ok(OrganizePlanMsg::Err(err)) => {
-                self.organize_rx = None;
+            Some(OrganizePlanMsg::Err(err)) => {
                 self.set_status(err);
                 if self.mode == AppMode::Organize {
                     self.mode = AppMode::Browsing;
                 }
                 self.organize_work_dir = None;
             }
-            Err(mpsc::TryRecvError::Empty) => {}
-            Err(mpsc::TryRecvError::Disconnected) => {
-                self.organize_rx = None;
-            }
+            None => {}
         }
     }
 

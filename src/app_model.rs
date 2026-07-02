@@ -397,6 +397,8 @@ pub(crate) enum InternalSearchCandidatesMsg {
     Finished {
         scan_id: u64,
         candidates: Vec<PathBuf>,
+        /// Subset of `candidates` that are symlinks (checked during the walk).
+        symlinks: std::collections::HashSet<PathBuf>,
         truncated: bool,
     },
 }

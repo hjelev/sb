@@ -114,6 +114,9 @@ struct CopyOperation {
 /// fields).
 struct SearchState {
     candidates: Vec<PathBuf>,
+    /// Candidate rel-paths that are symlinks, captured during the walk so the
+    /// results overlay never has to stat paths while rendering.
+    candidate_symlinks: HashSet<PathBuf>,
     results: Vec<InternalSearchResult>,
     selected: usize,
     scope: InternalSearchScope,
@@ -205,6 +208,12 @@ struct App {
     bookmark_selected: usize,
     bookmark_edit_idx: usize,
     bookmark_delete_idx: usize,
+    /// Cached bookmark slots (see [`Self::load_bookmarks`]). Refreshed when the
+    /// Bookmarks overlay opens or a bookmark is saved/deleted, so the render
+    /// path never touches the config file or stats directories per frame.
+    bookmarks_cache: Vec<(usize, Option<PathBuf>)>,
+    /// Delete targets with stat flags, captured by `begin_confirm_delete`.
+    confirm_delete_targets: Vec<ui::dialogs::DeleteTarget>,
     confirm_delete_bookmark_button_focus: u8,
     integration_overrides: HashMap<String, bool>,
     integration_rows_cache: Vec<IntegrationRow>,
@@ -438,6 +447,8 @@ impl App {
             bookmark_selected: 0,
             bookmark_edit_idx: 0,
             bookmark_delete_idx: 0,
+            bookmarks_cache: Self::load_bookmarks(),
+            confirm_delete_targets: Vec::new(),
             confirm_delete_bookmark_button_focus: 0,
             integration_overrides: HashMap::new(),
             integration_rows_cache: Vec::new(),
@@ -485,6 +496,7 @@ impl App {
             organize_button_focus: 0,
             search: SearchState {
                 candidates: Vec::new(),
+                candidate_symlinks: HashSet::new(),
                 results: Vec::new(),
                 selected: 0,
                 scope: InternalSearchScope::Filename,
@@ -1281,6 +1293,17 @@ impl App {
     }
 
     fn begin_confirm_delete(&mut self) {
+        // Stat the targets once here; the dialog is redrawn every frame and
+        // must not touch the filesystem while rendering.
+        self.confirm_delete_targets = self
+            .delete_targets()
+            .into_iter()
+            .map(|path| ui::dialogs::DeleteTarget {
+                is_dir: path.is_dir(),
+                is_symlink: crate::util::classify::is_symlink(&path),
+                path,
+            })
+            .collect();
         self.confirm_delete_scroll_offset = 0;
         self.confirm_delete_max_offset = 0;
         self.confirm_delete_button_focus = 0;
@@ -1538,16 +1561,8 @@ impl App {
             return None;
         }
 
-        let offset = offset.min(max_scroll);
-        let thumb_h = ((visible_rows * track_h + total_rows.saturating_sub(1)) / total_rows)
-            .max(1)
-            .min(track_h);
-        let scroll_space = track_h.saturating_sub(thumb_h);
-        let thumb_y = if max_scroll == 0 {
-            0
-        } else {
-            (offset * scroll_space + (max_scroll / 2)) / max_scroll
-        };
+        let (thumb_y, thumb_h) =
+            ui::scrollbar::scrollbar_thumb(total_rows, visible_rows, offset, track_h);
 
         let row_rel = row.saturating_sub(sb_area.y) as usize;
         let in_thumb = row_rel >= thumb_y && row_rel < thumb_y + thumb_h;
@@ -1556,6 +1571,17 @@ impl App {
         } else {
             (thumb_h / 2) as u16
         })
+    }
+
+    /// Cached bookmark slots; cheap to call from render and input paths.
+    pub(crate) fn bookmarks(&self) -> &[(usize, Option<PathBuf>)] {
+        &self.bookmarks_cache
+    }
+
+    /// Re-read the bookmark slots from config/env. Called when the Bookmarks
+    /// overlay opens and after any bookmark write.
+    pub(crate) fn refresh_bookmarks_cache(&mut self) {
+        self.bookmarks_cache = Self::load_bookmarks();
     }
 
     fn load_bookmarks() -> Vec<(usize, Option<PathBuf>)> {
@@ -1574,15 +1600,19 @@ impl App {
         }).collect()
     }
 
-    fn delete_bookmark(&self, idx: usize) {
+    fn delete_bookmark(&mut self, idx: usize) {
         let from_env = env::var(format!("SB_BOOKMARK_{}", idx)).is_ok();
-        crate::util::config::SbPersistConfig::update(|cfg| {
+        let result = crate::util::config::SbPersistConfig::update(|cfg| {
             if from_env {
                 cfg.bookmarks.insert(idx as u8, "<deleted>".to_string());
             } else {
                 cfg.bookmarks.remove(&(idx as u8));
             }
         });
+        if let Err(e) = result {
+            self.set_status(format!("failed to save bookmarks: {}", e));
+        }
+        self.refresh_bookmarks_cache();
     }
 
     fn handle_confirm_delete_bookmark_key(&mut self, key: KeyEvent) {
@@ -1673,7 +1703,8 @@ fn main() -> io::Result<()> {
     run::run_tui(&mut terminal, &mut app)?;
     app.cleanup_archive_mounts();
     app.cleanup_ssh_mounts();
-    util::config::SbPersistConfig::update(|persist| {
+    // Best-effort: exiting matters more than persisting cosmetic view state.
+    let _ = util::config::SbPersistConfig::update(|persist| {
         persist.view_mode = format!("{:?}", app.view_mode);
         persist.current_theme = ui::theme::theme_name(app.active_theme).to_string();
         persist.disabled_integrations = app

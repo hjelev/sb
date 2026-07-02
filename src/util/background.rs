@@ -60,6 +60,33 @@ pub fn drain_channel<T>(rx: &mut Option<Receiver<T>>) -> Vec<T> {
     messages
 }
 
+/// Poll an optional single-shot channel receiver once.
+///
+/// Returns the message if one is ready, dropping the receiver so the finished
+/// job is no longer polled. Also drops the receiver when the worker
+/// disconnected without sending. For streaming channels that deliver several
+/// messages per job, use [`drain_channel`] instead.
+///
+/// # Usage pattern
+/// ```ignore
+/// if let Some(msg) = pump_once(&mut self.ai_commit_rx) {
+///     match msg { … }
+/// }
+/// ```
+pub fn pump_once<T>(rx: &mut Option<Receiver<T>>) -> Option<T> {
+    match rx.as_ref()?.try_recv() {
+        Ok(msg) => {
+            *rx = None;
+            Some(msg)
+        }
+        Err(TryRecvError::Empty) => None,
+        Err(TryRecvError::Disconnected) => {
+            *rx = None;
+            None
+        }
+    }
+}
+
 /// Lifecycle state for a cancellable background job that streams results back
 /// over a channel.
 ///

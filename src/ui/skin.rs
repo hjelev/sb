@@ -262,12 +262,7 @@ pub(crate) fn load_custom_themes() -> Vec<ThemeSpec> {
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        let is_ini = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.eq_ignore_ascii_case("ini"))
-            .unwrap_or(false);
-        if !is_ini {
+        if !crate::util::classify::has_ext(&path, &["ini"]) {
             continue;
         }
         let Ok(text) = std::fs::read_to_string(&path) else {

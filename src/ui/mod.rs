@@ -5,7 +5,6 @@ pub mod dialogs;
 pub mod icons;
 pub mod list_render;
 pub mod list_temperature;
-pub mod modal;
 pub mod palette;
 pub mod panels;
 pub mod preview;

@@ -146,40 +146,25 @@ fn render_overlay_block(
     inner
 }
 
-/// Render a vertical scrollbar track into `sb_area`.
+/// Render a vertical scrollbar track into `sb_area` with the overlay-panel
+/// colors (shared geometry lives in [`crate::ui::scrollbar`]).
 fn render_scrollbar_track(
     f: &mut Frame,
     sb_area: Rect,
     total_rows: usize,
     visible_rows: usize,
     scroll_offset: usize,
-    max_scroll: usize,
     spec: &crate::ui::theme::ThemeSpec,
 ) {
-    let track_h = sb_area.height as usize;
-    if track_h == 0 || total_rows == 0 {
-        return;
-    }
-    let thumb_h = ((visible_rows * track_h + total_rows.saturating_sub(1)) / total_rows)
-        .max(1)
-        .min(track_h);
-    let scroll_space = track_h.saturating_sub(thumb_h);
-    let thumb_y = if max_scroll == 0 {
-        0
-    } else {
-        (scroll_offset * scroll_space + (max_scroll / 2)) / max_scroll
-    };
-    let mut sb_lines: Vec<Line> = Vec::with_capacity(track_h);
-    for row in 0..track_h {
-        let in_thumb = row >= thumb_y && row < thumb_y + thumb_h;
-        let (ch, color) = if in_thumb {
-            ("┃", spec.accent_primary)
-        } else {
-            ("│", spec.divider)
-        };
-        sb_lines.push(Line::from(Span::styled(ch, Style::default().fg(color))));
-    }
-    f.render_widget(Paragraph::new(sb_lines), sb_area);
+    crate::ui::scrollbar::render_scrollbar_track(
+        f,
+        sb_area,
+        total_rows,
+        visible_rows,
+        scroll_offset,
+        spec.accent_primary,
+        spec.divider,
+    );
 }
 
 /// Prepend a single space to each line (for left-padding inside overlay panels).
@@ -581,7 +566,7 @@ pub fn render_integrations_overlay(
             1,
             int_chunks[0].height,
         );
-        render_scrollbar_track(f, sb_area, total_rows, visible_rows, int_scroll, max_scroll, spec);
+        render_scrollbar_track(f, sb_area, total_rows, visible_rows, int_scroll, spec);
     }
     let footer_entries: &[(&'static str, &'static str)] = &[
         ("↑↓", "navigate"),
@@ -908,10 +893,7 @@ pub fn render_help_overlay(
             1,
             help_content_area.height,
         );
-        render_scrollbar_track(
-            f, sb_area, total_lines, visible_lines,
-            clamped_offset as usize, max_scroll, spec,
-        );
+        render_scrollbar_track(f, sb_area, total_lines, visible_lines, clamped_offset as usize, spec);
     }
     let footer_entries: &[(&'static str, &'static str)] = &[
         ("↑↓", "navigate"),
@@ -1459,7 +1441,7 @@ pub fn render_themes_overlay(
             1,
             theme_chunks[0].height,
         );
-        render_scrollbar_track(f, sb_area, total_lines, content_h, offset, max_offset, current);
+        render_scrollbar_track(f, sb_area, total_lines, content_h, offset, current);
     }
     let footer_entries: &[(&'static str, &'static str)] = &[
         ("↑↓", "select"),

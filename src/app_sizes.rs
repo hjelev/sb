@@ -553,7 +553,7 @@ impl App {
         self.reset_folder_size_columns();
 
         // Persist the choice so it is restored on next launch.
-        crate::util::config::SbPersistConfig::update(|cfg| cfg.folder_size_enabled = enabled);
+        let _ = crate::util::config::SbPersistConfig::update(|cfg| cfg.folder_size_enabled = enabled);
 
         if enabled {
             self.apply_cached_folder_size_columns();

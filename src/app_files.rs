@@ -12,6 +12,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode},
 };
 
+use crate::util::classify::has_ext;
 use crate::util::tui::{resume_tui, resume_tui_cleared, suspend_tui};
 use crate::{App, ArchiveKind, ZIP_BASED_EXTENSIONS};
 
@@ -39,11 +40,7 @@ impl App {
         let seven_zip = lower_name.ends_with(".7z");
         let rar = lower_name.ends_with(".rar");
 
-        let ext_supported = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ZIP_BASED_EXTENSIONS.iter().any(|e| ext.eq_ignore_ascii_case(e)))
-            .unwrap_or(false);
+        let ext_supported = has_ext(path, ZIP_BASED_EXTENSIONS);
 
         ext_supported || tar_like || seven_zip || rar || Self::has_zip_signature(path)
     }
@@ -63,12 +60,7 @@ impl App {
             .map(|s| s.to_ascii_lowercase())
             .unwrap_or_default();
 
-        let is_zip = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ZIP_BASED_EXTENSIONS.iter().any(|e| ext.eq_ignore_ascii_case(e)))
-            .unwrap_or(false)
-            || Self::has_zip_signature(path);
+        let is_zip = has_ext(path, ZIP_BASED_EXTENSIONS) || Self::has_zip_signature(path);
         if is_zip {
             return Some(ArchiveKind::Zip);
         }
@@ -86,86 +78,47 @@ impl App {
     }
 
     pub(crate) fn is_image_file(path: &Path) -> bool {
-        const IMAGE_EXTENSIONS: &[&str] = &[
+        has_ext(path, &[
             "png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff", "avif", "heic", "ico",
-        ];
-
-        path.extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| IMAGE_EXTENSIONS.iter().any(|e| ext.eq_ignore_ascii_case(e)))
-            .unwrap_or(false)
+        ])
     }
 
     pub(crate) fn is_svg_file(path: &Path) -> bool {
-        path.extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ext.eq_ignore_ascii_case("svg"))
-            .unwrap_or(false)
+        has_ext(path, &["svg"])
     }
 
     pub(crate) fn is_audio_file(path: &Path) -> bool {
-        const AUDIO_EXTENSIONS: &[&str] = &[
+        has_ext(path, &[
             "mp3", "flac", "wav", "ogg", "opus", "m4a", "aac", "wma", "aiff", "aif", "alac", "mid", "midi",
-        ];
-
-        path.extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| AUDIO_EXTENSIONS.iter().any(|e| ext.eq_ignore_ascii_case(e)))
-            .unwrap_or(false)
+        ])
     }
 
     pub(crate) fn is_json_file(path: &Path) -> bool {
-        const JSON_EXTENSIONS: &[&str] = &["json", "jsonc", "jsonl", "ndjson", "geojson"];
-
-        path.extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| JSON_EXTENSIONS.iter().any(|e| ext.eq_ignore_ascii_case(e)))
-            .unwrap_or(false)
+        has_ext(path, &["json", "jsonc", "jsonl", "ndjson", "geojson"])
     }
 
     pub(crate) fn is_markdown_file(path: &Path) -> bool {
-        const MARKDOWN_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkd", "mkdn"];
-
-        path.extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| MARKDOWN_EXTENSIONS.iter().any(|e| ext.eq_ignore_ascii_case(e)))
-            .unwrap_or(false)
+        has_ext(path, &["md", "markdown", "mdown", "mkd", "mkdn"])
     }
 
     pub(crate) fn is_html_file(path: &Path) -> bool {
-        const HTML_EXTENSIONS: &[&str] = &["html", "htm", "xhtml"];
-        path.extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| HTML_EXTENSIONS.iter().any(|e| ext.eq_ignore_ascii_case(e)))
-            .unwrap_or(false)
+        has_ext(path, &["html", "htm", "xhtml"])
     }
 
     pub(crate) fn is_mermaid_file(path: &Path) -> bool {
-        path.extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ext.eq_ignore_ascii_case("mmd"))
-            .unwrap_or(false)
+        has_ext(path, &["mmd"])
     }
 
     pub(crate) fn is_pdf_file(path: &Path) -> bool {
-        path.extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ext.eq_ignore_ascii_case("pdf"))
-            .unwrap_or(false)
+        has_ext(path, &["pdf"])
     }
 
     pub(crate) fn is_cast_file(path: &Path) -> bool {
-        path.extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ext.eq_ignore_ascii_case("cast"))
-            .unwrap_or(false)
+        has_ext(path, &["cast"])
     }
 
     pub(crate) fn is_age_protected_file(path: &Path) -> bool {
-        path.extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ext.eq_ignore_ascii_case("age"))
-            .unwrap_or(false)
+        has_ext(path, &["age"])
     }
 
     pub(crate) fn age_protected_output_path(path: &Path) -> PathBuf {
@@ -204,28 +157,11 @@ impl App {
     }
 
     pub(crate) fn is_delimited_text_file(path: &Path) -> bool {
-        const DELIMITED_EXTENSIONS: &[&str] = &["csv", "tsv", "tab", "psv", "dsv", "ssv"];
-
-        path.extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| DELIMITED_EXTENSIONS.iter().any(|e| ext.eq_ignore_ascii_case(e)))
-            .unwrap_or(false)
+        has_ext(path, &["csv", "tsv", "tab", "psv", "dsv", "ssv"])
     }
 
     pub(crate) fn is_sqlite_db_file(path: &Path) -> bool {
-        const SQLITE_EXTENSIONS: &[&str] = &[
-            "db",
-            "sqlite",
-            "sqlite3",
-            "db3",
-            "s3db",
-            "sl3",
-        ];
-
-        path.extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| SQLITE_EXTENSIONS.iter().any(|e| ext.eq_ignore_ascii_case(e)))
-            .unwrap_or(false)
+        has_ext(path, &["db", "sqlite", "sqlite3", "db3", "s3db", "sl3"])
     }
 
     pub(crate) fn is_binary_file(path: &PathBuf) -> bool {

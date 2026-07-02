@@ -3,6 +3,29 @@ use crate::ui::theme;
 use crate::util::list::{cursor_down, cursor_up};
 use crate::util::tui::{resume_tui, suspend_tui};
 
+/// Shared editing keys for every single-line text-input mode: cursor movement,
+/// deletion, and plain character insertion. Ctrl/Alt chords are not consumed,
+/// leaving them to each mode's specific bindings (Ctrl+G, Ctrl+V, ...).
+/// Returns true if the key was consumed.
+fn handle_text_input_key(app: &mut App, key: KeyEvent) -> bool {
+    match key.code {
+        KeyCode::Backspace => app.input_backspace(),
+        KeyCode::Delete => app.input_delete(),
+        KeyCode::Left => app.input_move_left(),
+        KeyCode::Right => app.input_move_right(),
+        KeyCode::Home => app.input_move_home(),
+        KeyCode::End => app.input_move_end(),
+        KeyCode::Char(c)
+            if !key.modifiers.contains(KeyModifiers::CONTROL)
+                && !key.modifiers.contains(KeyModifiers::ALT) =>
+        {
+            app.input_insert_char(c)
+        }
+        _ => return false,
+    }
+    true
+}
+
 pub(crate) fn handle_app_key_event_body(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     app: &mut App,
@@ -23,37 +46,24 @@ pub(crate) fn handle_app_key_event_body(
                 app.clear_input_edit();
                 app.mode = AppMode::Browsing;
             }
-            KeyCode::Backspace => app.input_backspace(),
-            KeyCode::Delete => app.input_delete(),
-            KeyCode::Left => app.input_move_left(),
-            KeyCode::Right => app.input_move_right(),
-            KeyCode::Home => app.input_move_home(),
-            KeyCode::End => app.input_move_end(),
-            KeyCode::Char(c) => app.input_insert_char(c),
-            _ => {}
+            _ => {
+                handle_text_input_key(app, key);
+            }
         },
         AppMode::FolderFilter => match key.code {
             KeyCode::Esc => app.clear_folder_filter(),
             // Leave the box focused but keep it visible + filter applied, so the
             // filtered list can be navigated. Up at the top row re-enters the box.
             KeyCode::Down | KeyCode::Enter => app.mode = AppMode::Browsing,
-            KeyCode::Backspace => {
-                app.input_backspace();
-                app.apply_folder_filter_live();
+            _ => {
+                let edited = matches!(
+                    key.code,
+                    KeyCode::Backspace | KeyCode::Delete | KeyCode::Char(_)
+                );
+                if handle_text_input_key(app, key) && edited {
+                    app.apply_folder_filter_live();
+                }
             }
-            KeyCode::Delete => {
-                app.input_delete();
-                app.apply_folder_filter_live();
-            }
-            KeyCode::Left => app.input_move_left(),
-            KeyCode::Right => app.input_move_right(),
-            KeyCode::Home => app.input_move_home(),
-            KeyCode::End => app.input_move_end(),
-            KeyCode::Char(c) => {
-                app.input_insert_char(c);
-                app.apply_folder_filter_live();
-            }
-            _ => {}
         },
         AppMode::DbPreview => match key.code {
             KeyCode::Esc | KeyCode::Char('q') => {
@@ -92,23 +102,17 @@ pub(crate) fn handle_app_key_event_body(
                 app.mode = AppMode::Browsing;
                 app.set_status("command cancelled");
             }
-            KeyCode::Backspace => app.input_backspace(),
-            KeyCode::Delete => app.input_delete(),
-            KeyCode::Left => app.input_move_left(),
-            KeyCode::Right => app.input_move_right(),
-            KeyCode::Home => app.input_move_home(),
-            KeyCode::End => app.input_move_end(),
-            KeyCode::Char(c)
-                if !key.modifiers.contains(KeyModifiers::CONTROL)
-                    && !key.modifiers.contains(KeyModifiers::ALT) =>
-            {
-                app.input_insert_char(c)
+            _ => {
+                handle_text_input_key(app, key);
             }
-            _ => {}
         },
-        AppMode::DownloadInput => match key.code {
+        AppMode::DownloadInput | AppMode::DownloadNaming => match key.code {
             KeyCode::Enter => {
-                app.submit_download_input();
+                if app.mode == AppMode::DownloadInput {
+                    app.submit_download_input();
+                } else {
+                    app.submit_download_name();
+                }
             }
             KeyCode::Esc => {
                 app.download_pending_url = None;
@@ -121,48 +125,9 @@ pub(crate) fn handle_app_key_event_body(
             KeyCode::Char('v') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 app.paste_clipboard_at_input_cursor();
             }
-            KeyCode::Backspace => app.input_backspace(),
-            KeyCode::Delete => app.input_delete(),
-            KeyCode::Left => app.input_move_left(),
-            KeyCode::Right => app.input_move_right(),
-            KeyCode::Home => app.input_move_home(),
-            KeyCode::End => app.input_move_end(),
-            KeyCode::Char(c)
-                if !key.modifiers.contains(KeyModifiers::CONTROL)
-                    && !key.modifiers.contains(KeyModifiers::ALT) =>
-            {
-                app.input_insert_char(c)
+            _ => {
+                handle_text_input_key(app, key);
             }
-            _ => {}
-        },
-        AppMode::DownloadNaming => match key.code {
-            KeyCode::Enter => {
-                app.submit_download_name();
-            }
-            KeyCode::Esc => {
-                app.download_pending_url = None;
-                app.download_pending_name = None;
-                app.download_resume_input = None;
-                app.clear_input_edit();
-                app.mode = AppMode::Browsing;
-                app.set_status("download cancelled");
-            }
-            KeyCode::Char('v') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                app.paste_clipboard_at_input_cursor();
-            }
-            KeyCode::Backspace => app.input_backspace(),
-            KeyCode::Delete => app.input_delete(),
-            KeyCode::Left => app.input_move_left(),
-            KeyCode::Right => app.input_move_right(),
-            KeyCode::Home => app.input_move_home(),
-            KeyCode::End => app.input_move_end(),
-            KeyCode::Char(c)
-                if !key.modifiers.contains(KeyModifiers::CONTROL)
-                    && !key.modifiers.contains(KeyModifiers::ALT) =>
-            {
-                app.input_insert_char(c)
-            }
-            _ => {}
         },
         AppMode::GitCommitMessage => match key.code {
             KeyCode::Enter => {
@@ -186,19 +151,9 @@ pub(crate) fn handle_app_key_event_body(
             KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 app.request_commit_message();
             }
-            KeyCode::Backspace => app.input_backspace(),
-            KeyCode::Delete => app.input_delete(),
-            KeyCode::Left => app.input_move_left(),
-            KeyCode::Right => app.input_move_right(),
-            KeyCode::Home => app.input_move_home(),
-            KeyCode::End => app.input_move_end(),
-            KeyCode::Char(c)
-                if !key.modifiers.contains(KeyModifiers::CONTROL)
-                    && !key.modifiers.contains(KeyModifiers::ALT) =>
-            {
-                app.input_insert_char(c)
+            _ => {
+                handle_text_input_key(app, key);
             }
-            _ => {}
         },
         AppMode::GitTagInput => match key.code {
             KeyCode::Enter => {
@@ -218,19 +173,9 @@ pub(crate) fn handle_app_key_event_body(
                 app.set_status("tag creation cancelled");
                 terminal.clear()?;
             }
-            KeyCode::Backspace => app.input_backspace(),
-            KeyCode::Delete => app.input_delete(),
-            KeyCode::Left => app.input_move_left(),
-            KeyCode::Right => app.input_move_right(),
-            KeyCode::Home => app.input_move_home(),
-            KeyCode::End => app.input_move_end(),
-            KeyCode::Char(c)
-                if !key.modifiers.contains(KeyModifiers::CONTROL)
-                    && !key.modifiers.contains(KeyModifiers::ALT) =>
-            {
-                app.input_insert_char(c)
+            _ => {
+                handle_text_input_key(app, key);
             }
-            _ => {}
         },
         AppMode::NoteEditing => match key.code {
             KeyCode::Enter => {
@@ -241,14 +186,9 @@ pub(crate) fn handle_app_key_event_body(
                 app.clear_input_edit();
                 app.mode = AppMode::Browsing;
             }
-            KeyCode::Backspace => app.input_backspace(),
-            KeyCode::Delete => app.input_delete(),
-            KeyCode::Left => app.input_move_left(),
-            KeyCode::Right => app.input_move_right(),
-            KeyCode::Home => app.input_move_home(),
-            KeyCode::End => app.input_move_end(),
-            KeyCode::Char(c) => app.input_insert_char(c),
-            _ => {}
+            _ => {
+                handle_text_input_key(app, key);
+            }
         },
         AppMode::InternalSearch => return handle_internal_search_key(app, key),
         AppMode::Renaming => match key.code {
@@ -265,14 +205,9 @@ pub(crate) fn handle_app_key_event_body(
                 app.sync_inactive_panel_if_same_dir();
             }
             KeyCode::Esc => { app.clear_input_edit(); app.mode = AppMode::Browsing; }
-            KeyCode::Backspace => app.input_backspace(),
-            KeyCode::Delete => app.input_delete(),
-            KeyCode::Left => app.input_move_left(),
-            KeyCode::Right => app.input_move_right(),
-            KeyCode::Home => app.input_move_home(),
-            KeyCode::End => app.input_move_end(),
-            KeyCode::Char(c) => app.input_insert_char(c),
-            _ => {}
+            _ => {
+                handle_text_input_key(app, key);
+            }
         },
         AppMode::PasteRenaming => match key.code {
             KeyCode::Enter => {
@@ -315,14 +250,9 @@ pub(crate) fn handle_app_key_event_body(
                 app.set_status("paste cancelled");
                 app.refresh_entries_or_status();
             }
-            KeyCode::Backspace => app.input_backspace(),
-            KeyCode::Delete => app.input_delete(),
-            KeyCode::Left => app.input_move_left(),
-            KeyCode::Right => app.input_move_right(),
-            KeyCode::Home => app.input_move_home(),
-            KeyCode::End => app.input_move_end(),
-            KeyCode::Char(c) => app.input_insert_char(c),
-            _ => {}
+            _ => {
+                handle_text_input_key(app, key);
+            }
         },
         AppMode::NewFile | AppMode::NewFolder => match key.code {
             KeyCode::Enter => {
@@ -340,14 +270,9 @@ pub(crate) fn handle_app_key_event_body(
                 app.clear_input_edit();
                 app.mode = AppMode::Browsing;
             }
-            KeyCode::Backspace => app.input_backspace(),
-            KeyCode::Delete => app.input_delete(),
-            KeyCode::Left => app.input_move_left(),
-            KeyCode::Right => app.input_move_right(),
-            KeyCode::Home => app.input_move_home(),
-            KeyCode::End => app.input_move_end(),
-            KeyCode::Char(c) => app.input_insert_char(c),
-            _ => {}
+            _ => {
+                handle_text_input_key(app, key);
+            }
         },
         AppMode::ArchiveCreate => match key.code {
             KeyCode::Enter => {
@@ -359,14 +284,9 @@ pub(crate) fn handle_app_key_event_body(
                 app.mode = AppMode::Browsing;
                 app.set_status("archive creation cancelled");
             }
-            KeyCode::Backspace => app.input_backspace(),
-            KeyCode::Delete => app.input_delete(),
-            KeyCode::Left => app.input_move_left(),
-            KeyCode::Right => app.input_move_right(),
-            KeyCode::Home => app.input_move_home(),
-            KeyCode::End => app.input_move_end(),
-            KeyCode::Char(c) => app.input_insert_char(c),
-            _ => {}
+            _ => {
+                handle_text_input_key(app, key);
+            }
         },
         AppMode::Help => match key.code {
             KeyCode::Esc | KeyCode::Char('h') | KeyCode::Char('q') => {
@@ -683,16 +603,14 @@ pub(crate) fn handle_app_key_event_body(
                 cursor_up(&mut app.bookmark_selected);
             }
             KeyCode::Down => {
-                cursor_down(&mut app.bookmark_selected, App::load_bookmarks().len());
+                let len = app.bookmarks().len();
+                cursor_down(&mut app.bookmark_selected, len);
             }
             KeyCode::Enter | KeyCode::Right => {
                 let idx = app.bookmark_selected;
-                let bookmarks = App::load_bookmarks();
-                let is_set = bookmarks.get(idx).map(|(_, p)| p.is_some()).unwrap_or(false);
-                if is_set {
-                    if let Some((_, Some(path))) = bookmarks.get(idx) {
-                        app.try_enter_dir_on_active_panel(path.clone());
-                    }
+                let target = app.bookmarks().get(idx).and_then(|(_, p)| p.clone());
+                if let Some(path) = target {
+                    app.try_enter_dir_on_active_panel(path);
                     app.mode = AppMode::Browsing;
                 } else {
                     let current = app.active_panel_dir().to_string_lossy().to_string();
@@ -702,16 +620,15 @@ pub(crate) fn handle_app_key_event_body(
             }
             KeyCode::Char(c @ '0'..='9') => {
                 let idx = (c as u8 - b'0') as usize;
-                let bookmarks = App::load_bookmarks();
-                if let Some((_, Some(path))) = bookmarks.get(idx) {
-                    app.try_enter_dir_on_active_panel(path.clone());
+                let target = app.bookmarks().get(idx).and_then(|(_, p)| p.clone());
+                if let Some(path) = target {
+                    app.try_enter_dir_on_active_panel(path);
                 }
                 app.mode = AppMode::Browsing;
             }
             KeyCode::Char('d') => {
                 let idx = app.bookmark_selected;
-                let bookmarks = App::load_bookmarks();
-                if bookmarks.get(idx).map(|(_, p)| p.is_some()).unwrap_or(false) {
+                if app.bookmarks().get(idx).map(|(_, p)| p.is_some()).unwrap_or(false) {
                     app.bookmark_delete_idx = idx;
                     app.confirm_delete_bookmark_button_focus = 0;
                     app.mode = AppMode::ConfirmDeleteBookmark;
@@ -724,22 +641,21 @@ pub(crate) fn handle_app_key_event_body(
                 let path = app.input_buffer.trim().to_string();
                 if !path.is_empty() {
                     let idx = app.bookmark_edit_idx;
-                    crate::util::config::SbPersistConfig::update(|cfg| {
+                    let result = crate::util::config::SbPersistConfig::update(|cfg| {
                         cfg.bookmarks.insert(idx as u8, path);
                     });
+                    if let Err(e) = result {
+                        app.set_status(format!("failed to save bookmarks: {}", e));
+                    }
+                    app.refresh_bookmarks_cache();
                 }
                 app.clear_input_edit();
                 app.mode = AppMode::Bookmarks;
             }
             KeyCode::Esc => { app.clear_input_edit(); app.mode = AppMode::Bookmarks; }
-            KeyCode::Backspace => app.input_backspace(),
-            KeyCode::Delete => app.input_delete(),
-            KeyCode::Left => app.input_move_left(),
-            KeyCode::Right => app.input_move_right(),
-            KeyCode::Home => app.input_move_home(),
-            KeyCode::End => app.input_move_end(),
-            KeyCode::Char(c) => app.input_insert_char(c),
-            _ => {}
+            _ => {
+                handle_text_input_key(app, key);
+            }
         },
         AppMode::ConfirmDelete => {
             app.handle_confirm_delete_key(key);
