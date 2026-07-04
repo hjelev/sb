@@ -37,6 +37,7 @@ A terminal file manager (TUI) written in Rust using `ratatui` + `crossterm`.
 - **In-TUI Git workflow** — diff preview → status review → commit → push → optional tag, all without leaving the file manager (`G`)
 - **AI commit messages** — draft a commit message from the diff with one keypress (Groq or GitHub Models), then edit before committing (`Ctrl+G` in the commit prompt)
 - **AI folder organization** — propose grouping the current folder's files into new or existing subfolders, review the plan, then confirm before anything moves (`Ctrl+O`)
+- **Custom shortcuts** — rebind any of the 42 browsing commands from the built-in Shortcuts panel; changes persist in the config and the help screen and footer pills update to match
 - **Inline path filters** — type `^prefix`, `suffix$`, or `~contains` directly in the path bar to live-filter the listing (`Tab`)
 - **Integration manager with one-key install** — see which optional tools are missing and install them via Homebrew without leaving the TUI (`I`)
 - **Age encryption** — protect or decrypt `.age` files in-place with a single keypress (`p`)
@@ -157,6 +158,8 @@ Use the installer there if you want the fastest setup without building from sour
 <details>
 <summary><strong>Core Controls</strong></summary>
 
+The keys below are the defaults — most browsing commands can be rebound from the **Shortcuts** panel (see *Custom Shortcuts* below). Structural keys (arrows, `Enter`, `Esc`, `Tab`, `Space`, `PageUp`/`PageDown`, `Home`/`End`, digit bookmarks, and the fixed F-key/`Del` alternates) are not rebindable.
+
 - `q` / `Esc`: quit
 - `\``: toggle modes
 - `Enter` / `Right`: open entry / preview file
@@ -192,6 +195,8 @@ Use the installer there if you want the fastest setup without building from sour
 - `i`: split shell (left) + `less` preview (right 30%)
 - `I`: integrations panel
 - `b`: bookmarks panel
+- `T`: themes panel
+- `w`: download a URL into the current folder
 - `Ctrl+z`: drop to interactive shell in current directory
 - `/` (in browsing): quick-filter the current folder listing (not available in dual panel mode)
 - `Tab` (in browsing): edit current path inline; supports `/path/^prefix`, `/path/suffix$`, and `/path/~contains` filters
@@ -206,6 +211,27 @@ Use the installer there if you want the fastest setup without building from sour
 - `.`: toggle hidden files
 - `~`: jump to home
 - `h`: help overlay
+
+</details>
+
+<details>
+<summary><strong>Custom Shortcuts</strong></summary>
+
+Open the help overlay (`h`) and cycle with `Tab`/`Shift+Tab` to the **Shortcuts** tab (it is the last tab, so `h` followed by `Shift+Tab` gets there directly).
+
+The panel lists every rebindable browsing command grouped by category, showing the current key and the default:
+
+- `Up`/`Down`/`PageUp`/`PageDown`/`Home`/`End`: move the selection
+- `Enter` (or `Space`): capture a new key — the next key you press becomes the binding; `Esc` cancels the capture
+- `Backspace` / `Del`: reset the selected command to its default key
+- `Esc` / `q`: close the panel
+
+Rules:
+
+- Reserved structural keys (arrows, `Enter`, `Esc`, `Tab`, `Space`, `PageUp`/`PageDown`, `Home`/`End`, digits, and the fixed `F2`/`F4`/`F5`/`Del` alternates) cannot be assigned.
+- A key already used by another command is rejected with a warning naming the conflicting command — rebind that one first if you want to swap keys.
+- Changes apply immediately and persist as `shortcut_<id> = <combo>` lines in `~/.config/sb/config` (e.g. `shortcut_rename = u`, `shortcut_sort_menu = ctrl+t`). You can edit these lines by hand; invalid, reserved, or conflicting entries fall back to defaults on load.
+- The help screen and the footer shortcut pills always reflect the active bindings.
 
 </details>
 
@@ -338,6 +364,7 @@ Persistent config (`~/.config/sb/config`, `key = value`) also supports:
 - `ai_provider = groq`: AI commit message provider (`groq` or `github`; default `groq`)
 - `ai_model = ...`: model for AI commit messages (leave empty to use the provider default)
 - `ai_api_key = ...`: API key for AI commit messages (overrides the provider environment variable; usually set via the Settings panel)
+- `shortcut_<id> = <combo>`: custom key binding for a browsing command (e.g. `shortcut_rename = u`, `shortcut_sort_menu = ctrl+t`; usually set via the Shortcuts panel)
 - Nerd Fonts and file name colors can be toggled live from the Themes menu (the choice is persisted here alongside the active theme and view mode)
 
 </details>

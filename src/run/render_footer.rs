@@ -38,33 +38,42 @@ pub(crate) fn render_footer(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
         left_spans.push(Span::styled(app.clipboard.len().to_string(), Style::default().fg(active_theme.text_normal)));
     }
 
-    // Footer shortcuts: pill-styled keys (nerd font) or plain keys,
-    // each followed by its description. No `:` separator.
-    const FOOTER_SHORTCUTS: &[(&str, &str)] = &[
-        ("c", "Copy"),
-        ("v", "paste"),
-        ("m", "Move"),
-        ("r", "Rename"),
-        ("w", "Web"),
-        ("d", "Del"),
-        ("e", "Edit"),
-        ("s", "Size"),
-        ("o", "Open-GUI"),
-        ("f", "Find"),
-        ("`", "Mode"),
-        ("h", "Help"),
-        ("q", "Quit"),
-    ];
+    // Footer shortcuts: pill-styled keys (nerd font) or plain keys, each
+    // followed by its description. No `:` separator. Key labels (and the
+    // click events they synthesize) come from the active keymap so custom
+    // bindings stay accurate.
+    use crate::util::keymap::Action;
+    let footer_shortcuts: Vec<(crate::util::keymap::KeyCombo, String, &str)> = [
+        (Action::Copy, "Copy"),
+        (Action::Paste, "paste"),
+        (Action::Move, "Move"),
+        (Action::Rename, "Rename"),
+        (Action::Download, "Web"),
+        (Action::Delete, "Del"),
+        (Action::Edit, "Edit"),
+        (Action::ToggleFolderSizes, "Size"),
+        (Action::OpenDefault, "Open-GUI"),
+        (Action::FzfFind, "Find"),
+        (Action::TogglePreview, "Mode"),
+        (Action::Help, "Help"),
+        (Action::Quit, "Quit"),
+    ]
+    .iter()
+    .map(|&(action, desc)| {
+        let combo = app.keymap.combo_for(action);
+        (combo, combo.label(), desc)
+    })
+    .collect();
     let sep_w = 1usize; // single space between shortcuts
     let avail_right = width.saturating_sub(left_len + 1);
 
     // Prefer the tail (rightmost) shortcuts when space is tight.
-    let mut start = FOOTER_SHORTCUTS.len();
+    let mut start = footer_shortcuts.len();
     let mut right_len = 0usize;
-    for i in (0..FOOTER_SHORTCUTS.len()).rev() {
-        let (k, d) = FOOTER_SHORTCUTS[i];
+    for i in (0..footer_shortcuts.len()).rev() {
+        let (_, k, d) = &footer_shortcuts[i];
         let w = ui::panels::shortcut_width(k, d, nf)
-            + if start == FOOTER_SHORTCUTS.len() { 0 } else { sep_w };
+            + if start == footer_shortcuts.len() { 0 } else { sep_w };
         if right_len + w <= avail_right {
             right_len += w;
             start = i;
@@ -89,17 +98,14 @@ pub(crate) fn render_footer(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
     let mut zone_x = (chunks[1].x as usize + width.saturating_sub(right_len)) as u16;
 
     let mut right_spans: Vec<Span> = Vec::new();
-    for (idx, (k, d)) in FOOTER_SHORTCUTS[start..].iter().enumerate() {
+    for (idx, (combo, k, d)) in footer_shortcuts[start..].iter().enumerate() {
         if idx > 0 {
             right_spans.push(Span::raw(" "));
             zone_x = zone_x.saturating_add(sep_w as u16);
         }
         let pill_w = ui::panels::shortcut_width(k, d, nf) as u16;
-        if zones_enabled && let Some(key) = k.chars().next() {
-            let event = KeyEvent::new(
-                crossterm::event::KeyCode::Char(key),
-                crossterm::event::KeyModifiers::NONE,
-            );
+        if zones_enabled {
+            let event = KeyEvent::new(combo.code, combo.mods);
             app.footer_shortcut_zones.push((event, zone_x, zone_x + pill_w, zone_y));
         }
         zone_x = zone_x.saturating_add(pill_w);

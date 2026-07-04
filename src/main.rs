@@ -60,6 +60,7 @@ mod app_search;
 mod app_sizes;
 mod app_sort;
 mod app_shell;
+mod app_shortcuts;
 mod app_sqlite;
 mod app_transfer;
 mod ui;
@@ -252,6 +253,14 @@ struct App {
     /// Selected row in the Settings panel (0=Provider, 1=Model, 2=API Key,
     /// 3=Auto commit).
     settings_selected: usize,
+    /// Active key bindings for Browsing-mode commands (defaults overlaid with
+    /// the persisted `shortcut_*` overrides).
+    keymap: util::keymap::KeyMap,
+    /// Selected action row in the Shortcuts panel (index into
+    /// [`util::keymap::ACTIONS`]).
+    shortcuts_selected: usize,
+    /// True while the Shortcuts panel waits for the new key press.
+    shortcut_capture: bool,
     /// AI commit-message provider key (`"groq"` / `"github"`), persisted.
     ai_provider: String,
     /// AI model id; empty falls back to the provider default at call time.
@@ -478,6 +487,9 @@ impl App {
             theme_panel_color_selected: false,
             theme_panel_clock_selected: false,
             settings_selected: 0,
+            keymap: util::keymap::KeyMap::default(),
+            shortcuts_selected: 0,
+            shortcut_capture: false,
             ai_provider: "groq".to_string(),
             ai_model: String::new(),
             ai_api_key: String::new(),
@@ -615,6 +627,8 @@ impl App {
             .cloned()
             .unwrap_or_default();
         app.ai_auto_commit = persist.ai_auto_commit;
+        // Restore custom keyboard shortcuts.
+        app.keymap = util::keymap::KeyMap::from_overrides(&persist.shortcuts);
         app.set_active_theme(ui::theme::theme_by_name(&persist.current_theme));
         for key in &persist.disabled_integrations {
             app.integration_overrides.insert(key.clone(), false);

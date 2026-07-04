@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Custom keyboard shortcuts: a new **Shortcuts** panel tab lists all 42 rebindable browsing commands grouped by category — press `Enter` on a command to capture a new key, `Backspace` to reset it to the default; reserved structural keys (arrows, Enter, Esc, Tab, Space, etc.) and combos already used by another command are rejected with a warning; overrides persist as `shortcut_<id> = <combo>` in `~/.config/sb/config`, and the Help tab plus the footer pills automatically show the custom bindings
 - AI-generated commit messages: press `Ctrl+G` in the commit prompt (`G`) to draft a one-line message from the working-tree diff (Groq or GitHub Models), with a new Settings panel to configure provider/model/API key (live key validation), persisted to `~/.config/sb/config`
 - Four new colorful bundled theme skins: Synthwave, Coral Reef, Cyberpunk Neon, and Bubblegum Pop
 
