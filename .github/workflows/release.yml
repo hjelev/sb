@@ -138,6 +138,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y python3-pip xz-utils
+          echo "PIP_BREAK_SYSTEM_PACKAGES=1" >> "$GITHUB_ENV"
       - name: Install dist
         run: ${{ matrix.install_dist.run }}
       # Get the dist-manifest
