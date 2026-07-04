@@ -1,7 +1,13 @@
 use super::*;
 use crate::ui::theme;
+use crate::util::keymap::Action;
 use crate::util::tui::{resume_tui, resume_tui_cleared, suspend_tui};
 
+/// Browsing-mode dispatch runs in two stages: first the fixed structural keys
+/// (navigation, marking, dialogs, digit bookmarks, and the non-rebindable
+/// F-key/Delete/Ctrl+g alternates), then a lookup of the remaining keys in
+/// the user's [`crate::util::keymap::KeyMap`], which routes rebindable
+/// commands through [`dispatch_action`].
 pub(crate) fn handle_browsing_key(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     app: &mut App,
@@ -13,26 +19,14 @@ pub(crate) fn handle_browsing_key(
             app.clear_folder_filter();
             return Ok(KeyDispatchOutcome::ContinueLoop);
         }
-        KeyCode::Char('q') | KeyCode::Esc => return Ok(KeyDispatchOutcome::Quit),
-        KeyCode::Char('/') => {
-            if app.is_dual_panel_mode() {
-                app.set_status("folder filter is not available in dual panel mode");
-            } else {
-                app.begin_folder_filter();
-            }
+        KeyCode::Esc => return Ok(KeyDispatchOutcome::Quit),
+        KeyCode::F(5) => return dispatch_action(terminal, app, Action::Copy),
+        KeyCode::F(2) => return dispatch_action(terminal, app, Action::Rename),
+        KeyCode::F(4) => return dispatch_action(terminal, app, Action::Edit),
+        KeyCode::Delete => return dispatch_action(terminal, app, Action::Delete),
+        KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            return dispatch_action(terminal, app, Action::GitCommit);
         }
-        KeyCode::Char('`') => {
-            app.toggle_preview_mode();
-        }
-        KeyCode::Char(';') => {
-            app.begin_input_edit(AppMode::CommandInput, String::new());
-        }
-        KeyCode::Char('h') => {
-            app.help_scroll_offset = 0;
-            app.panel_tab = 0;
-            app.mode = AppMode::Help;
-        }
-        KeyCode::Char('H') => return handle_git_log_key(terminal, app),
         KeyCode::Tab => {
             if app.is_dual_panel_mode() {
                 app.active_panel = match app.active_panel {
@@ -81,258 +75,12 @@ pub(crate) fn handle_browsing_key(
                 }
             }
         }
-        KeyCode::Char('*') => {
-            if app.is_dual_panel_mode() && app.active_panel == crate::DualPanelSide::Right {
-                if !app.right.entries.is_empty() {
-                    if app.right.marked_indices.len() == app.right.entries.len() {
-                        app.right.marked_indices.clear();
-                    } else {
-                        app.right.marked_indices = (0..app.right.entries.len()).collect();
-                    }
-                    app.start_selected_total_size_scan();
-                }
-            } else if !app.left.entries.is_empty() {
-                if app.left.marked_indices.len() == app.left.entries.len() {
-                    app.left.marked_indices.clear();
-                } else {
-                    app.left.marked_indices = (0..app.left.entries.len()).collect();
-                }
-                app.start_selected_total_size_scan();
-            }
-        }
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            app.copy_full_paths_to_system_clipboard();
-        }
-        KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            app.begin_note_edit();
-        }
-        KeyCode::Char('z') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            let _ = app.drop_to_shell();
-            let _ = terminal.clear();
-        }
-        KeyCode::Char('c') | KeyCode::F(5) => {
-            if app.is_dual_panel_mode() {
-                app.begin_dual_panel_transfer(false);
-            } else {
-                app.clipboard.clear();
-                if !app.left.marked_indices.is_empty() {
-                    // Copy all marked
-                    for &idx in &app.left.marked_indices {
-                        if let Some(e) = app.left.entries.get(idx) { app.clipboard.push(e.path()); }
-                    }
-                } else if let Some(e) = app.left.entries.get(app.left.selected_index) {
-                    // Copy single selected
-                    app.clipboard.push(e.path());
-                }
-            }
-        }
-        KeyCode::Char('w') => {
-            app.begin_download_input();
-        }
-        KeyCode::Char('v') => {
-            app.begin_paste();
-        }
-        KeyCode::Char('m') => {
-            if app.is_dual_panel_mode() {
-                app.begin_dual_panel_transfer(true);
-            } else {
-                app.begin_move();
-            }
-        }
-        KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            app.edit_system_clipboard_via_temp_file()?;
-            terminal.clear()?;
-        }
-        KeyCode::Char('d') | KeyCode::Delete => {
-            if !app.active_entries_empty() {
-                app.begin_confirm_delete();
-            }
-        }
-        KeyCode::Char('x') => {
-            app.toggle_executable_permissions();
-        }
-        KeyCode::Char('p') => {
-            if let Some(selected_path) = app.active_selected_entry_path() {
-                if selected_path.is_dir() {
-                    app.set_status("age protection works on files only");
-                } else if !app.integration_active("age") {
-                    app.status_tool_not_found("age");
-                } else if App::is_age_protected_file(&selected_path) {
-                    app.unprotect_file_with_age(&selected_path)?;
-                    terminal.clear()?;
-                } else {
-                    app.protect_file_with_age(&selected_path)?;
-                    terminal.clear()?;
-                }
-            }
-        }
-        KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            app.begin_sort_menu();
-        }
-        KeyCode::Char('s') => {
-            let enabled = !app.size.folder_size_enabled;
-            app.set_folder_size_enabled(enabled);
-        }
-        KeyCode::Char('+') => {
-            if app.consume_quick_tree_double_tap('+') {
-                app.expand_tree_to_max_on_selected_dirs();
-            } else {
-                app.expand_tree_on_selected_dirs(1);
-            }
-        }
-        KeyCode::Char('-') => {
-            if app.consume_quick_tree_double_tap('-') {
-                app.collapse_all_tree_expansions();
-            } else {
-                app.contract_tree_on_selected_dirs(1);
-            }
-        }
-        KeyCode::Char('C') => {
-            app.run_delta_compare()?;
-            terminal.clear()?;
-        }
-        KeyCode::Char('o') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            return handle_organize_workflow(app);
-        }
-        KeyCode::Char('o') => {
-            app.open_selected_with_default_app()?;
-            terminal.clear()?;
-        }
-        KeyCode::Char('t') => {
-            app.open_todo_file_in_editor()?;
-            terminal.clear()?;
-        }
-        KeyCode::Char('i') => {
-            app.open_split_shell_with_less()?;
-            terminal.clear()?;
-        }
-        KeyCode::Char('E') => {
-            app.open_split_shell_with_editor()?;
-            terminal.clear()?;
-        }
-        KeyCode::Char('l') => {
-            if let Some(selected_path) = app.active_selected_entry_path()
-                && !selected_path.is_dir() {
-                    suspend_tui()?;
-                    if App::is_binary_file(&selected_path) && app.integration_active("hexyl") {
-                        let mut hexyl = Command::new("hexyl");
-                        hexyl.arg(&selected_path);
-                        crate::util::command::pipe_to_pager_or_less(hexyl, &selected_path);
-                    } else {
-                        let _ = Command::new("less")
-                            .args(["-R", selected_path.to_str().unwrap_or_default()])
-                            .status();
-                    }
-                    resume_tui()?;
-                    terminal.clear()?;
-                }
-        }
-        KeyCode::Char('n') => {
-            app.begin_input_edit(AppMode::NewFile, String::new());
-        }
-        KeyCode::Char('Z') => {
-            app.run_zip_action();
-        }
-        KeyCode::Char('~') => {
-            if let Ok(home) = env::var("HOME") {
-                let home_path = PathBuf::from(home);
-                if home_path.is_dir() {
-                    app.try_enter_dir_on_active_panel(home_path);
-                }
-            }
-        }
-        KeyCode::Char('b') => {
-            app.panel_tab = 2;
-            app.refresh_bookmarks_cache();
-            app.mode = AppMode::Bookmarks;
-        }
-        KeyCode::Char('I') => {
-            app.integration_selected = 0;
-            app.reset_integration_search();
-            app.refresh_integration_rows_cache();
-            app.panel_tab = 5;
-            app.mode = AppMode::Integrations;
-        }
-        KeyCode::Char('T') => {
-            app.panel_tab = 6;
-            app.theme_selected = theme::themes()
-                .iter()
-                .position(|theme| theme.id == app.active_theme)
-                .unwrap_or(0);
-            app.theme_panel_nerd_selected = false;
-            app.theme_panel_color_selected = false;
-            app.mode = AppMode::Themes;
-        }
-        KeyCode::Char('S') => {
-            let has_sshfs = app.integration_active("sshfs");
-            let has_rclone = app.integration_active("rclone");
-            app.refresh_remote_entries();
-            if app.remote_entries.is_empty() {
-                if !has_sshfs && !has_rclone {
-                    app.set_status("No media mounts or mounted archives found (sshfs/rclone not installed)");
-                } else {
-                    app.set_status("No SSH/rclone/media mounts or mounted archives found");
-                }
-            } else {
-                app.panel_tab = 3;
-                app.mode = AppMode::SshPicker;
-            }
-        }
         KeyCode::Char(c @ '0'..='9') => {
             let idx = (c as u8 - b'0') as usize;
             if let Ok(path_str) = env::var(format!("SB_BOOKMARK_{}", idx)) {
                 let path = PathBuf::from(&path_str);
                 if path.is_dir() {
                     app.try_enter_dir_on_active_panel(path);
-                }
-            }
-        }
-        KeyCode::Char('.') => {
-            app.left.show_hidden = !app.left.show_hidden;
-            app.refresh_entries_or_status();
-            app.set_status(if app.left.show_hidden {
-                "hidden files: shown"
-            } else {
-                "hidden files: hidden"
-            });
-        }
-
-        KeyCode::F(2) | KeyCode::Char('r') => {
-            if app.left.marked_indices.len() > 1 {
-                if !app.integration_active("vidir") {
-                    app.status_tool_not_found("vidir");
-                } else {
-                    let targets: Vec<PathBuf> = app.left.entries
-                        .iter()
-                        .enumerate()
-                        .filter(|(i, _)| app.left.marked_indices.contains(i))
-                        .map(|(_, e)| e.path())
-                        .collect();
-                    if targets.is_empty() {
-                        app.set_status("no selected item to rename");
-                    } else {
-                        suspend_tui()?;
-                        let mut cmd = Command::new("vidir");
-                        for p in &targets {
-                            cmd.arg(p);
-                        }
-                        let _ = cmd.status();
-                        resume_tui()?;
-                        terminal.clear()?;
-                        app.refresh_entries_or_status();
-                    }
-                }
-            } else {
-                let target_idx = if app.left.marked_indices.len() == 1 {
-                    *app.left.marked_indices.iter().next().unwrap_or(&app.left.selected_index)
-                } else {
-                    app.left.selected_index
-                };
-                if let Some(e) = app.left.entries.get(target_idx) {
-                    app.left.selected_index = target_idx;
-                    app.left.table_state.select(Some(target_idx));
-                    let current_name = crate::util::classify::entry_name(e);
-                    app.begin_input_edit(AppMode::Renaming, current_name);
                 }
             }
         }
@@ -399,14 +147,291 @@ pub(crate) fn handle_browsing_key(
             }
         }
         KeyCode::Enter | KeyCode::Right => return handle_enter_or_right(terminal, app, key),
-        KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            return handle_git_commit_workflow(terminal, app);
+        _ => {
+            if let Some(action) = app.keymap.resolve(key) {
+                return dispatch_action(terminal, app, action);
+            }
         }
-        KeyCode::Char('g') => return handle_grep_search_key(terminal, app),
-        KeyCode::Char('G') => return handle_git_commit_workflow(terminal, app),
-        KeyCode::Char('f') => return handle_fzf_find_key(terminal, app),
-        KeyCode::Char('e') | KeyCode::F(4) => return handle_edit_key(terminal, app),
-        _ => {}
+    }
+    Ok(KeyDispatchOutcome::Ok)
+}
+
+/// Execute a rebindable Browsing-mode command. Bodies are the former
+/// per-key match arms of [`handle_browsing_key`], keyed by [`Action`] so the
+/// user's keymap decides which key triggers them.
+fn dispatch_action(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    app: &mut App,
+    action: Action,
+) -> io::Result<KeyDispatchOutcome> {
+    match action {
+        Action::Quit => return Ok(KeyDispatchOutcome::Quit),
+        Action::FolderFilter => {
+            if app.is_dual_panel_mode() {
+                app.set_status("folder filter is not available in dual panel mode");
+            } else {
+                app.begin_folder_filter();
+            }
+        }
+        Action::TogglePreview => {
+            app.toggle_preview_mode();
+        }
+        Action::CommandInput => {
+            app.begin_input_edit(AppMode::CommandInput, String::new());
+        }
+        Action::Help => {
+            app.help_scroll_offset = 0;
+            app.panel_tab = 0;
+            app.mode = AppMode::Help;
+        }
+        Action::GitLog => return handle_git_log_key(terminal, app),
+        Action::MarkAll => {
+            if app.is_dual_panel_mode() && app.active_panel == crate::DualPanelSide::Right {
+                if !app.right.entries.is_empty() {
+                    if app.right.marked_indices.len() == app.right.entries.len() {
+                        app.right.marked_indices.clear();
+                    } else {
+                        app.right.marked_indices = (0..app.right.entries.len()).collect();
+                    }
+                    app.start_selected_total_size_scan();
+                }
+            } else if !app.left.entries.is_empty() {
+                if app.left.marked_indices.len() == app.left.entries.len() {
+                    app.left.marked_indices.clear();
+                } else {
+                    app.left.marked_indices = (0..app.left.entries.len()).collect();
+                }
+                app.start_selected_total_size_scan();
+            }
+        }
+        Action::CopyPaths => {
+            app.copy_full_paths_to_system_clipboard();
+        }
+        Action::NoteEdit => {
+            app.begin_note_edit();
+        }
+        Action::DropShell => {
+            let _ = app.drop_to_shell();
+            let _ = terminal.clear();
+        }
+        Action::Copy => {
+            if app.is_dual_panel_mode() {
+                app.begin_dual_panel_transfer(false);
+            } else {
+                app.clipboard.clear();
+                if !app.left.marked_indices.is_empty() {
+                    // Copy all marked
+                    for &idx in &app.left.marked_indices {
+                        if let Some(e) = app.left.entries.get(idx) { app.clipboard.push(e.path()); }
+                    }
+                } else if let Some(e) = app.left.entries.get(app.left.selected_index) {
+                    // Copy single selected
+                    app.clipboard.push(e.path());
+                }
+            }
+        }
+        Action::Download => {
+            app.begin_download_input();
+        }
+        Action::Paste => {
+            app.begin_paste();
+        }
+        Action::Move => {
+            if app.is_dual_panel_mode() {
+                app.begin_dual_panel_transfer(true);
+            } else {
+                app.begin_move();
+            }
+        }
+        Action::EditClipboard => {
+            app.edit_system_clipboard_via_temp_file()?;
+            terminal.clear()?;
+        }
+        Action::Delete => {
+            if !app.active_entries_empty() {
+                app.begin_confirm_delete();
+            }
+        }
+        Action::ToggleExec => {
+            app.toggle_executable_permissions();
+        }
+        Action::AgeProtect => {
+            if let Some(selected_path) = app.active_selected_entry_path() {
+                if selected_path.is_dir() {
+                    app.set_status("age protection works on files only");
+                } else if !app.integration_active("age") {
+                    app.status_tool_not_found("age");
+                } else if App::is_age_protected_file(&selected_path) {
+                    app.unprotect_file_with_age(&selected_path)?;
+                    terminal.clear()?;
+                } else {
+                    app.protect_file_with_age(&selected_path)?;
+                    terminal.clear()?;
+                }
+            }
+        }
+        Action::SortMenu => {
+            app.begin_sort_menu();
+        }
+        Action::ToggleFolderSizes => {
+            let enabled = !app.size.folder_size_enabled;
+            app.set_folder_size_enabled(enabled);
+        }
+        Action::TreeExpand => {
+            if app.consume_quick_tree_double_tap('+') {
+                app.expand_tree_to_max_on_selected_dirs();
+            } else {
+                app.expand_tree_on_selected_dirs(1);
+            }
+        }
+        Action::TreeCollapse => {
+            if app.consume_quick_tree_double_tap('-') {
+                app.collapse_all_tree_expansions();
+            } else {
+                app.contract_tree_on_selected_dirs(1);
+            }
+        }
+        Action::DeltaCompare => {
+            app.run_delta_compare()?;
+            terminal.clear()?;
+        }
+        Action::Organize => return handle_organize_workflow(app),
+        Action::OpenDefault => {
+            app.open_selected_with_default_app()?;
+            terminal.clear()?;
+        }
+        Action::TodoFile => {
+            app.open_todo_file_in_editor()?;
+            terminal.clear()?;
+        }
+        Action::SplitLess => {
+            app.open_split_shell_with_less()?;
+            terminal.clear()?;
+        }
+        Action::SplitEditor => {
+            app.open_split_shell_with_editor()?;
+            terminal.clear()?;
+        }
+        Action::ViewFile => {
+            if let Some(selected_path) = app.active_selected_entry_path()
+                && !selected_path.is_dir() {
+                    suspend_tui()?;
+                    if App::is_binary_file(&selected_path) && app.integration_active("hexyl") {
+                        let mut hexyl = Command::new("hexyl");
+                        hexyl.arg(&selected_path);
+                        crate::util::command::pipe_to_pager_or_less(hexyl, &selected_path);
+                    } else {
+                        let _ = Command::new("less")
+                            .args(["-R", selected_path.to_str().unwrap_or_default()])
+                            .status();
+                    }
+                    resume_tui()?;
+                    terminal.clear()?;
+                }
+        }
+        Action::NewFile => {
+            app.begin_input_edit(AppMode::NewFile, String::new());
+        }
+        Action::Zip => {
+            app.run_zip_action();
+        }
+        Action::GoHome => {
+            if let Ok(home) = env::var("HOME") {
+                let home_path = PathBuf::from(home);
+                if home_path.is_dir() {
+                    app.try_enter_dir_on_active_panel(home_path);
+                }
+            }
+        }
+        Action::Bookmarks => {
+            app.panel_tab = 2;
+            app.refresh_bookmarks_cache();
+            app.mode = AppMode::Bookmarks;
+        }
+        Action::Integrations => {
+            app.integration_selected = 0;
+            app.reset_integration_search();
+            app.refresh_integration_rows_cache();
+            app.panel_tab = 5;
+            app.mode = AppMode::Integrations;
+        }
+        Action::Themes => {
+            app.panel_tab = 6;
+            app.theme_selected = theme::themes()
+                .iter()
+                .position(|theme| theme.id == app.active_theme)
+                .unwrap_or(0);
+            app.theme_panel_nerd_selected = false;
+            app.theme_panel_color_selected = false;
+            app.mode = AppMode::Themes;
+        }
+        Action::RemoteMounts => {
+            let has_sshfs = app.integration_active("sshfs");
+            let has_rclone = app.integration_active("rclone");
+            app.refresh_remote_entries();
+            if app.remote_entries.is_empty() {
+                if !has_sshfs && !has_rclone {
+                    app.set_status("No media mounts or mounted archives found (sshfs/rclone not installed)");
+                } else {
+                    app.set_status("No SSH/rclone/media mounts or mounted archives found");
+                }
+            } else {
+                app.panel_tab = 3;
+                app.mode = AppMode::SshPicker;
+            }
+        }
+        Action::ToggleHidden => {
+            app.left.show_hidden = !app.left.show_hidden;
+            app.refresh_entries_or_status();
+            app.set_status(if app.left.show_hidden {
+                "hidden files: shown"
+            } else {
+                "hidden files: hidden"
+            });
+        }
+        Action::Rename => {
+            if app.left.marked_indices.len() > 1 {
+                if !app.integration_active("vidir") {
+                    app.status_tool_not_found("vidir");
+                } else {
+                    let targets: Vec<PathBuf> = app.left.entries
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| app.left.marked_indices.contains(i))
+                        .map(|(_, e)| e.path())
+                        .collect();
+                    if targets.is_empty() {
+                        app.set_status("no selected item to rename");
+                    } else {
+                        suspend_tui()?;
+                        let mut cmd = Command::new("vidir");
+                        for p in &targets {
+                            cmd.arg(p);
+                        }
+                        let _ = cmd.status();
+                        resume_tui()?;
+                        terminal.clear()?;
+                        app.refresh_entries_or_status();
+                    }
+                }
+            } else {
+                let target_idx = if app.left.marked_indices.len() == 1 {
+                    *app.left.marked_indices.iter().next().unwrap_or(&app.left.selected_index)
+                } else {
+                    app.left.selected_index
+                };
+                if let Some(e) = app.left.entries.get(target_idx) {
+                    app.left.selected_index = target_idx;
+                    app.left.table_state.select(Some(target_idx));
+                    let current_name = crate::util::classify::entry_name(e);
+                    app.begin_input_edit(AppMode::Renaming, current_name);
+                }
+            }
+        }
+        Action::GitCommit => return handle_git_commit_workflow(terminal, app),
+        Action::Grep => return handle_grep_search_key(terminal, app),
+        Action::FzfFind => return handle_fzf_find_key(terminal, app),
+        Action::Edit => return handle_edit_key(terminal, app),
     }
     Ok(KeyDispatchOutcome::Ok)
 }

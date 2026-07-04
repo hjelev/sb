@@ -19,6 +19,7 @@ const PANEL_TABS: &[(&str, u8)] = &[
     (" Integrations ", 5),
     (" Themes ", 6),
     (" Settings ", 7),
+    (" Shortcuts ", 8),
 ];
 
 // Scroll indicators shown when the tab bar is wider than the available space.
@@ -650,6 +651,7 @@ pub fn render_help_overlay(
     theme_id: ThemeId,
     help_scroll_offset: u16,
     nerd_font: bool,
+    keymap: &crate::util::keymap::KeyMap,
     footer_zones: &mut Vec<(KeyEvent, u16, u16, u16)>,
 ) -> (u16, u16, Option<Rect>) {
     let spec = theme_spec(theme_id);
@@ -706,80 +708,78 @@ pub fn render_help_overlay(
         ]),
     ];
 
-    let sections: [(&str, [(&str, &str); 10]); 5] = [
+    // Key labels for rebindable commands come from the active keymap so the
+    // Help panel stays truthful after shortcuts are customized; structural
+    // keys (arrows, Enter, Tab, ...) are fixed and stay literal.
+    use crate::util::keymap::Action;
+    let k = |a: Action| keymap.label_for(a);
+    let sections: [(&str, Vec<(String, String)>); 5] = [
         (
             "Navigation & View",
-            [
-                ("Up / Down", "Move selection"),
-                ("PgUp / PgDn", "Jump by visible page"),
-                ("Home / End", "Jump to first or last item"),
-                ("Enter / Right", "Open folder/file or preview"),
-                ("Left / Bksps", "Go to parent folder"),
-                ("Mouse Click", "L: Select | Double L: Open | R: Parent folder"),
-                ("Tab / ~", "Edit path (or switch pane in preview) | Go home"),
-                ("` / s", "Toggle preview | Toggle folder size calc"),
-                ("Ctrl+s", "Open sorting menu"),
-                (".", "Toggle hidden files"),
+            vec![
+                ("Up / Down".to_string(), "Move selection".to_string()),
+                ("PgUp / PgDn".to_string(), "Jump by visible page".to_string()),
+                ("Home / End".to_string(), "Jump to first or last item".to_string()),
+                ("Enter / Right".to_string(), "Open folder/file or preview".to_string()),
+                ("Left / Bksps".to_string(), "Go to parent folder".to_string()),
+                ("Mouse Click".to_string(), "L: Select | Double L: Open | R: Parent folder".to_string()),
+                (format!("Tab / {}", k(Action::GoHome)), "Edit path (or switch pane in preview) | Go home".to_string()),
+                (format!("{} / {}", k(Action::TogglePreview), k(Action::ToggleFolderSizes)), "Toggle preview | Toggle folder size calc".to_string()),
+                (k(Action::SortMenu), "Open sorting menu".to_string()),
+                (k(Action::ToggleHidden), "Toggle hidden files".to_string()),
             ],
         ),
         (
             "Selection & Metadata",
-            [
-                ("Space / Ins", "Toggle mark for selected item"),
-                ("*", "Toggle all marks in directory"),
-                ("Ctrl+n", "Add/edit note for selected item"),
-                ("Ctrl+c", "Copy full path(s) to system clipboard"),
-                ("Ctrl+e", "Edit system clipboard via temp file"),
-                ("", ""),
-                ("", ""),
-                ("", ""),
-                ("", ""),
-                ("", ""),
+            vec![
+                ("Space / Ins".to_string(), "Toggle mark for selected item".to_string()),
+                (k(Action::MarkAll), "Toggle all marks in directory".to_string()),
+                (k(Action::NoteEdit), "Add/edit note for selected item".to_string()),
+                (k(Action::CopyPaths), "Copy full path(s) to system clipboard".to_string()),
+                (k(Action::EditClipboard), "Edit system clipboard via temp file".to_string()),
             ],
         ),
         (
             "File Operations",
-            [
-                ("n", "New 'file' or '/folder'"),
-                ("c / F5", "Copy marked to app clipboard"),
-                ("v / m", "Paste / Move clipboard to folder"),
-                ("r / F2", "Rename or bulk rename"),
-                ("e / F4", "Edit file (or rename folder)"),
-                ("d / Del", "Delete selected item(s)"),
-                ("x / ", "Toggle executable flag"),
-                ("Z", "Create or extract archive"),
-                ("o", "Open with default GUI app"),
-                ("p", "protect file with age"),
+            vec![
+                (k(Action::NewFile), "New 'file' or '/folder'".to_string()),
+                (format!("{} / F5", k(Action::Copy)), "Copy marked to app clipboard".to_string()),
+                (format!("{} / {}", k(Action::Paste), k(Action::Move)), "Paste / Move clipboard to folder".to_string()),
+                (format!("{} / F2", k(Action::Rename)), "Rename or bulk rename".to_string()),
+                (format!("{} / F4", k(Action::Edit)), "Edit file (or rename folder)".to_string()),
+                (format!("{} / Del", k(Action::Delete)), "Delete selected item(s)".to_string()),
+                (k(Action::ToggleExec), "Toggle executable flag".to_string()),
+                (k(Action::Zip), "Create or extract archive".to_string()),
+                (k(Action::OpenDefault), "Open with default GUI app".to_string()),
+                (k(Action::AgeProtect), "protect file with age".to_string()),
+                (k(Action::ViewFile), "View file in pager".to_string()),
             ],
         ),
         (
             "Search & External",
-            [
-                ("f / g", "Fuzzy search | Content search"),
-                ("/", "Filter folder by name/regex (↓ list, ↑ box, Esc clear)"),
-                ("w", "Download URL (prompt: Ctrl+V or right-click pastes from system clipboard)"),
-                ("S", "Open SSH/rclone mount picker"),
-                ("C", "Delta compare (marked vs cursor)"),
-                ("i / E", "Split shell (L) + preview/edit (R)"),
-                ("I", "Open integrations panel"),
-                ("b / 0-9", "Open bookmarks | Jump to bookmark"),
-                ("", ""),
-                ("", ""),
+            vec![
+                (format!("{} / {}", k(Action::FzfFind), k(Action::Grep)), "Fuzzy search | Content search".to_string()),
+                (k(Action::FolderFilter), "Filter folder by name/regex (↓ list, ↑ box, Esc clear)".to_string()),
+                (k(Action::Download), "Download URL (prompt: Ctrl+V or right-click pastes from system clipboard)".to_string()),
+                (k(Action::RemoteMounts), "Open SSH/rclone mount picker".to_string()),
+                (k(Action::DeltaCompare), "Delta compare (marked vs cursor)".to_string()),
+                (format!("{} / {}", k(Action::SplitLess), k(Action::SplitEditor)), "Split shell (L) + preview/edit (R)".to_string()),
+                (k(Action::Integrations), "Open integrations panel".to_string()),
+                (k(Action::Themes), "Open themes panel".to_string()),
+                (format!("{} / 0-9", k(Action::Bookmarks)), "Open bookmarks | Jump to bookmark".to_string()),
             ],
         ),
         (
             "System & Git",
-            [
-                ("G / Ctrl+g", "Git: Commit + Push (dirty repos)"),
-                ("H", "Git: View pretty log graph"),
-                ("Ctrl+z", "Drop to shell in current directory"),
-                ("t", "Open ~/.todo in $EDITOR"),
-                ("h / ?", "Open this help screen"),
-                ("q / Esc", "Quit Shell Buddy"),
-                ("Ctrl+o", "AI: organize current folder"),
-                ("", ""),
-                ("", ""),
-                ("", ""),
+            vec![
+                (format!("{} / Ctrl+g", k(Action::GitCommit)), "Git: Commit + Push (dirty repos)".to_string()),
+                (k(Action::GitLog), "Git: View pretty log graph".to_string()),
+                (k(Action::DropShell), "Drop to shell in current directory".to_string()),
+                (k(Action::TodoFile), "Open ~/.todo in $EDITOR".to_string()),
+                (k(Action::CommandInput), "Run shell command".to_string()),
+                (k(Action::Help), "Open this help screen".to_string()),
+                (format!("{} / Esc", k(Action::Quit)), "Quit Shell Buddy".to_string()),
+                (k(Action::Organize), "AI: organize current folder".to_string()),
             ],
         ),
     ];
@@ -787,15 +787,12 @@ pub fn render_help_overlay(
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(section_title.to_string(), section_style)));
         for (shortcut, description) in rows {
-            if shortcut.is_empty() && description.is_empty() {
-                continue;
-            }
             lines.push(Line::from(vec![
                 Span::styled(
                     format!("{:<width$}", shortcut, width = shortcut_w),
                     shortcut_style,
                 ),
-                Span::styled(description.to_string(), desc_style),
+                Span::styled(description, desc_style),
             ]));
         }
     }
@@ -1215,6 +1212,143 @@ pub fn render_settings_overlay(
         set_chunks[1],
     );
     footer_zones.extend(footer_shortcut_zones(footer_entries, set_chunks[1], nerd_font_active));
+}
+
+/// Render the Shortcuts panel: every rebindable Browsing-mode command grouped
+/// by category, with its current key and a marker when customized. Mirrors
+/// [`render_settings_overlay`]'s row styling; scrolls to keep the selected
+/// action visible.
+pub fn render_shortcuts_overlay(
+    f: &mut Frame,
+    chrome: OverlayChrome,
+    keymap: &crate::util::keymap::KeyMap,
+    selected: usize,
+    capturing: bool,
+    footer_zones: &mut Vec<(KeyEvent, u16, u16, u16)>,
+) {
+    use crate::util::keymap::ACTIONS;
+    let OverlayChrome {
+        anchor: tab_overlay_anchor,
+        panel_tab,
+        theme_id,
+        nerd_font: nerd_font_active,
+    } = chrome;
+    let spec = theme_spec(theme_id);
+    let sc_w = tab_overlay_anchor.width;
+    let sc_content_w = sc_w.saturating_sub(2) as usize;
+    let sc_row_inner_w = sc_content_w.saturating_sub(2);
+    let label_w = ACTIONS
+        .iter()
+        .map(|a| UnicodeWidthStr::width(a.label))
+        .max()
+        .unwrap_or(0);
+    let section_style = Style::default()
+        .fg(spec.overlay_section)
+        .add_modifier(Modifier::BOLD);
+
+    let mut lines: Vec<Line> = Vec::new();
+    let mut selected_line = 0usize;
+    let mut last_category = "";
+    for (idx, action) in ACTIONS.iter().enumerate() {
+        if action.category != last_category {
+            if !last_category.is_empty() {
+                lines.push(Line::from(""));
+            }
+            lines.push(Line::from(Span::styled(
+                format!(" {}", action.category),
+                section_style,
+            )));
+            last_category = action.category;
+        }
+        let is_selected = idx == selected;
+        if is_selected {
+            selected_line = lines.len();
+        }
+        let key_text = if capturing && is_selected {
+            "press key… (Esc cancels)".to_string()
+        } else {
+            let mut k = keymap.combo_at(idx).label();
+            if let Some(alt) = action.fixed_alt {
+                k.push_str(" / ");
+                k.push_str(alt);
+            }
+            k
+        };
+        let is_custom = keymap.is_custom_at(idx);
+        let marker = if is_custom { "  •" } else { "" };
+        let label_padded = format!("{:<width$}", action.label, width = label_w);
+        let base_text = format!(" {}   {}{}", label_padded, key_text, marker);
+        let row_text = if is_selected {
+            let used_w = UnicodeWidthStr::width(base_text.as_str());
+            if sc_row_inner_w > used_w {
+                format!("{}{}", base_text, " ".repeat(sc_row_inner_w - used_w))
+            } else {
+                base_text
+            }
+        } else {
+            base_text
+        };
+        let style = if is_selected {
+            Style::default()
+                .bg(spec.bg_selected)
+                .fg(crate::ui::palette::readable_fg(spec.bg_selected, Color::Black, spec.text_normal))
+        } else if is_custom {
+            Style::default().fg(spec.key_label)
+        } else {
+            Style::default().fg(spec.text_normal)
+        };
+        let (left_cap, right_cap) = selector_edge_spans(is_selected, spec, nerd_font_active);
+        lines.push(Line::from(vec![left_cap, Span::styled(row_text, style), right_cap]));
+    }
+
+    let sc_area = Rect::new(
+        tab_overlay_anchor.x,
+        tab_overlay_anchor.y,
+        sc_w,
+        tab_overlay_anchor.height,
+    );
+    f.render_widget(Clear, sc_area);
+    let sc_inner = render_overlay_block(f, sc_area, panel_tab, theme_id, nerd_font_active);
+    let sc_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(2)])
+        .split(sc_inner);
+    let content_area = sc_chunks[0];
+
+    // Keep the selected row visible.
+    let visible_rows = content_area.height as usize;
+    let total_rows = lines.len();
+    let max_scroll = total_rows.saturating_sub(visible_rows);
+    let scroll = if visible_rows > 0 && selected_line + 1 > visible_rows {
+        (selected_line + 1 - visible_rows).min(max_scroll)
+    } else {
+        0
+    };
+    f.render_widget(
+        Paragraph::new(lines).scroll((scroll as u16, 0)),
+        content_area,
+    );
+    if content_area.width > 2 && total_rows > visible_rows {
+        let sb_area = Rect::new(
+            sc_area.x + sc_area.width.saturating_sub(1),
+            content_area.y,
+            1,
+            content_area.height,
+        );
+        render_scrollbar_track(f, sb_area, total_rows, visible_rows, scroll, spec);
+    }
+    let footer_entries: &[(&'static str, &'static str)] = &[
+        ("↑↓", "navigate"),
+        ("Enter", "rebind"),
+        ("Bksp", "reset default"),
+        ("Tab", "switch tabs"),
+        ("Esc", "close"),
+    ];
+    f.render_widget(
+        Paragraph::new(shortcut_footer_lines(footer_entries, theme_id, nerd_font_active)),
+        sc_chunks[1],
+    );
+    footer_zones.extend(footer_shortcut_zones(footer_entries, sc_chunks[1], nerd_font_active));
 }
 
 pub struct ThemesOverlayState {

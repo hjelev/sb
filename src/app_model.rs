@@ -293,6 +293,7 @@ pub(crate) enum AppMode {
     SortMenu,
     SshPicker,
     Settings,
+    Shortcuts,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

@@ -50,6 +50,7 @@ impl App {
                     | (5, AppMode::Integrations)
                     | (6, AppMode::Themes)
                     | (7, AppMode::Settings)
+                    | (8, AppMode::Shortcuts)
             )
         {
             return;
@@ -102,6 +103,12 @@ impl App {
                 self.mode = AppMode::Settings;
                 self.maybe_check_api_key();
             }
+            8 => {
+                self.shortcuts_selected = 0;
+                self.shortcut_capture = false;
+                self.panel_tab = 8;
+                self.mode = AppMode::Shortcuts;
+            }
             _ => {}
         }
     }
@@ -120,7 +127,9 @@ impl App {
             | AppMode::Themes
             | AppMode::SortMenu
             | AppMode::Settings
+            | AppMode::Shortcuts
             | AppMode::SshPicker => {
+                self.shortcut_capture = false;
                 self.mode = AppMode::Browsing;
             }
             _ => {}
@@ -137,6 +146,7 @@ impl App {
                 | AppMode::Themes
                 | AppMode::SortMenu
                 | AppMode::Settings
+                | AppMode::Shortcuts
                 | AppMode::SshPicker
         ) {
             return false;
@@ -162,6 +172,7 @@ impl App {
                 | AppMode::Themes
                 | AppMode::SortMenu
                 | AppMode::Settings
+                | AppMode::Shortcuts
                 | AppMode::SshPicker
         ) {
             return false;
@@ -631,6 +642,13 @@ impl App {
                     cursor_up(&mut self.settings_selected);
                 } else {
                     cursor_down(&mut self.settings_selected, 4);
+                }
+            }
+            AppMode::Shortcuts => {
+                if scroll_up {
+                    cursor_up(&mut self.shortcuts_selected);
+                } else {
+                    cursor_down(&mut self.shortcuts_selected, crate::util::keymap::ACTIONS.len());
                 }
             }
             AppMode::SortMenu => {

@@ -293,10 +293,10 @@ pub(crate) fn handle_app_key_event_body(
                 app.mode = AppMode::Browsing;
             }
             KeyCode::BackTab => {
-                app.panel_tab = 7;
-                app.settings_selected = 0;
-                app.mode = AppMode::Settings;
-                app.maybe_check_api_key();
+                app.panel_tab = 8;
+                app.shortcuts_selected = 0;
+                app.shortcut_capture = false;
+                app.mode = AppMode::Shortcuts;
             }
             KeyCode::Up => {
                 app.help_scroll_offset = app.help_scroll_offset.saturating_sub(1);
@@ -544,9 +544,10 @@ pub(crate) fn handle_app_key_event_body(
             }
             KeyCode::Tab => {
                 app.maybe_check_api_key();
-                app.panel_tab = 0;
-                app.help_scroll_offset = 0;
-                app.mode = AppMode::Help;
+                app.panel_tab = 8;
+                app.shortcuts_selected = 0;
+                app.shortcut_capture = false;
+                app.mode = AppMode::Shortcuts;
             }
             KeyCode::Up => {
                 let was_key = app.settings_selected == 2;
@@ -587,6 +588,61 @@ pub(crate) fn handle_app_key_event_body(
             }
             _ => {}
         },
+        AppMode::Shortcuts => {
+            // While capturing, every key is a rebind attempt except Esc.
+            if app.shortcut_capture {
+                match key.code {
+                    KeyCode::Esc => {
+                        app.shortcut_capture = false;
+                        app.set_status("rebind cancelled");
+                    }
+                    _ => app.apply_shortcut_capture(key),
+                }
+            } else {
+                match key.code {
+                    KeyCode::Esc | KeyCode::Char('q') => {
+                        app.mode = AppMode::Browsing;
+                    }
+                    KeyCode::BackTab => {
+                        app.panel_tab = 7;
+                        app.settings_selected = 0;
+                        app.mode = AppMode::Settings;
+                        app.maybe_check_api_key();
+                    }
+                    KeyCode::Tab => {
+                        app.panel_tab = 0;
+                        app.help_scroll_offset = 0;
+                        app.mode = AppMode::Help;
+                    }
+                    KeyCode::Up => {
+                        cursor_up(&mut app.shortcuts_selected);
+                    }
+                    KeyCode::Down => {
+                        cursor_down(&mut app.shortcuts_selected, crate::util::keymap::ACTIONS.len());
+                    }
+                    KeyCode::PageUp => {
+                        app.shortcuts_selected = app.shortcuts_selected.saturating_sub(10);
+                    }
+                    KeyCode::PageDown => {
+                        let max = crate::util::keymap::ACTIONS.len().saturating_sub(1);
+                        app.shortcuts_selected = (app.shortcuts_selected + 10).min(max);
+                    }
+                    KeyCode::Home => {
+                        app.shortcuts_selected = 0;
+                    }
+                    KeyCode::End => {
+                        app.shortcuts_selected = crate::util::keymap::ACTIONS.len().saturating_sub(1);
+                    }
+                    KeyCode::Enter | KeyCode::Char(' ') => {
+                        app.shortcut_capture = true;
+                    }
+                    KeyCode::Backspace | KeyCode::Delete => {
+                        app.reset_selected_shortcut();
+                    }
+                    _ => {}
+                }
+            }
+        }
         AppMode::SshPicker => return handle_ssh_picker_key(terminal, app, key),
         AppMode::Bookmarks => match key.code {
             KeyCode::Esc | KeyCode::Char('b') | KeyCode::Char('q') => { app.mode = AppMode::Browsing; }

@@ -202,6 +202,10 @@ pub struct SbPersistConfig {
     /// When true, the commit prompt auto-generates an AI message on open
     /// (no Ctrl+G needed).
     pub ai_auto_commit: bool,
+    /// Custom keyboard shortcuts (action id → combo string, e.g.
+    /// `"rename" → "u"`). Only non-default bindings are stored; ids and
+    /// combo syntax live in [`crate::util::keymap`].
+    pub shortcuts: std::collections::HashMap<String, String>,
     /// Unknown settings (future-proofing: preserve any unrecognized key-value pairs).
     unknown: std::collections::HashMap<String, String>,
 }
@@ -221,6 +225,7 @@ impl Default for SbPersistConfig {
             ai_model: String::new(),
             ai_api_keys: std::collections::HashMap::new(),
             ai_auto_commit: false,
+            shortcuts: std::collections::HashMap::new(),
             unknown: std::collections::HashMap::new(),
         }
     }
@@ -297,6 +302,12 @@ impl SbPersistConfig {
                             "1" | "true"
                         );
                     }
+                    k if k.starts_with("shortcut_") => {
+                        let id = &k["shortcut_".len()..];
+                        if !id.is_empty() && !val.is_empty() {
+                            cfg.shortcuts.insert(id.to_string(), val.to_string());
+                        }
+                    }
                     k if k.starts_with("bookmark_") => {
                         if let Ok(n) = k["bookmark_".len()..].parse::<u8>()
                             && n <= 9 && !val.is_empty() {
@@ -354,6 +365,13 @@ impl SbPersistConfig {
         for (provider, key) in sorted_keys {
             if !key.is_empty() {
                 lines.push(format!("ai_api_key_{} = {}", provider, key));
+            }
+        }
+        let mut sorted_shortcuts: Vec<(&String, &String)> = self.shortcuts.iter().collect();
+        sorted_shortcuts.sort_by(|(a, _), (b, _)| a.cmp(b));
+        for (id, combo) in sorted_shortcuts {
+            if !combo.is_empty() {
+                lines.push(format!("shortcut_{} = {}", id, combo));
             }
         }
         let mut sorted_bookmarks: Vec<(&u8, &String)> = self.bookmarks.iter().collect();
@@ -465,6 +483,37 @@ mod tests {
         assert_eq!(loaded.bookmarks.get(&0), Some(&"/tmp/test0".to_string()));
         assert_eq!(loaded.bookmarks.get(&3), Some(&"/home/user/projects".to_string()));
         assert_eq!(loaded.bookmarks.get(&9), Some(&"/var/log".to_string()));
+    }
+
+    #[test]
+    fn test_shortcut_serialization_round_trip() {
+        let mut cfg = SbPersistConfig::default();
+        cfg.shortcuts.insert("rename".to_string(), "u".to_string());
+        cfg.shortcuts.insert("sort_menu".to_string(), "ctrl+t".to_string());
+
+        // Simulate what save() writes for shortcuts (sorted by id).
+        let mut sorted: Vec<(&String, &String)> = cfg.shortcuts.iter().collect();
+        sorted.sort_by(|(a, _), (b, _)| a.cmp(b));
+        let content = sorted
+            .iter()
+            .map(|(id, combo)| format!("shortcut_{} = {}", id, combo))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(content, "shortcut_rename = u\nshortcut_sort_menu = ctrl+t");
+
+        // Parse it back with load()'s prefix logic.
+        let loaded = content.lines().fold(SbPersistConfig::default(), |mut c, line| {
+            if let Some((k, v)) = line.split_once('=') {
+                let (k, v) = (k.trim(), v.trim());
+                if let Some(id) = k.strip_prefix("shortcut_")
+                    && !id.is_empty() && !v.is_empty() {
+                        c.shortcuts.insert(id.to_string(), v.to_string());
+                    }
+            }
+            c
+        });
+        assert_eq!(loaded.shortcuts.get("rename"), Some(&"u".to_string()));
+        assert_eq!(loaded.shortcuts.get("sort_menu"), Some(&"ctrl+t".to_string()));
     }
 
     /// Reproduce `load()`'s parse of one config line into `cfg`, including the

@@ -28,6 +28,7 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             app.active_theme,
             app.help_scroll_offset,
             app.nerd_font_active,
+            &app.keymap,
             &mut app.footer_shortcut_zones,
         );
         app.help_max_offset = max_off;
@@ -336,6 +337,20 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             },
             &rows,
             app.settings_selected,
+            &mut app.footer_shortcut_zones,
+        );
+    } else if app.mode == AppMode::Shortcuts {
+        ui::panels::render_shortcuts_overlay(
+            f,
+            ui::panels::OverlayChrome {
+                anchor: tab_overlay_anchor,
+                panel_tab: app.panel_tab,
+                theme_id: app.active_theme,
+                nerd_font: app.nerd_font_active,
+            },
+            &app.keymap,
+            app.shortcuts_selected,
+            app.shortcut_capture,
             &mut app.footer_shortcut_zones,
         );
     } else if app.mode == AppMode::SshPicker {
