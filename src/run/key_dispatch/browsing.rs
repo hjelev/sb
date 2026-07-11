@@ -151,7 +151,61 @@ pub(crate) fn handle_browsing_key(
             if let Some(action) = app.keymap.resolve(key) {
                 return dispatch_action(terminal, app, action);
             }
+            // Second resolution layer: keys bound to plugin commands
+            // (`plugin_key_<name>` config lines). Built-in actions and the
+            // structural keys above always win by construction.
+            let combo = crate::util::keymap::KeyCombo::from_event(key);
+            if let Some(name) = app.plugins.resolve_key(combo).map(str::to_string) {
+                return run_plugin_entry(terminal, app, &name);
+            }
         }
+    }
+    Ok(KeyDispatchOutcome::Ok)
+}
+
+/// Run a plugin's `entry()` and apply its effects. TUI-suspending effects
+/// (`sb.run`/`sb.edit`/`sb.view`) execute here, where the terminal handle is
+/// in scope. Errors surface in the status line, never as failures.
+pub(crate) fn run_plugin_entry(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    app: &mut App,
+    name: &str,
+) -> io::Result<KeyDispatchOutcome> {
+    use crate::plugin::PluginEffect;
+
+    let ctx = app.plugin_ctx();
+    match app.plugins.run_entry(name, &ctx) {
+        Ok(effects) => {
+            for effect in app.apply_plugin_effects(effects, true) {
+                match effect {
+                    PluginEffect::RunShellWait(cmd) => {
+                        app.run_shell_command_and_wait_key(&cmd)?;
+                        terminal.clear()?;
+                    }
+                    PluginEffect::EditPath(path) => {
+                        let path = app.resolve_plugin_path(path);
+                        suspend_tui()?;
+                        execute!(io::stdout(), Show)?;
+                        let _ = Command::new(crate::util::command::editor_command())
+                            .arg(&path)
+                            .status();
+                        resume_tui()?;
+                        execute!(io::stdout(), Hide)?;
+                        terminal.clear()?;
+                        app.refresh_entries_or_status();
+                    }
+                    PluginEffect::ViewPath(path) => {
+                        let path = app.resolve_plugin_path(path);
+                        suspend_tui()?;
+                        App::open_path_in_view_mode(&path, true)?;
+                        resume_tui()?;
+                        terminal.clear()?;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Err(msg) => app.set_status(format!("plugin {}: {}", name, msg)),
     }
     Ok(KeyDispatchOutcome::Ok)
 }
@@ -432,6 +486,9 @@ fn dispatch_action(
         Action::Grep => return handle_grep_search_key(terminal, app),
         Action::FzfFind => return handle_fzf_find_key(terminal, app),
         Action::Edit => return handle_edit_key(terminal, app),
+        Action::Plugins => {
+            app.open_plugins_panel();
+        }
     }
     Ok(KeyDispatchOutcome::Ok)
 }

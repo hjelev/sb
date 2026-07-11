@@ -20,6 +20,7 @@ const PANEL_TABS: &[(&str, u8)] = &[
     (" Themes ", 6),
     (" Settings ", 7),
     (" Shortcuts ", 8),
+    (" Plugins ", 9),
 ];
 
 // Scroll indicators shown when the tab bar is wider than the available space.
@@ -1349,6 +1350,166 @@ pub fn render_shortcuts_overlay(
         sc_chunks[1],
     );
     footer_zones.extend(footer_shortcut_zones(footer_entries, sc_chunks[1], nerd_font_active));
+}
+
+/// One row of the Plugins panel (built by the render caller from the
+/// plugin runtime's state).
+pub struct PluginRow {
+    pub name: String,
+    /// Label of the bound key, if any.
+    pub key: Option<String>,
+    /// `active` / `off` / `error`.
+    pub state: &'static str,
+    /// Capabilities summary, or the load/run error for `error` rows.
+    pub detail: String,
+}
+
+/// Render the Plugins panel: discovered Lua plugins with their bound key,
+/// enabled/error state, and a detail line for the selected row. Mirrors
+/// [`render_shortcuts_overlay`]'s row styling.
+pub fn render_plugins_overlay(
+    f: &mut Frame,
+    chrome: OverlayChrome,
+    rows: &[PluginRow],
+    selected: usize,
+    capturing: bool,
+    footer_zones: &mut Vec<(KeyEvent, u16, u16, u16)>,
+) {
+    let OverlayChrome {
+        anchor: tab_overlay_anchor,
+        panel_tab,
+        theme_id,
+        nerd_font: nerd_font_active,
+    } = chrome;
+    let spec = theme_spec(theme_id);
+    let pl_w = tab_overlay_anchor.width;
+    let pl_content_w = pl_w.saturating_sub(2) as usize;
+    let pl_row_inner_w = pl_content_w.saturating_sub(2);
+    let name_w = rows
+        .iter()
+        .map(|r| UnicodeWidthStr::width(r.name.as_str()))
+        .max()
+        .unwrap_or(0)
+        .max(12);
+
+    let mut lines: Vec<Line> = Vec::new();
+    if rows.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            " No plugins found.",
+            Style::default().fg(spec.text_normal),
+        )));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            " Drop Lua plugins into ~/.config/sb/plugins/ as",
+            Style::default().fg(spec.text_dim),
+        )));
+        lines.push(Line::from(Span::styled(
+            " <name>.lua or <name>/main.lua (see README).",
+            Style::default().fg(spec.text_dim),
+        )));
+    }
+    for (idx, row) in rows.iter().enumerate() {
+        let is_selected = idx == selected;
+        let key_text = if capturing && is_selected {
+            "press key… (Esc cancels)".to_string()
+        } else {
+            row.key.clone().unwrap_or_else(|| "-".to_string())
+        };
+        let name_padded = format!("{:<width$}", row.name, width = name_w);
+        let base_text = format!(" {}   {:<26} [{}]", name_padded, key_text, row.state);
+        let row_text = if is_selected && pl_row_inner_w > UnicodeWidthStr::width(base_text.as_str())
+        {
+            format!(
+                "{}{}",
+                base_text,
+                " ".repeat(pl_row_inner_w - UnicodeWidthStr::width(base_text.as_str()))
+            )
+        } else {
+            base_text
+        };
+        let style = if is_selected {
+            Style::default().bg(spec.bg_selected).fg(
+                crate::ui::palette::readable_fg(spec.bg_selected, Color::Black, spec.text_normal),
+            )
+        } else if row.state == "error" {
+            Style::default().fg(spec.error)
+        } else if row.state == "off" {
+            Style::default().fg(spec.text_dim)
+        } else {
+            Style::default().fg(spec.text_normal)
+        };
+        let (left_cap, right_cap) = selector_edge_spans(is_selected, spec, nerd_font_active);
+        lines.push(Line::from(vec![left_cap, Span::styled(row_text, style), right_cap]));
+    }
+
+    let pl_area = Rect::new(
+        tab_overlay_anchor.x,
+        tab_overlay_anchor.y,
+        pl_w,
+        tab_overlay_anchor.height,
+    );
+    f.render_widget(Clear, pl_area);
+    let pl_inner = render_overlay_block(f, pl_area, panel_tab, theme_id, nerd_font_active);
+    let pl_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(1),
+            Constraint::Length(1),
+            Constraint::Length(2),
+        ])
+        .split(pl_inner);
+    let content_area = pl_chunks[0];
+
+    // Keep the selected row visible.
+    let visible_rows = content_area.height as usize;
+    let total_rows = lines.len();
+    let max_scroll = total_rows.saturating_sub(visible_rows);
+    let scroll = if visible_rows > 0 && selected + 1 > visible_rows {
+        (selected + 1 - visible_rows).min(max_scroll)
+    } else {
+        0
+    };
+    f.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), content_area);
+    if content_area.width > 2 && total_rows > visible_rows {
+        let sb_area = Rect::new(
+            pl_area.x + pl_area.width.saturating_sub(1),
+            content_area.y,
+            1,
+            content_area.height,
+        );
+        render_scrollbar_track(f, sb_area, total_rows, visible_rows, scroll, spec);
+    }
+
+    // Detail line for the selected plugin (capabilities or error).
+    if let Some(row) = rows.get(selected) {
+        let detail_style = if row.state == "error" {
+            Style::default().fg(spec.error)
+        } else {
+            Style::default().fg(spec.text_dim)
+        };
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                format!(" {}", row.detail),
+                detail_style,
+            ))),
+            pl_chunks[1],
+        );
+    }
+
+    let footer_entries: &[(&'static str, &'static str)] = &[
+        ("↑↓", "navigate"),
+        ("Enter", "run"),
+        ("Space", "on/off"),
+        ("b", "bind key"),
+        ("Bksp", "unbind"),
+        ("Esc", "close"),
+    ];
+    f.render_widget(
+        Paragraph::new(shortcut_footer_lines(footer_entries, theme_id, nerd_font_active)),
+        pl_chunks[2],
+    );
+    footer_zones.extend(footer_shortcut_zones(footer_entries, pl_chunks[2], nerd_font_active));
 }
 
 pub struct ThemesOverlayState {

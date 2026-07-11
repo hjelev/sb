@@ -49,6 +49,7 @@ mod app_meta;
 mod app_mouse;
 mod app_notes;
 mod app_organize;
+mod app_plugins;
 mod app_preview;
 mod app_remote;
 mod app_rendering;
@@ -63,6 +64,7 @@ mod app_shell;
 mod app_shortcuts;
 mod app_sqlite;
 mod app_transfer;
+mod plugin;
 mod ui;
 mod util;
 mod run;
@@ -256,11 +258,19 @@ struct App {
     /// Active key bindings for Browsing-mode commands (defaults overlaid with
     /// the persisted `shortcut_*` overrides).
     keymap: util::keymap::KeyMap,
+    /// The Lua plugin runtime (loaded plugins, their key bindings, hooks and
+    /// in-flight `sb.spawn` jobs).
+    plugins: plugin::runtime::PluginRuntime,
     /// Selected action row in the Shortcuts panel (index into
     /// [`util::keymap::ACTIONS`]).
     shortcuts_selected: usize,
     /// True while the Shortcuts panel waits for the new key press.
     shortcut_capture: bool,
+    /// Selected plugin row in the Plugins panel.
+    plugins_selected: usize,
+    /// True while the Plugins panel waits for a key press to bind the
+    /// selected plugin's `entry()`.
+    plugin_key_capture: bool,
     /// AI commit-message provider key (`"groq"` / `"github"`), persisted.
     ai_provider: String,
     /// AI model id; empty falls back to the provider default at call time.
@@ -488,8 +498,11 @@ impl App {
             theme_panel_clock_selected: false,
             settings_selected: 0,
             keymap: util::keymap::KeyMap::default(),
+            plugins: plugin::runtime::PluginRuntime::empty(),
             shortcuts_selected: 0,
             shortcut_capture: false,
+            plugins_selected: 0,
+            plugin_key_capture: false,
             ai_provider: "groq".to_string(),
             ai_model: String::new(),
             ai_api_key: String::new(),
@@ -637,6 +650,21 @@ impl App {
         if persist.folder_size_enabled {
             app.set_folder_size_enabled(true);
         }
+        // Load Lua plugins and fire their on_start hooks. Load/hook errors
+        // are recorded per-plugin and surfaced in the Plugins panel.
+        let sources = plugin::discovery::discover(&plugin::discovery::plugins_dir());
+        if !sources.is_empty() {
+            app.plugins = plugin::runtime::PluginRuntime::init(
+                sources,
+                &persist.disabled_plugins,
+                &persist.plugin_bindings,
+            );
+            if app.plugins.wants_hook(plugin::runtime::Hook::Start) {
+                let ctx = app.plugin_ctx();
+                let effects = app.plugins.run_hook(plugin::runtime::Hook::Start, &ctx);
+                app.apply_plugin_effects(effects, false);
+            }
+        }
         Ok(app)
     }
 
@@ -680,6 +708,7 @@ impl App {
             || self.ai_key_check_rx.is_some()
             || self.ai_key_edit_at.is_some()
             || self.organize_rx.is_some()
+            || self.plugins.has_pending_spawns()
     }
 
     fn search_spans_with_ranges(
@@ -1715,6 +1744,12 @@ fn main() -> io::Result<()> {
     let mut app = App::new()?;
 
     run::run_tui(&mut terminal, &mut app)?;
+    // Fire plugin on_quit hooks; the UI is going away, so their effects are
+    // discarded (side effects like writing files still happen in Lua).
+    if app.plugins.wants_hook(plugin::runtime::Hook::Quit) {
+        let ctx = app.plugin_ctx();
+        let _ = app.plugins.run_hook(plugin::runtime::Hook::Quit, &ctx);
+    }
     app.cleanup_archive_mounts();
     app.cleanup_ssh_mounts();
     // Best-effort: exiting matters more than persisting cosmetic view state.

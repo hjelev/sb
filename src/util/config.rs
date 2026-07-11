@@ -206,6 +206,11 @@ pub struct SbPersistConfig {
     /// `"rename" → "u"`). Only non-default bindings are stored; ids and
     /// combo syntax live in [`crate::util::keymap`].
     pub shortcuts: std::collections::HashMap<String, String>,
+    /// Plugin names the user has explicitly disabled.
+    pub disabled_plugins: Vec<String>,
+    /// Key bindings for plugin commands (plugin name → combo string, stored
+    /// as `plugin_key_<name> = <combo>`). Combo syntax matches shortcuts.
+    pub plugin_bindings: std::collections::HashMap<String, String>,
     /// Unknown settings (future-proofing: preserve any unrecognized key-value pairs).
     unknown: std::collections::HashMap<String, String>,
 }
@@ -226,6 +231,8 @@ impl Default for SbPersistConfig {
             ai_api_keys: std::collections::HashMap::new(),
             ai_auto_commit: false,
             shortcuts: std::collections::HashMap::new(),
+            disabled_plugins: Vec::new(),
+            plugin_bindings: std::collections::HashMap::new(),
             unknown: std::collections::HashMap::new(),
         }
     }
@@ -308,6 +315,20 @@ impl SbPersistConfig {
                             cfg.shortcuts.insert(id.to_string(), val.to_string());
                         }
                     }
+                    "disabled_plugins" => {
+                        cfg.disabled_plugins = val
+                            .split(',')
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
+                            .map(String::from)
+                            .collect();
+                    }
+                    k if k.starts_with("plugin_key_") => {
+                        let name = &k["plugin_key_".len()..];
+                        if !name.is_empty() && !val.is_empty() {
+                            cfg.plugin_bindings.insert(name.to_string(), val.to_string());
+                        }
+                    }
                     k if k.starts_with("bookmark_") => {
                         if let Ok(n) = k["bookmark_".len()..].parse::<u8>()
                             && n <= 9 && !val.is_empty() {
@@ -372,6 +393,20 @@ impl SbPersistConfig {
         for (id, combo) in sorted_shortcuts {
             if !combo.is_empty() {
                 lines.push(format!("shortcut_{} = {}", id, combo));
+            }
+        }
+        if !self.disabled_plugins.is_empty() {
+            lines.push(format!(
+                "disabled_plugins = {}",
+                self.disabled_plugins.join(",")
+            ));
+        }
+        let mut sorted_plugin_bindings: Vec<(&String, &String)> =
+            self.plugin_bindings.iter().collect();
+        sorted_plugin_bindings.sort_by(|(a, _), (b, _)| a.cmp(b));
+        for (name, combo) in sorted_plugin_bindings {
+            if !combo.is_empty() {
+                lines.push(format!("plugin_key_{} = {}", name, combo));
             }
         }
         let mut sorted_bookmarks: Vec<(&u8, &String)> = self.bookmarks.iter().collect();
@@ -514,6 +549,55 @@ mod tests {
         });
         assert_eq!(loaded.shortcuts.get("rename"), Some(&"u".to_string()));
         assert_eq!(loaded.shortcuts.get("sort_menu"), Some(&"ctrl+t".to_string()));
+    }
+
+    #[test]
+    fn test_plugin_settings_round_trip() {
+        let mut cfg = SbPersistConfig::default();
+        cfg.disabled_plugins = vec!["cdlog".to_string(), "linecount".to_string()];
+        cfg.plugin_bindings
+            .insert("touch-notify".to_string(), "ctrl+t".to_string());
+
+        // Simulate what save() writes for plugin settings.
+        let mut lines = Vec::new();
+        lines.push(format!(
+            "disabled_plugins = {}",
+            cfg.disabled_plugins.join(",")
+        ));
+        let mut sorted: Vec<(&String, &String)> = cfg.plugin_bindings.iter().collect();
+        sorted.sort_by(|(a, _), (b, _)| a.cmp(b));
+        for (name, combo) in sorted {
+            lines.push(format!("plugin_key_{} = {}", name, combo));
+        }
+        let content = lines.join("\n");
+        assert_eq!(
+            content,
+            "disabled_plugins = cdlog,linecount\nplugin_key_touch-notify = ctrl+t"
+        );
+
+        // Parse it back with load()'s prefix logic.
+        let loaded = content.lines().fold(SbPersistConfig::default(), |mut c, line| {
+            if let Some((k, v)) = line.split_once('=') {
+                let (k, v) = (k.trim(), v.trim());
+                if k == "disabled_plugins" {
+                    c.disabled_plugins = v
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(String::from)
+                        .collect();
+                } else if let Some(name) = k.strip_prefix("plugin_key_")
+                    && !name.is_empty() && !v.is_empty() {
+                        c.plugin_bindings.insert(name.to_string(), v.to_string());
+                    }
+            }
+            c
+        });
+        assert_eq!(loaded.disabled_plugins, vec!["cdlog", "linecount"]);
+        assert_eq!(
+            loaded.plugin_bindings.get("touch-notify"),
+            Some(&"ctrl+t".to_string())
+        );
     }
 
     /// Reproduce `load()`'s parse of one config line into `cfg`, including the

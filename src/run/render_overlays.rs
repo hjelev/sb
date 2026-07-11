@@ -353,6 +353,21 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             app.shortcut_capture,
             &mut app.footer_shortcut_zones,
         );
+    } else if app.mode == AppMode::Plugins {
+        let rows = app.plugin_panel_rows();
+        ui::panels::render_plugins_overlay(
+            f,
+            ui::panels::OverlayChrome {
+                anchor: tab_overlay_anchor,
+                panel_tab: app.panel_tab,
+                theme_id: app.active_theme,
+                nerd_font: app.nerd_font_active,
+            },
+            &rows,
+            app.plugins_selected,
+            app.plugin_key_capture,
+            &mut app.footer_shortcut_zones,
+        );
     } else if app.mode == AppMode::SshPicker {
         render_ssh_picker_overlay(f, app, ctx, tab_overlay_anchor);
     } else if app.mode == AppMode::ConfirmExtract {

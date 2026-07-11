@@ -51,6 +51,7 @@ impl App {
                     | (6, AppMode::Themes)
                     | (7, AppMode::Settings)
                     | (8, AppMode::Shortcuts)
+                    | (9, AppMode::Plugins)
             )
         {
             return;
@@ -109,6 +110,9 @@ impl App {
                 self.panel_tab = 8;
                 self.mode = AppMode::Shortcuts;
             }
+            9 => {
+                self.open_plugins_panel();
+            }
             _ => {}
         }
     }
@@ -128,8 +132,10 @@ impl App {
             | AppMode::SortMenu
             | AppMode::Settings
             | AppMode::Shortcuts
+            | AppMode::Plugins
             | AppMode::SshPicker => {
                 self.shortcut_capture = false;
+                self.plugin_key_capture = false;
                 self.mode = AppMode::Browsing;
             }
             _ => {}
@@ -147,6 +153,7 @@ impl App {
                 | AppMode::SortMenu
                 | AppMode::Settings
                 | AppMode::Shortcuts
+                | AppMode::Plugins
                 | AppMode::SshPicker
         ) {
             return false;
@@ -173,6 +180,7 @@ impl App {
                 | AppMode::SortMenu
                 | AppMode::Settings
                 | AppMode::Shortcuts
+                | AppMode::Plugins
                 | AppMode::SshPicker
         ) {
             return false;
@@ -649,6 +657,13 @@ impl App {
                     cursor_up(&mut self.shortcuts_selected);
                 } else {
                     cursor_down(&mut self.shortcuts_selected, crate::util::keymap::ACTIONS.len());
+                }
+            }
+            AppMode::Plugins => {
+                if scroll_up {
+                    cursor_up(&mut self.plugins_selected);
+                } else {
+                    cursor_down(&mut self.plugins_selected, self.plugins.plugins.len());
                 }
             }
             AppMode::SortMenu => {

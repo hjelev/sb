@@ -266,8 +266,11 @@ impl App {
             theme_id: self.active_theme,
             filename_color_mode: self.filename_color_mode,
         };
+        // Plugin previewer registrations are plain data (`Send`); the worker
+        // instantiates its own Lua to run a matching plugin's `peek()`.
+        let plugin_regs = self.plugins.previewer_regs();
         self.preview_rx = Some(spawn_worker(move |tx| {
-            let msg = App::build_preview_content(request_id, path, opts);
+            let msg = App::build_preview_content_with_plugins(request_id, path, opts, &plugin_regs);
             let _ = tx.send(msg);
         }));
     }
@@ -330,6 +333,38 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Preview dispatch entry for the worker thread: a matching plugin
+    /// previewer wins over every built-in except directory listings; on
+    /// plugin error the failure is shown (not silently swallowed) so broken
+    /// plugins are debuggable.
+    fn build_preview_content_with_plugins(
+        request_id: u64,
+        path: PathBuf,
+        opts: PreviewBuildOptions,
+        regs: &[crate::plugin::PreviewerReg],
+    ) -> PreviewContentMsg {
+        if !path.is_dir()
+            && let Some(reg) = crate::plugin::preview::match_previewer(regs, &path)
+        {
+            return match crate::plugin::preview::run_peek(reg, &path, 1000) {
+                Ok((lines, footer)) => PreviewContentMsg::Ready {
+                    request_id,
+                    path,
+                    line_kinds: vec![PreviewLineKind::Plain; lines.len()],
+                    lines,
+                    footer: footer.or_else(|| Some(format!("{} preview", reg.plugin))),
+                    image_rgb: None,
+                },
+                Err(message) => PreviewContentMsg::Failed {
+                    request_id,
+                    path,
+                    message: format!("[plugin {}: {}]", reg.plugin, message),
+                },
+            };
+        }
+        Self::build_preview_content(request_id, path, opts)
     }
 
     fn build_preview_content(

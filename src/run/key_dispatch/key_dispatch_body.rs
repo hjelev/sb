@@ -94,6 +94,12 @@ pub(crate) fn handle_app_key_event_body(
                 let command = app.input_buffer.clone();
                 app.clear_input_edit();
                 app.mode = AppMode::Browsing;
+                // Input starting with ':' runs a plugin's entry() instead of
+                // a shell command (e.g. `:touch-notify`).
+                if let Some(name) = command.trim().strip_prefix(':') {
+                    let name = name.trim().to_string();
+                    return run_plugin_entry(terminal, app, &name);
+                }
                 app.run_shell_command_and_wait_key(&command)?;
                 terminal.clear()?;
             }
@@ -293,10 +299,7 @@ pub(crate) fn handle_app_key_event_body(
                 app.mode = AppMode::Browsing;
             }
             KeyCode::BackTab => {
-                app.panel_tab = 8;
-                app.shortcuts_selected = 0;
-                app.shortcut_capture = false;
-                app.mode = AppMode::Shortcuts;
+                app.open_plugins_panel();
             }
             KeyCode::Up => {
                 app.help_scroll_offset = app.help_scroll_offset.saturating_sub(1);
@@ -610,9 +613,7 @@ pub(crate) fn handle_app_key_event_body(
                         app.maybe_check_api_key();
                     }
                     KeyCode::Tab => {
-                        app.panel_tab = 0;
-                        app.help_scroll_offset = 0;
-                        app.mode = AppMode::Help;
+                        app.open_plugins_panel();
                     }
                     KeyCode::Up => {
                         cursor_up(&mut app.shortcuts_selected);
@@ -638,6 +639,65 @@ pub(crate) fn handle_app_key_event_body(
                     }
                     KeyCode::Backspace | KeyCode::Delete => {
                         app.reset_selected_shortcut();
+                    }
+                    _ => {}
+                }
+            }
+        }
+        AppMode::Plugins => {
+            // While capturing, every key is a bind attempt except Esc.
+            if app.plugin_key_capture {
+                match key.code {
+                    KeyCode::Esc => {
+                        app.plugin_key_capture = false;
+                        app.set_status("bind cancelled");
+                    }
+                    _ => app.apply_plugin_key_capture(key),
+                }
+            } else {
+                match key.code {
+                    KeyCode::Esc | KeyCode::Char('q') => {
+                        app.mode = AppMode::Browsing;
+                    }
+                    KeyCode::BackTab => {
+                        app.panel_tab = 8;
+                        app.shortcuts_selected = 0;
+                        app.shortcut_capture = false;
+                        app.mode = AppMode::Shortcuts;
+                    }
+                    KeyCode::Tab => {
+                        app.panel_tab = 0;
+                        app.help_scroll_offset = 0;
+                        app.mode = AppMode::Help;
+                    }
+                    KeyCode::Up => {
+                        cursor_up(&mut app.plugins_selected);
+                    }
+                    KeyCode::Down => {
+                        cursor_down(&mut app.plugins_selected, app.plugins.plugins.len());
+                    }
+                    KeyCode::Home => {
+                        app.plugins_selected = 0;
+                    }
+                    KeyCode::End => {
+                        app.plugins_selected = app.plugins.plugins.len().saturating_sub(1);
+                    }
+                    KeyCode::Enter => {
+                        if let Some(name) = app.selected_plugin_name() {
+                            app.mode = AppMode::Browsing;
+                            return run_plugin_entry(terminal, app, &name);
+                        }
+                    }
+                    KeyCode::Char(' ') => {
+                        app.toggle_selected_plugin();
+                    }
+                    KeyCode::Char('b') => {
+                        if app.selected_plugin_name().is_some() {
+                            app.plugin_key_capture = true;
+                        }
+                    }
+                    KeyCode::Backspace | KeyCode::Delete => {
+                        app.reset_selected_plugin_key();
                     }
                     _ => {}
                 }

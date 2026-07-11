@@ -294,6 +294,7 @@ pub(crate) enum AppMode {
     SshPicker,
     Settings,
     Shortcuts,
+    Plugins,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

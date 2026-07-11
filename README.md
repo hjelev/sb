@@ -345,6 +345,62 @@ If an optional tool is not available, the feature is skipped or falls back grace
 </details>
 
 <details>
+<summary><strong>Lua Plugins</strong></summary>
+
+sb has a yazi-style Lua plugin system. Drop a script into `~/.config/sb/plugins/` as either `<name>.lua` or `<name>/main.lua` (the directory form wins when both exist) and it is loaded at startup. The script must return a module table:
+
+```lua
+local M = {}
+
+M.preview = { exts = { "txt", "log" } } -- optional: previewer registration ("*" = any file)
+
+function M.setup() end                  -- optional: one-time init at load
+
+function M.entry(ctx)                   -- a runnable command
+    sb.notify("hello " .. (ctx.name or ctx.cwd))
+end
+
+function M.peek(ctx)                    -- previewer for the listed extensions
+    return { lines = { "..." }, footer = "my preview" }  -- or a plain string
+end
+
+function M.on_start(ctx) end            -- event hooks
+function M.on_cd(ctx) end               -- ctx.prev holds the previous dir
+function M.on_select(ctx) end
+function M.on_quit(ctx) end
+
+return M
+```
+
+`ctx` carries `cwd`, `path`/`name` (selected entry), `files` (marked paths, or the selection), and `panel` (`"left"`/`"right"`).
+
+Running commands:
+
+- `;` then `:<name>` runs a plugin's `entry()` by name.
+- Open the **Plugins** panel with `P` to run (`Enter`), enable/disable (`Space`), bind a key (`b`), or unbind (`Backspace`) each plugin. Load errors show inline — a broken plugin never crashes sb.
+- Bindings persist as `plugin_key_<name> = <combo>` in `~/.config/sb/config`; disabled plugins as `disabled_plugins = a,b`. Built-in shortcuts always take precedence.
+
+The `sb` API available to `entry()`, hooks, and `sb.spawn` callbacks:
+
+| Function | Effect |
+| --- | --- |
+| `sb.notify(msg)` | show a status-line message |
+| `sb.cd(path)` | change the active panel's directory |
+| `sb.refresh()` | reload the active panel's listing |
+| `sb.select(name)` / `sb.mark(names)` / `sb.clear_marks()` | move the cursor / mark entries by name |
+| `sb.clipboard_set(paths)` | fill the app clipboard (for `v`/`m` paste) |
+| `sb.edit(path)` / `sb.view(path)` | open in `$EDITOR` / the pager (suspends the TUI) |
+| `sb.run(cmd)` | run a shell command in the foreground (suspends the TUI) |
+| `sb.spawn(cmd, on_done?)` | run a shell command in the background; `on_done({status, stdout, stderr})` fires later without blocking the UI |
+| `sb.version()` / `sb.plugin_dir()` / `sb.data_dir()` | version string / the plugin's directory / a per-plugin state dir (`~/.config/sb/plugin-data/<name>`) |
+
+Effects are applied after the Lua call returns (a plugin cannot observe its own `sb.cd` mid-call), hooks may not use the TUI-suspending calls, and `peek()` runs on a worker thread in a fresh Lua state where only the pure helpers exist (`setup()` is not re-run there). Plugins are ordinary user code with full `io`/`os` access — install only scripts you trust.
+
+Ready-to-copy samples live in [`examples/plugins/`](examples/plugins): `touch-notify` (command), `linecount` (previewer), `cdlog` (hooks + data dir), and `duh` (background `sb.spawn`).
+
+</details>
+
+<details>
 <summary><strong>Environment Notes</strong></summary>
 
 - `NERD_FONT_ACTIVE=1`: enable Nerd Font icons
