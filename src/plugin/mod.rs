@@ -23,6 +23,7 @@ pub(crate) mod api;
 pub(crate) mod discovery;
 pub(crate) mod effects;
 pub(crate) mod preview;
+pub(crate) mod prompt;
 pub(crate) mod runtime;
 
 use std::path::PathBuf;

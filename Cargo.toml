@@ -25,7 +25,7 @@ image = { version = "0.25", default-features = false, features = ["gif", "ico", 
 icy_sixel = "0.5"
 ureq = { version = "2", features = ["json"] }
 serde_json = "1"
-mlua = { version = "0.10", features = ["lua54", "vendored"] }
+mlua = { version = "0.10", features = ["lua54", "vendored", "serialize"] }
 
 [dev-dependencies]
 tempfile = "3"

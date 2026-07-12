@@ -379,6 +379,7 @@ Running commands:
 - `;` then `:<name>` runs a plugin's `entry()` by name.
 - Open the **Plugins** panel with `P` to run (`Enter`), enable/disable (`Space`), bind a key (`b`), or unbind (`Backspace`) each plugin. Load errors show inline — a broken plugin never crashes sb.
 - Bindings persist as `plugin_key_<name> = <combo>` in `~/.config/sb/config`; disabled plugins as `disabled_plugins = a,b`. Built-in shortcuts always take precedence.
+- `Ctrl+g` is hardwired to always run a plugin literally named `git-commit` (see [`examples/plugins/git-commit.lua`](examples/plugins/git-commit.lua)) — independent of the `plugin_key_*` binding system above. If no such plugin is installed/enabled, it just shows a status-line error. The rebindable `G` key runs sb's own built-in git commit+push workflow instead, unaffected by whether the plugin exists.
 
 The `sb` API available to `entry()`, hooks, and `sb.spawn` callbacks:
 
@@ -392,11 +393,15 @@ The `sb` API available to `entry()`, hooks, and `sb.spawn` callbacks:
 | `sb.edit(path)` / `sb.view(path)` | open in `$EDITOR` / the pager (suspends the TUI) |
 | `sb.run(cmd)` | run a shell command in the foreground (suspends the TUI) |
 | `sb.spawn(cmd, on_done?)` | run a shell command in the background; `on_done({status, stdout, stderr})` fires later without blocking the UI |
+| `sb.confirm(prompt) -> bool` | suspend the TUI, ask a yes/no question on plain stdio, return the answer (entry() only) |
+| `sb.input(prompt, prefill?) -> string\|nil` | suspend the TUI, prompt for a line of text on plain stdio, return it, or `prefill`/`nil` if left empty (entry() only) |
+| `sb.confirm_shell(cmd, question) -> bool` | suspend the TUI, run `cmd` with a real inherited terminal (so pagers/colorizers like `delta` work), then ask a yes/no question on the same screen and return the answer (entry() only) |
+| `sb.json_encode(value) -> string` / `sb.json_decode(str) -> value` | convert between Lua tables and JSON strings (e.g. for calling an HTTP API via `curl`/`sb.spawn`); errors on invalid input |
 | `sb.version()` / `sb.plugin_dir()` / `sb.data_dir()` | version string / the plugin's directory / a per-plugin state dir (`~/.config/sb/plugin-data/<name>`) |
 
-Effects are applied after the Lua call returns (a plugin cannot observe its own `sb.cd` mid-call), hooks may not use the TUI-suspending calls, and `peek()` runs on a worker thread in a fresh Lua state where only the pure helpers exist (`setup()` is not re-run there). Plugins are ordinary user code with full `io`/`os` access — install only scripts you trust.
+Effects are applied after the Lua call returns (a plugin cannot observe its own `sb.cd` mid-call), hooks may not use the TUI-suspending calls, and `peek()` runs on a worker thread in a fresh Lua state where only the pure helpers exist (`setup()` is not re-run there). `sb.confirm`/`sb.input`/`sb.confirm_shell` are the exception — they run and return synchronously *during* the Lua call, but only from `entry()`; calling them from a hook or `peek()` raises an error. Plugins are ordinary user code with full `io`/`os` access — install only scripts you trust.
 
-Ready-to-copy samples live in [`examples/plugins/`](examples/plugins): `touch-notify` (command), `linecount` (previewer), `cdlog` (hooks + data dir), and `duh` (background `sb.spawn`).
+Ready-to-copy samples live in [`examples/plugins/`](examples/plugins): `touch-notify` (command), `linecount` (previewer), `cdlog` (hooks + data dir), `duh` (background `sb.spawn`), and `git-commit` (`sb.confirm`/`sb.input` + a shelled-out git workflow).
 
 </details>
 

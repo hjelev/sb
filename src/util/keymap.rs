@@ -274,7 +274,7 @@ pub static ACTIONS: &[ActionSpec] = &[
     ActionSpec { action: Action::Bookmarks, id: "bookmarks", label: "Open bookmarks", category: EXT, default: KeyCombo::char('b'), fixed_alt: None },
     ActionSpec { action: Action::Themes, id: "themes", label: "Open themes panel", category: EXT, default: KeyCombo::char('T'), fixed_alt: None },
     ActionSpec { action: Action::Plugins, id: "plugins", label: "Open plugins panel", category: EXT, default: KeyCombo::char('P'), fixed_alt: None },
-    ActionSpec { action: Action::GitCommit, id: "git_commit", label: "Git: commit + push", category: SYS, default: KeyCombo::char('G'), fixed_alt: Some("Ctrl+g") },
+    ActionSpec { action: Action::GitCommit, id: "git_commit", label: "Git: commit + push", category: SYS, default: KeyCombo::char('G'), fixed_alt: None },
     ActionSpec { action: Action::GitLog, id: "git_log", label: "Git: view pretty log graph", category: SYS, default: KeyCombo::char('H'), fixed_alt: None },
     ActionSpec { action: Action::DropShell, id: "drop_shell", label: "Drop to shell in current dir", category: SYS, default: KeyCombo::ctrl('z'), fixed_alt: None },
     ActionSpec { action: Action::TodoFile, id: "todo_file", label: "Open ~/.todo in $EDITOR", category: SYS, default: KeyCombo::char('t'), fixed_alt: None },

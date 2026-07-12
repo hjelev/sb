@@ -773,7 +773,8 @@ pub fn render_help_overlay(
         (
             "System & Git",
             vec![
-                (format!("{} / Ctrl+g", k(Action::GitCommit)), "Git: Commit + Push (dirty repos)".to_string()),
+                (k(Action::GitCommit), "Git: Commit + Push (dirty repos, built-in)".to_string()),
+                ("Ctrl+g".to_string(), "Git: Commit + Push (external 'git-commit' plugin, if installed)".to_string()),
                 (k(Action::GitLog), "Git: View pretty log graph".to_string()),
                 (k(Action::DropShell), "Drop to shell in current directory".to_string()),
                 (k(Action::TodoFile), "Open ~/.todo in $EDITOR".to_string()),

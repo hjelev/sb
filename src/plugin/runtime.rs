@@ -1,7 +1,7 @@
 //! The plugin runtime: owns the main-thread Lua state, loads plugin module
 //! tables, and runs `entry()`/hooks/spawn-callbacks with contained errors.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -45,6 +45,9 @@ pub(crate) struct PluginRuntime {
     next_token: u64,
     /// Cached previewer registrations (rebuilt on load/enable changes).
     previewer_cache: Vec<PreviewerReg>,
+    /// Set when `sb.confirm`/`sb.input` suspended and resumed the terminal
+    /// during the last `entry()` call; the caller must `terminal.clear()`.
+    terminal_dirty: bool,
 }
 
 impl PluginRuntime {
@@ -65,7 +68,14 @@ impl PluginRuntime {
             active_spawns: 0,
             next_token: 1,
             previewer_cache: Vec::new(),
+            terminal_dirty: false,
         }
+    }
+
+    /// Take (and clear) whether `sb.confirm`/`sb.input` touched the terminal
+    /// during the last `entry()` call.
+    pub(crate) fn take_terminal_dirty(&mut self) -> bool {
+        std::mem::take(&mut self.terminal_dirty)
     }
 
     /// Build a runtime from discovered sources: loads every enabled plugin,
@@ -241,7 +251,7 @@ impl PluginRuntime {
                 return Err(format!("plugin '{}' has no entry()", name));
             }
         }
-        let result = self.call_module_fn(idx, "entry", ctx, true);
+        let result = self.call_module_fn(idx, "entry", ctx, true, true);
         if let Err(msg) = &result {
             self.plugins[idx].last_error = Some(msg.clone());
         }
@@ -273,7 +283,7 @@ impl PluginRuntime {
             if !wants {
                 continue;
             }
-            match self.call_module_fn(idx, fn_name, ctx, true) {
+            match self.call_module_fn(idx, fn_name, ctx, true, false) {
                 Ok(mut effects) => all.append(&mut effects),
                 Err(msg) => self.plugins[idx].last_error = Some(msg),
             }
@@ -289,11 +299,13 @@ impl PluginRuntime {
         fn_name: &str,
         ctx: &PluginCtx,
         allow_spawn: bool,
+        allow_terminal: bool,
     ) -> Result<Vec<PluginEffect>, String> {
         let plugin_name = self.plugins[idx].source.name.clone();
         let plugin_dir = plugin_dir_of(&self.plugins[idx].source);
         let effects = Rc::new(RefCell::new(Vec::new()));
         let spawns = allow_spawn.then(|| Rc::new(RefCell::new(Vec::<SpawnReq>::new())));
+        let term_flag = allow_terminal.then(|| Rc::new(Cell::new(false)));
 
         let call = || -> mlua::Result<()> {
             let key = self.plugins[idx]
@@ -308,6 +320,7 @@ impl PluginRuntime {
                 plugin_dir,
                 effects.clone(),
                 spawns.clone(),
+                term_flag.clone(),
             )?;
             let ctx_t = api::ctx_table(&self.lua, ctx)?;
             self.lua.globals().set("sb", sb)?;
@@ -319,6 +332,9 @@ impl PluginRuntime {
             for req in reqs.take() {
                 self.start_spawn(&plugin_name, req);
             }
+        }
+        if let Some(flag) = term_flag {
+            self.terminal_dirty |= flag.get();
         }
         result.map(|()| effects.take())
     }
@@ -397,6 +413,7 @@ impl PluginRuntime {
                 plugin_dir,
                 effects.clone(),
                 Some(spawns.clone()),
+                None,
             )?;
             self.lua.globals().set("sb", sb)?;
             let res = self.lua.create_table()?;
@@ -625,5 +642,64 @@ mod tests {
             vec![PluginEffect::Status("got: hello\n".to_string())]
         );
         assert!(!rt.has_pending_spawns());
+    }
+
+    #[test]
+    fn confirm_and_input_are_unavailable_from_hooks() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = write_plugin(
+            tmp.path(),
+            "asks_in_hook",
+            "local M = {}\nfunction M.on_cd() sb.confirm('really?') end\nreturn M",
+        );
+        let mut rt = PluginRuntime::init(vec![src], &[], &HashMap::new());
+        assert!(rt.wants_hook(Hook::Cd));
+        // run_hook swallows per-plugin errors into last_error rather than
+        // propagating them, so drive it through and check the recorded error.
+        let _ = rt.run_hook(Hook::Cd, &ctx());
+        let err = rt.plugins[0].last_error.as_deref().unwrap();
+        assert!(err.contains("sb.confirm is not available here"), "got: {err}");
+    }
+
+    #[test]
+    fn example_git_commit_plugin_loads_cleanly() {
+        let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("examples/plugins/git-commit.lua");
+        let src = PluginSource {
+            name: "git-commit".to_string(),
+            script,
+        };
+        let rt = PluginRuntime::init(vec![src], &[], &HashMap::new());
+        let p = &rt.plugins[0];
+        assert!(p.last_error.is_none(), "load error: {:?}", p.last_error);
+        assert!(p.has_entry);
+    }
+
+    #[test]
+    fn json_encode_decode_round_trips_and_is_available_everywhere() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = write_plugin(
+            tmp.path(),
+            "json",
+            r#"
+            local M = {}
+            function M.entry(ctx)
+                local encoded = sb.json_encode({ a = 1, b = "two", c = { 3, 4 } })
+                local decoded = sb.json_decode(encoded)
+                sb.notify(decoded.b .. ":" .. decoded.c[2])
+            end
+            function M.on_start(ctx)
+                -- Pure helpers must also work from hooks (no terminal needed).
+                sb.notify(sb.json_encode({ ok = true }))
+            end
+            return M
+            "#,
+        );
+        let mut rt = PluginRuntime::init(vec![src], &[], &HashMap::new());
+        let effects = rt.run_entry("json", &ctx()).unwrap();
+        assert_eq!(effects, vec![PluginEffect::Status("two:4".to_string())]);
+        assert!(rt.wants_hook(Hook::Start));
+        let effects = rt.run_hook(Hook::Start, &ctx());
+        assert_eq!(effects, vec![PluginEffect::Status("{\"ok\":true}".to_string())]);
     }
 }

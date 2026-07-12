@@ -5,11 +5,11 @@
 //! is applied after the Lua call returns. `sb.spawn` requests are likewise
 //! collected and started by the runtime once the call completes.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use mlua::{Lua, Table, Value};
+use mlua::{Lua, LuaSerdeExt, Table, Value};
 
 use super::{PluginCtx, PluginEffect};
 
@@ -45,13 +45,17 @@ pub(crate) fn ctx_table(lua: &Lua, ctx: &PluginCtx) -> mlua::Result<Table> {
 /// Build the full `sb` table for `entry()`/hook/spawn-callback calls on the
 /// main-thread Lua. `spawns` collects `sb.spawn` requests; pass `None` to
 /// reject them (hooks could allow them, but v1 keeps spawn entry-only if the
-/// runtime chooses so).
+/// runtime chooses so). `terminal` is `Some(dirty_flag)` only when called
+/// from `entry()` dispatch, where a real terminal handle is in scope for
+/// `sb.confirm`/`sb.input` to suspend/resume around; the flag is set when
+/// either is used so the caller knows to `terminal.clear()` afterwards.
 pub(crate) fn build_sb_table(
     lua: &Lua,
     plugin_name: &str,
     plugin_dir: PathBuf,
     effects: Rc<RefCell<Vec<PluginEffect>>>,
     spawns: Option<Rc<RefCell<Vec<SpawnReq>>>>,
+    terminal: Option<Rc<Cell<bool>>>,
 ) -> mlua::Result<Table> {
     let t = build_pure_helpers(lua, plugin_name, plugin_dir)?;
 
@@ -115,6 +119,53 @@ pub(crate) fn build_sb_table(
         }
     }
 
+    match terminal {
+        Some(dirty) => {
+            let d = dirty.clone();
+            t.set(
+                "confirm",
+                lua.create_function(move |_, prompt: String| -> mlua::Result<bool> {
+                    let r = super::prompt::confirm(&prompt).map_err(mlua::Error::runtime)?;
+                    d.set(true);
+                    Ok(r)
+                })?,
+            )?;
+            let d = dirty.clone();
+            t.set(
+                "input",
+                lua.create_function(
+                    move |_, (prompt, prefill): (String, Option<String>)| -> mlua::Result<Option<String>> {
+                        let r = super::prompt::input(&prompt, prefill.as_deref())
+                            .map_err(mlua::Error::runtime)?;
+                        d.set(true);
+                        Ok(r)
+                    },
+                )?,
+            )?;
+            t.set(
+                "confirm_shell",
+                lua.create_function(
+                    move |_, (cmd, question): (String, String)| -> mlua::Result<bool> {
+                        let r = super::prompt::confirm_shell(&cmd, &question)
+                            .map_err(mlua::Error::runtime)?;
+                        dirty.set(true);
+                        Ok(r)
+                    },
+                )?,
+            )?;
+        }
+        None => {
+            for name in ["confirm", "input", "confirm_shell"] {
+                t.set(
+                    name,
+                    lua.create_function(move |_, _: mlua::MultiValue| -> mlua::Result<()> {
+                        Err(mlua::Error::runtime(format!("sb.{} is not available here", name)))
+                    })?,
+                )?;
+            }
+        }
+    }
+
     Ok(t)
 }
 
@@ -129,7 +180,7 @@ pub(crate) fn build_sb_preview_table(
     let t = build_pure_helpers(lua, plugin_name, plugin_dir)?;
     for name in [
         "notify", "cd", "refresh", "select", "mark", "clear_marks",
-        "clipboard_set", "edit", "view", "run", "spawn",
+        "clipboard_set", "edit", "view", "run", "spawn", "confirm", "input", "confirm_shell",
     ] {
         t.set(
             name,
@@ -167,6 +218,21 @@ fn build_pure_helpers(
             let dir = super::discovery::plugin_data_dir(&name);
             std::fs::create_dir_all(&dir).map_err(mlua::Error::runtime)?;
             Ok(dir.to_string_lossy().into_owned())
+        })?,
+    )?;
+    t.set(
+        "json_encode",
+        lua.create_function(|lua, value: Value| -> mlua::Result<String> {
+            let json: serde_json::Value = lua.from_value(value)?;
+            serde_json::to_string(&json).map_err(mlua::Error::runtime)
+        })?,
+    )?;
+    t.set(
+        "json_decode",
+        lua.create_function(|lua, text: String| -> mlua::Result<Value> {
+            let json: serde_json::Value =
+                serde_json::from_str(&text).map_err(mlua::Error::runtime)?;
+            lua.to_value(&json)
         })?,
     )?;
     Ok(t)
