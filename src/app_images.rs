@@ -473,7 +473,7 @@ impl App {
     /// pane image vs. the help-screen logo) untouched.
     pub(crate) fn clear_kitty_pane_image(image_id: u32) -> io::Result<()> {
         let mut out = io::stdout();
-        write!(out, "\x1b_Ga=d,d=i,i={}\x1b\\", image_id)?;
+        write!(out, "\x1b_Ga=d,d=i,i={},q=2\x1b\\", image_id)?;
         out.flush()
     }
 
@@ -512,7 +512,7 @@ impl App {
             if offset == 0 {
                 write!(
                     out,
-                    "\x1b_Ga=T,f=100,i={},s={},v={},c={},r={},m={};{}\x1b\\",
+                    "\x1b_Ga=T,f=100,i={},s={},v={},c={},r={},m={},q=2;{}\x1b\\",
                     image_id, img_w, img_h, pane.width, pane.height, more,
                     std::str::from_utf8(chunk).unwrap_or("")
                 )?;
@@ -751,7 +751,10 @@ impl App {
         let (png_data, w, h) = Self::decode_to_png_bytes(path, max_edge)?;
         let payload = BASE64_STANDARD.encode(&png_data);
 
-        // Kitty graphics protocol: chunked transmission, f=100 (PNG), t=d (direct)
+        // Kitty graphics protocol: chunked transmission, f=100 (PNG), t=d (direct).
+        // q=2 suppresses kitty's APC acknowledgment on every graphics command here
+        // and below: crossterm has no APC parser and would deliver the response
+        // bytes ("\x1b_Gi=1;OK\x1b\\") as stray keypresses (G, i, ...).
         let chunk_size = 4096;
         let bytes = payload.as_bytes();
         let mut out = io::stdout();
@@ -762,7 +765,7 @@ impl App {
             let chunk = &bytes[offset..end];
             let more = if end < bytes.len() { 1 } else { 0 };
             if offset == 0 {
-                write!(out, "\x1b_Ga=T,f=100,s={},v={},m={};{}\x1b\\", w, h, more,
+                write!(out, "\x1b_Ga=T,f=100,s={},v={},m={},q=2;{}\x1b\\", w, h, more,
                     std::str::from_utf8(chunk).unwrap_or("")).map_err(|e| e.to_string())?;
             } else {
                 write!(out, "\x1b_Gm={};{}\x1b\\", more,

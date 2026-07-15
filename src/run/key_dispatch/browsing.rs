@@ -5,7 +5,8 @@ use crate::util::tui::{resume_tui, resume_tui_cleared, suspend_tui};
 
 /// Browsing-mode dispatch runs in two stages: first the fixed structural keys
 /// (navigation, marking, dialogs, digit bookmarks, and the non-rebindable
-/// F-key/Delete/Ctrl+g alternates), then a lookup of the remaining keys in
+/// F-key/Delete alternates, plus a hardwired Ctrl+g that always invokes the
+/// external `git-commit` plugin), then a lookup of the remaining keys in
 /// the user's [`crate::util::keymap::KeyMap`], which routes rebindable
 /// commands through [`dispatch_action`].
 pub(crate) fn handle_browsing_key(
@@ -25,7 +26,7 @@ pub(crate) fn handle_browsing_key(
         KeyCode::F(4) => return dispatch_action(terminal, app, Action::Edit),
         KeyCode::Delete => return dispatch_action(terminal, app, Action::Delete),
         KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            return dispatch_action(terminal, app, Action::GitCommit);
+            return run_plugin_entry(terminal, app, "git-commit");
         }
         KeyCode::Tab => {
             if app.is_dual_panel_mode() {
@@ -174,7 +175,11 @@ pub(crate) fn run_plugin_entry(
     use crate::plugin::PluginEffect;
 
     let ctx = app.plugin_ctx();
-    match app.plugins.run_entry(name, &ctx) {
+    let result = app.plugins.run_entry(name, &ctx);
+    if app.plugins.take_terminal_dirty() {
+        terminal.clear()?;
+    }
+    match result {
         Ok(effects) => {
             for effect in app.apply_plugin_effects(effects, true) {
                 match effect {
