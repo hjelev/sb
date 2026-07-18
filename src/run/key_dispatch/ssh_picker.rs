@@ -1,5 +1,5 @@
 use super::*;
-use crate::util::tui::{resume_tui, suspend_tui};
+use crate::util::tui::{self, ResumeMode};
 
 pub(crate) fn handle_ssh_picker_key(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
@@ -17,27 +17,28 @@ pub(crate) fn handle_ssh_picker_key(
             app.begin_sort_menu();
         }
         KeyCode::Up => {
-            if app.ssh_picker_selection > 0 {
-                app.ssh_picker_selection -= 1;
+            if app.remote.picker_selection > 0 {
+                app.remote.picker_selection -= 1;
             }
         }
         KeyCode::Down => {
-            if !app.remote_entries.is_empty() && app.ssh_picker_selection < app.remote_entries.len() - 1 {
-                app.ssh_picker_selection += 1;
+            if !app.remote.entries.is_empty() && app.remote.picker_selection < app.remote.entries.len() - 1 {
+                app.remote.picker_selection += 1;
             }
         }
         KeyCode::Enter | KeyCode::Right => {
-            if let Some(entry) = app.remote_entries.get(app.ssh_picker_selection).cloned() {
+            if let Some(entry) = app.remote.entries.get(app.remote.picker_selection).cloned() {
                 let alias = entry.alias().to_string();
                 match entry {
                     RemoteEntry::Ssh(host) => {
-                        let already_mounted = app.ssh_mounts.iter().any(|m| m.host_alias == alias);
+                        let already_mounted = app.remote.ssh_mounts.iter().any(|m| m.host_alias == alias);
                         if already_mounted {
                             app.mount_ssh_host(&host)?;
                         } else {
-                            suspend_tui()?;
-                            let result = app.mount_ssh_host(&host);
-                            resume_tui()?;
+                            let result = {
+                                let _tui = tui::suspend(ResumeMode::Plain)?;
+                                app.mount_ssh_host(&host)
+                            };
                             terminal.clear()?;
                             if result.is_err() {
                                 app.set_status(format!("Failed to mount {}", alias));
@@ -46,14 +47,15 @@ pub(crate) fn handle_ssh_picker_key(
                         }
                     }
                     RemoteEntry::Rclone { name, rtype } => {
-                        let already_mounted = app.ssh_mounts.iter().any(|m| m.host_alias == alias);
+                        let already_mounted = app.remote.ssh_mounts.iter().any(|m| m.host_alias == alias);
                         if already_mounted {
                             app.mount_rclone_remote(&name, &rtype)?;
                         } else {
-                            suspend_tui()?;
-                            println!("Connecting to rclone remote: {}…", name);
-                            let result = app.mount_rclone_remote(&name, &rtype);
-                            resume_tui()?;
+                            let result = {
+                                let _tui = tui::suspend(ResumeMode::Plain)?;
+                                println!("Connecting to rclone remote: {}…", name);
+                                app.mount_rclone_remote(&name, &rtype)
+                            };
                             terminal.clear()?;
                             if result.is_err() {
                                 app.set_status(format!("Failed to mount rclone remote {}", name));
@@ -83,7 +85,7 @@ pub(crate) fn handle_ssh_picker_key(
             }
         }
         KeyCode::Char('u') | KeyCode::Delete => {
-            if let Some(entry) = app.remote_entries.get(app.ssh_picker_selection).cloned() {
+            if let Some(entry) = app.remote.entries.get(app.remote.picker_selection).cloned() {
                 match entry {
                     RemoteEntry::Ssh(host) => {
                         if app.unmount_ssh_mount_by_alias(&host.alias) {
@@ -115,7 +117,7 @@ pub(crate) fn handle_ssh_picker_key(
             }
         }
         KeyCode::Char('s') | KeyCode::Char('S') => {
-            if let Some(entry) = app.remote_entries.get(app.ssh_picker_selection).cloned() {
+            if let Some(entry) = app.remote.entries.get(app.remote.picker_selection).cloned() {
                 match entry {
                     RemoteEntry::Ssh(host) => {
                         app.open_ssh_shell_session(&host)?;

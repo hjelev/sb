@@ -53,7 +53,7 @@ impl App {
     pub(crate) fn consume_quick_tree_double_tap(&mut self, key: char) -> bool {
         let now = Instant::now();
         let is_double = self
-            .tree_last_tap
+            .tree.last_tap
             .map(|(last_key, last_ts)| {
                 last_key == key
                     && now.duration_since(last_ts)
@@ -61,7 +61,7 @@ impl App {
             })
             .unwrap_or(false);
 
-        self.tree_last_tap = if is_double { None } else { Some((key, now)) };
+        self.tree.last_tap = if is_double { None } else { Some((key, now)) };
         is_double
     }
 
@@ -156,9 +156,9 @@ impl App {
         }
         let step = levels.max(1);
         for path in targets {
-            let current = self.tree_expansion_levels.get(&path).copied().unwrap_or(0);
+            let current = self.tree.expansion_levels.get(&path).copied().unwrap_or(0);
             let max_expand = self.max_expand_level_for_dir(&path);
-            self.tree_expansion_levels
+            self.tree.expansion_levels
                 .insert(path, current.saturating_add(step).min(max_expand));
         }
         self.refresh_active_panel_entries_or_status();
@@ -171,19 +171,19 @@ impl App {
             return;
         }
         for path in targets {
-            let current = self.tree_expansion_levels.get(&path).copied().unwrap_or(0);
+            let current = self.tree.expansion_levels.get(&path).copied().unwrap_or(0);
             let next = current.saturating_sub(levels.max(1));
             if next == 0 {
-                self.tree_expansion_levels.remove(&path);
+                self.tree.expansion_levels.remove(&path);
             } else {
-                self.tree_expansion_levels.insert(path, next);
+                self.tree.expansion_levels.insert(path, next);
             }
         }
         self.refresh_active_panel_entries_or_status();
     }
 
     pub(crate) fn collapse_all_tree_expansions(&mut self) {
-        self.tree_expansion_levels.clear();
+        self.tree.expansion_levels.clear();
         self.refresh_active_panel_entries_or_status();
     }
 
@@ -195,7 +195,7 @@ impl App {
         }
         for path in targets {
             let max_expand = self.max_expand_level_for_dir(&path);
-            self.tree_expansion_levels.insert(path, max_expand);
+            self.tree.expansion_levels.insert(path, max_expand);
         }
         self.refresh_active_panel_entries_or_status();
     }

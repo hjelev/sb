@@ -18,7 +18,7 @@ enum SettingInvalidation {
 impl App {
     pub(crate) fn set_active_theme(&mut self, theme_id: ui::theme::ThemeId) {
         self.active_theme = theme_id;
-        self.theme_selected = ui::theme::themes()
+        self.themes.selected = ui::theme::themes()
             .iter()
             .position(|theme| theme.id == theme_id)
             .unwrap_or(0);
@@ -53,7 +53,7 @@ impl App {
     }
 
     pub(crate) fn apply_selected_theme(&mut self) {
-        if let Some(theme) = ui::theme::themes().get(self.theme_selected) {
+        if let Some(theme) = ui::theme::themes().get(self.themes.selected) {
             self.set_active_theme(theme.id);
         }
     }
@@ -74,8 +74,8 @@ impl App {
                 // Folder previews bake the colors into their cached lines, so drop
                 // the memoized previews and rebuild the current one (no-op unless
                 // visible).
-                self.preview_cache.clear();
-                self.preview_target_path = None;
+                self.preview.cache.clear();
+                self.preview.target_path = None;
                 self.request_preview_for_selected();
             }
         }

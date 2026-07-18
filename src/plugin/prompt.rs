@@ -7,13 +7,13 @@ use std::io::{self, Write};
 use std::process::Command;
 
 use crossterm::{
-    cursor::{Hide, MoveLeft, MoveTo, Show},
+    cursor::{MoveLeft, MoveTo},
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
     terminal::{Clear as TermClear, ClearType, disable_raw_mode, enable_raw_mode},
 };
 
-use crate::util::tui::{resume_tui, suspend_tui};
+use crate::util::tui::{self, ResumeMode};
 
 fn byte_index_for_char(s: &str, char_index: usize) -> usize {
     if char_index == 0 {
@@ -39,14 +39,14 @@ fn redraw_line(label: &str, buffer: &str, cursor: usize) -> io::Result<()> {
 }
 
 pub(crate) fn confirm(prompt: &str) -> io::Result<bool> {
-    suspend_tui()?;
+    let _tui = tui::suspend(ResumeMode::Plain)?;
     execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
     print!("{}\n[y/N]: ", prompt);
     io::stdout().flush()?;
     let mut answer = String::new();
     io::stdin().read_line(&mut answer)?;
     let confirmed = matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes");
-    resume_tui()?;
+    drop(_tui);
     execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
     Ok(confirmed)
 }
@@ -57,8 +57,8 @@ pub(crate) fn confirm(prompt: &str) -> io::Result<bool> {
 /// overlays' editing feel. Enter submits the (possibly empty) buffer; Esc
 /// cancels.
 pub(crate) fn input(prompt: &str, prefill: Option<&str>) -> io::Result<Option<String>> {
-    suspend_tui()?;
-    execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0), Show)?;
+    let _tui = tui::suspend_showing_cursor(ResumeMode::Plain)?;
+    execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
     enable_raw_mode()?;
 
     let label = format!("{}: ", prompt);
@@ -105,8 +105,7 @@ pub(crate) fn input(prompt: &str, prefill: Option<&str>) -> io::Result<Option<St
     };
 
     disable_raw_mode()?;
-    execute!(io::stdout(), Hide)?;
-    resume_tui()?;
+    drop(_tui);
     execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
     Ok(result)
 }
@@ -115,7 +114,7 @@ pub(crate) fn input(prompt: &str, prefill: Option<&str>) -> io::Result<Option<St
 /// like `delta` render exactly as they would from a plain shell), then ask a
 /// yes/no question on the same still-suspended screen and return the answer.
 pub(crate) fn confirm_shell(cmd: &str, question: &str) -> io::Result<bool> {
-    suspend_tui()?;
+    let _tui = tui::suspend(ResumeMode::Plain)?;
     execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
     println!("$ {}", cmd);
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
@@ -125,7 +124,7 @@ pub(crate) fn confirm_shell(cmd: &str, question: &str) -> io::Result<bool> {
     let mut answer = String::new();
     io::stdin().read_line(&mut answer)?;
     let confirmed = matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes");
-    resume_tui()?;
+    drop(_tui);
     execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
     Ok(confirmed)
 }

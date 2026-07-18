@@ -200,11 +200,11 @@ impl App {
     /// Resolve the API key: the persisted config value, or the provider's env
     /// var as a fallback. Returns `None` when neither is set.
     pub(crate) fn resolve_ai_api_key(&self) -> Option<String> {
-        let key = self.ai_api_key.trim();
+        let key = self.ai.api_key.trim();
         if !key.is_empty() {
             return Some(key.to_string());
         }
-        let provider = provider_by_key(&self.ai_provider);
+        let provider = provider_by_key(&self.ai.provider);
         std::env::var(provider.env_var)
             .ok()
             .map(|s| s.trim().to_string())
@@ -213,8 +213,8 @@ impl App {
 
     /// Resolve the model id: the configured value, or the provider default.
     pub(crate) fn resolve_ai_model(&self) -> String {
-        let provider = provider_by_key(&self.ai_provider);
-        let model = self.ai_model.trim();
+        let provider = provider_by_key(&self.ai.provider);
+        let model = self.ai.model.trim();
         if model.is_empty() {
             provider.default_model.to_string()
         } else {
@@ -226,11 +226,11 @@ impl App {
     /// On success [`pump_ai_commit`](Self::pump_ai_commit) prefills the commit
     /// input; on any failure it sets a status message instead.
     pub(crate) fn request_commit_message(&mut self) {
-        if self.ai_commit_rx.is_some() {
+        if self.ai.commit_rx.is_some() {
             self.set_status("AI commit message already generating...");
             return;
         }
-        let provider = provider_by_key(&self.ai_provider);
+        let provider = provider_by_key(&self.ai.provider);
         let Some(api_key) = self.resolve_ai_api_key() else {
             self.set_status(format!(
                 "no API key — set it in Settings (Tab) or export ${}",
@@ -246,7 +246,7 @@ impl App {
         let endpoint = provider.endpoint.to_string();
         let model = self.resolve_ai_model();
         self.set_status(format!("generating commit message via {}...", provider.label));
-        self.ai_commit_rx = Some(spawn_worker(move |tx| {
+        self.ai.commit_rx = Some(spawn_worker(move |tx| {
             let result = generate_commit_message(&endpoint, &api_key, &model, &diff);
             let _ = tx.send(match result {
                 Ok(msg) => AiCommitMsg::Ok(msg),
@@ -260,23 +260,23 @@ impl App {
         let n = AI_PROVIDERS.len();
         let idx = AI_PROVIDERS
             .iter()
-            .position(|p| p.key == self.ai_provider)
+            .position(|p| p.key == self.ai.provider)
             .unwrap_or(0);
         let next = if forward { (idx + 1) % n } else { (idx + n - 1) % n };
         // Save the current provider's key, then switch and load the new
         // provider's key into the live buffer so the Settings field shows it.
-        self.ai_api_keys
-            .insert(self.ai_provider.clone(), self.ai_api_key.clone());
-        self.ai_provider = AI_PROVIDERS[next].key.to_string();
-        self.ai_api_key = self
-            .ai_api_keys
-            .get(&self.ai_provider)
+        self.ai.api_keys
+            .insert(self.ai.provider.clone(), self.ai.api_key.clone());
+        self.ai.provider = AI_PROVIDERS[next].key.to_string();
+        self.ai.api_key = self
+            .ai.api_keys
+            .get(&self.ai.provider)
             .cloned()
             .unwrap_or_default();
         // Reset validation state for the newly-shown key, then re-validate it.
-        self.ai_key_status = AiKeyStatus::Unknown;
-        self.ai_key_checked = None;
-        self.ai_key_edit_at = None;
+        self.ai.key_status = AiKeyStatus::Unknown;
+        self.ai.key_checked = None;
+        self.ai.key_edit_at = None;
         self.persist_ai_settings();
         self.maybe_check_api_key();
         self.set_status(format!("AI provider: {}", AI_PROVIDERS[next].label));
@@ -285,9 +285,9 @@ impl App {
     /// Append a character to the focused Settings text field (Model or API Key).
     pub(crate) fn settings_input_char(&mut self, c: char) {
         match self.settings_selected {
-            1 => self.ai_model.push(c),
+            1 => self.ai.model.push(c),
             2 => {
-                self.ai_api_key.push(c);
+                self.ai.api_key.push(c);
                 self.sync_active_api_key();
                 self.note_ai_key_edited();
             }
@@ -300,10 +300,10 @@ impl App {
     pub(crate) fn settings_input_backspace(&mut self) {
         match self.settings_selected {
             1 => {
-                self.ai_model.pop();
+                self.ai.model.pop();
             }
             2 => {
-                self.ai_api_key.pop();
+                self.ai.api_key.pop();
                 self.sync_active_api_key();
                 self.note_ai_key_edited();
             }
@@ -315,16 +315,16 @@ impl App {
     /// Mirror the live API-key buffer into the active provider's slot so the
     /// per-provider store stays authoritative between provider switches.
     fn sync_active_api_key(&mut self) {
-        self.ai_api_keys
-            .insert(self.ai_provider.clone(), self.ai_api_key.clone());
+        self.ai.api_keys
+            .insert(self.ai.provider.clone(), self.ai.api_key.clone());
     }
 
     /// Mark the API key as just-edited: clear any prior validation result (the
     /// ✓/✗ disappears the moment the key changes) and arm the debounce so the
     /// new value is re-checked once the user pauses.
     fn note_ai_key_edited(&mut self) {
-        self.ai_key_status = AiKeyStatus::Unknown;
-        self.ai_key_edit_at = Some(Instant::now());
+        self.ai.key_status = AiKeyStatus::Unknown;
+        self.ai.key_edit_at = Some(Instant::now());
     }
 
     /// Begin a background validation of the current API key — unless it's empty
@@ -332,24 +332,24 @@ impl App {
     /// field, when typing pauses (debounce), and when the Settings panel opens.
     pub(crate) fn maybe_check_api_key(&mut self) {
         // Consume any pending debounce regardless of outcome.
-        self.ai_key_edit_at = None;
-        let key = self.ai_api_key.trim().to_string();
+        self.ai.key_edit_at = None;
+        let key = self.ai.api_key.trim().to_string();
         if key.is_empty() {
-            self.ai_key_status = AiKeyStatus::Unknown;
-            self.ai_key_checked = None;
+            self.ai.key_status = AiKeyStatus::Unknown;
+            self.ai.key_checked = None;
             return;
         }
-        if self.ai_key_checked.as_deref() == Some(key.as_str()) {
+        if self.ai.key_checked.as_deref() == Some(key.as_str()) {
             return; // already validated this exact value
         }
-        self.ai_key_checked = Some(key.clone());
-        self.ai_key_status = AiKeyStatus::Checking;
-        let provider = provider_by_key(&self.ai_provider);
+        self.ai.key_checked = Some(key.clone());
+        self.ai.key_status = AiKeyStatus::Checking;
+        let provider = provider_by_key(&self.ai.provider);
         let endpoint = provider.endpoint.to_string();
         let model = self.resolve_ai_model();
         // Replacing the receiver drops any in-flight check; its result is for an
         // older key and `pump_ai_key_check` would discard it anyway.
-        self.ai_key_check_rx = Some(spawn_worker(move |tx| {
+        self.ai.key_check_rx = Some(spawn_worker(move |tx| {
             let msg = match check_api_key(&endpoint, &key, &model) {
                 Ok(valid) => AiKeyCheckMsg::Result { key, valid },
                 Err(message) => AiKeyCheckMsg::Error { key, message },
@@ -361,20 +361,20 @@ impl App {
     /// Fire the debounced key check after the user pauses, and poll the
     /// validation channel. Results for a since-changed key are discarded.
     pub(crate) fn pump_ai_key_check(&mut self) {
-        if let Some(edited) = self.ai_key_edit_at
+        if let Some(edited) = self.ai.key_edit_at
             && edited.elapsed() >= KEY_CHECK_DEBOUNCE {
                 self.maybe_check_api_key();
             }
-        match pump_once(&mut self.ai_key_check_rx) {
+        match pump_once(&mut self.ai.key_check_rx) {
             Some(AiKeyCheckMsg::Result { key, valid }) => {
-                if self.ai_api_key.trim() == key {
-                    self.ai_key_status =
+                if self.ai.api_key.trim() == key {
+                    self.ai.key_status =
                         if valid { AiKeyStatus::Valid } else { AiKeyStatus::Invalid };
                 }
             }
             Some(AiKeyCheckMsg::Error { key, message }) => {
-                if self.ai_api_key.trim() == key {
-                    self.ai_key_status = AiKeyStatus::Unknown;
+                if self.ai.api_key.trim() == key {
+                    self.ai.key_status = AiKeyStatus::Unknown;
                     self.set_status(message);
                 }
             }
@@ -386,10 +386,10 @@ impl App {
     /// config file. A failed write would silently lose the user's API key, so
     /// it is surfaced as a status message.
     fn persist_ai_settings(&mut self) {
-        let provider = self.ai_provider.clone();
-        let model = self.ai_model.clone();
-        let keys = self.ai_api_keys.clone();
-        let auto = self.ai_auto_commit;
+        let provider = self.ai.provider.clone();
+        let model = self.ai.model.clone();
+        let keys = self.ai.api_keys.clone();
+        let auto = self.ai.auto_commit;
         let result = crate::util::config::SbPersistConfig::update(move |cfg| {
             cfg.ai_provider = provider;
             cfg.ai_model = model;
@@ -405,18 +405,18 @@ impl App {
     /// it. When enabled, opening the commit prompt generates an AI message
     /// automatically without pressing Ctrl+G.
     pub(crate) fn settings_toggle_auto_commit(&mut self) {
-        self.ai_auto_commit = !self.ai_auto_commit;
+        self.ai.auto_commit = !self.ai.auto_commit;
         self.persist_ai_settings();
         self.set_status(format!(
             "Auto AI commit: {}",
-            if self.ai_auto_commit { "on" } else { "off" }
+            if self.ai.auto_commit { "on" } else { "off" }
         ));
     }
 
     /// Poll the AI commit-message channel. On success, prefill the (still
     /// editable) commit-message input if the user is still entering one.
     pub(crate) fn pump_ai_commit(&mut self) {
-        match pump_once(&mut self.ai_commit_rx) {
+        match pump_once(&mut self.ai.commit_rx) {
             Some(AiCommitMsg::Ok(text)) => {
                 if self.mode == AppMode::GitCommitMessage {
                     self.begin_input_edit(AppMode::GitCommitMessage, text);

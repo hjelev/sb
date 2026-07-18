@@ -1,7 +1,7 @@
 use super::*;
 use crate::ui::theme;
 use crate::util::list::{cursor_down, cursor_up};
-use crate::util::tui::{resume_tui, suspend_tui};
+use crate::util::tui::{self, ResumeMode};
 
 /// Shared editing keys for every single-line text-input mode: cursor movement,
 /// deletion, and plain character insertion. Ctrl/Alt chords are not consumed,
@@ -76,14 +76,14 @@ pub(crate) fn handle_app_key_event_body(
                 app.switch_sqlite_preview_table(1);
             }
             KeyCode::Home => {
-                if !app.db_preview_tables.is_empty() {
-                    app.db_preview_selected = 0;
+                if !app.db_preview.tables.is_empty() {
+                    app.db_preview.selected = 0;
                     app.refresh_sqlite_preview_rows();
                 }
             }
             KeyCode::End => {
-                if !app.db_preview_tables.is_empty() {
-                    app.db_preview_selected = app.db_preview_tables.len() - 1;
+                if !app.db_preview.tables.is_empty() {
+                    app.db_preview.selected = app.db_preview.tables.len() - 1;
                     app.refresh_sqlite_preview_rows();
                 }
             }
@@ -121,9 +121,9 @@ pub(crate) fn handle_app_key_event_body(
                 }
             }
             KeyCode::Esc => {
-                app.download_pending_url = None;
-                app.download_pending_name = None;
-                app.download_resume_input = None;
+                app.transfer.download_pending_url = None;
+                app.transfer.download_pending_name = None;
+                app.transfer.download_resume_input = None;
                 app.clear_input_edit();
                 app.mode = AppMode::Browsing;
                 app.set_status("download cancelled");
@@ -188,7 +188,7 @@ pub(crate) fn handle_app_key_event_body(
                 app.commit_note_edit();
             }
             KeyCode::Esc => {
-                app.note_edit_targets.clear();
+                app.notes.edit_targets.clear();
                 app.clear_input_edit();
                 app.mode = AppMode::Browsing;
             }
@@ -220,9 +220,9 @@ pub(crate) fn handle_app_key_event_body(
                 let new_name = app.input_buffer.trim().to_string();
                 if new_name.is_empty() {
                     app.set_status("name cannot be empty");
-                } else if let Some(src) = app.paste_current_src.clone() {
+                } else if let Some(src) = app.transfer.paste_current_src.clone() {
                     let target_dir = app
-                        .paste_target_dir
+                        .transfer.paste_target_dir
                         .as_ref()
                         .cloned()
                         .unwrap_or_else(|| app.left.dir.clone());
@@ -230,11 +230,11 @@ pub(crate) fn handle_app_key_event_body(
                     if dest.exists() {
                         app.set_status("target still exists: choose another name");
                     } else {
-                        app.paste_current_src = None;
+                        app.transfer.paste_current_src = None;
                         app.clear_input_edit();
                         app.mode = AppMode::Browsing;
-                        if app.paste_move_mode && fs::rename(&src, &dest).is_ok() {
-                            app.paste_ok_items += 1;
+                        if app.transfer.paste_move_mode && fs::rename(&src, &dest).is_ok() {
+                            app.transfer.paste_ok_items += 1;
                             let _ = app.refresh_entries();
                             app.sync_inactive_panel_if_same_dir();
                             app.advance_paste_queue();
@@ -247,10 +247,10 @@ pub(crate) fn handle_app_key_event_body(
                 }
             }
             KeyCode::Esc => {
-                app.paste_queue.clear();
-                app.paste_current_src = None;
-                app.paste_move_mode = false;
-                app.paste_target_dir = None;
+                app.transfer.paste_queue.clear();
+                app.transfer.paste_current_src = None;
+                app.transfer.paste_move_mode = false;
+                app.transfer.paste_target_dir = None;
                 app.clear_input_edit();
                 app.mode = AppMode::Browsing;
                 app.set_status("paste cancelled");
@@ -302,22 +302,22 @@ pub(crate) fn handle_app_key_event_body(
                 app.open_plugins_panel();
             }
             KeyCode::Up => {
-                app.help_scroll_offset = app.help_scroll_offset.saturating_sub(1);
+                app.help.scroll_offset = app.help.scroll_offset.saturating_sub(1);
             }
             KeyCode::Down => {
-                app.help_scroll_offset = (app.help_scroll_offset + 1).min(app.help_max_offset);
+                app.help.scroll_offset = (app.help.scroll_offset + 1).min(app.help.max_offset);
             }
             KeyCode::PageUp => {
-                app.help_scroll_offset = app.help_scroll_offset.saturating_sub(10);
+                app.help.scroll_offset = app.help.scroll_offset.saturating_sub(10);
             }
             KeyCode::PageDown => {
-                app.help_scroll_offset = (app.help_scroll_offset + 10).min(app.help_max_offset);
+                app.help.scroll_offset = (app.help.scroll_offset + 10).min(app.help.max_offset);
             }
             KeyCode::Home => {
-                app.help_scroll_offset = 0;
+                app.help.scroll_offset = 0;
             }
             KeyCode::End => {
-                app.help_scroll_offset = app.help_max_offset;
+                app.help.scroll_offset = app.help.max_offset;
             }
             KeyCode::Tab => {
                 app.panel_tab = 1;
@@ -337,20 +337,19 @@ pub(crate) fn handle_app_key_event_body(
                     .join("sb")
                     .join("config");
                 app.mode = AppMode::Browsing;
-                suspend_tui()?;
-                execute!(io::stdout(), Show)?;
-                let _ = Command::new(crate::util::command::editor_command())
-                    .arg(&config_path)
-                    .status();
-                resume_tui()?;
-                execute!(io::stdout(), Hide)?;
+                {
+                    let _tui = tui::suspend_showing_cursor(ResumeMode::Plain)?;
+                    let _ = Command::new(crate::util::command::editor_command())
+                        .arg(&config_path)
+                        .status();
+                }
                 terminal.clear()?;
             }
             _ => {}
         }
         AppMode::Integrations => {
             // While the search bar is focused, printable keys edit the filter.
-            if app.integration_search_active {
+            if app.integration.search_active {
                 match key.code {
                     KeyCode::Esc => {
                         app.reset_integration_search();
@@ -358,8 +357,8 @@ pub(crate) fn handle_app_key_event_body(
                         return Ok(KeyDispatchOutcome::ContinueLoop);
                     }
                     KeyCode::Backspace => {
-                        app.integration_search_query.pop();
-                        app.integration_selected = 0;
+                        app.integration.search_query.pop();
+                        app.integration.selected = 0;
                         app.refresh_integration_rows_cache();
                         return Ok(KeyDispatchOutcome::ContinueLoop);
                     }
@@ -371,8 +370,8 @@ pub(crate) fn handle_app_key_event_body(
                             && !key.modifiers.contains(KeyModifiers::CONTROL)
                             && !key.modifiers.contains(KeyModifiers::ALT) =>
                     {
-                        app.integration_search_query.push(c);
-                        app.integration_selected = 0;
+                        app.integration.search_query.push(c);
+                        app.integration.selected = 0;
                         app.refresh_integration_rows_cache();
                         return Ok(KeyDispatchOutcome::ContinueLoop);
                     }
@@ -385,7 +384,7 @@ pub(crate) fn handle_app_key_event_body(
                     app.mode = AppMode::Browsing;
                 }
                 KeyCode::Char('/') => {
-                    app.integration_search_active = true;
+                    app.integration.search_active = true;
                 }
                 KeyCode::BackTab => {
                     app.reset_integration_search();
@@ -393,13 +392,13 @@ pub(crate) fn handle_app_key_event_body(
                     app.begin_sort_menu();
                 }
                 KeyCode::Up => {
-                    cursor_up(&mut app.integration_selected);
+                    cursor_up(&mut app.integration.selected);
                 }
                 KeyCode::Down => {
-                    cursor_down(&mut app.integration_selected, app.integration_rows_cache.len());
+                    cursor_down(&mut app.integration.selected, app.integration.rows_cache.len());
                 }
                 KeyCode::Char(' ') => {
-                    let row = app.integration_rows_cache.get(app.integration_selected).cloned();
+                    let row = app.integration.rows_cache.get(app.integration.selected).cloned();
                     if let Some(row) = row {
                         if row.key == "__all_optional__" {
                             let all_on = app.all_optional_integrations_enabled();
@@ -425,13 +424,13 @@ pub(crate) fn handle_app_key_event_body(
                     app.reset_integration_search();
                     app.refresh_integration_rows_cache();
                     app.panel_tab = 6;
-                    app.theme_selected = theme::themes()
+                    app.themes.selected = theme::themes()
                         .iter()
                         .position(|theme| theme.id == app.active_theme)
                         .unwrap_or(0);
-                    app.theme_panel_nerd_selected = false;
-                    app.theme_panel_color_selected = false;
-                    app.theme_panel_clock_selected = false;
+                    app.themes.nerd_selected = false;
+                    app.themes.color_selected = false;
+                    app.themes.clock_selected = false;
                     app.mode = AppMode::Themes;
                 }
                 _ => {}
@@ -444,7 +443,7 @@ pub(crate) fn handle_app_key_event_body(
                 }
                 KeyCode::BackTab => {
                     app.panel_tab = 5;
-                    app.integration_selected = 0;
+                    app.integration.selected = 0;
                     app.reset_integration_search();
                     app.refresh_integration_rows_cache();
                     app.mode = AppMode::Integrations;
@@ -457,40 +456,40 @@ pub(crate) fn handle_app_key_event_body(
                 }
                 KeyCode::Up => {
                     // Focus order: Nerd Fonts → Filename colors → Disable clock → theme list.
-                    if app.theme_panel_nerd_selected {
+                    if app.themes.nerd_selected {
                         // Already at the top row; nothing above.
-                    } else if app.theme_panel_color_selected {
-                        app.theme_panel_color_selected = false;
-                        app.theme_panel_nerd_selected = true;
-                    } else if app.theme_panel_clock_selected {
-                        app.theme_panel_clock_selected = false;
-                        app.theme_panel_color_selected = true;
-                    } else if app.theme_selected == 0 {
-                        app.theme_panel_clock_selected = true;
+                    } else if app.themes.color_selected {
+                        app.themes.color_selected = false;
+                        app.themes.nerd_selected = true;
+                    } else if app.themes.clock_selected {
+                        app.themes.clock_selected = false;
+                        app.themes.color_selected = true;
+                    } else if app.themes.selected == 0 {
+                        app.themes.clock_selected = true;
                     } else {
-                        app.theme_selected -= 1;
+                        app.themes.selected -= 1;
                     }
                 }
                 KeyCode::Down => {
-                    if app.theme_panel_nerd_selected {
-                        app.theme_panel_nerd_selected = false;
-                        app.theme_panel_color_selected = true;
-                    } else if app.theme_panel_color_selected {
-                        app.theme_panel_color_selected = false;
-                        app.theme_panel_clock_selected = true;
-                    } else if app.theme_panel_clock_selected {
-                        app.theme_panel_clock_selected = false;
+                    if app.themes.nerd_selected {
+                        app.themes.nerd_selected = false;
+                        app.themes.color_selected = true;
+                    } else if app.themes.color_selected {
+                        app.themes.color_selected = false;
+                        app.themes.clock_selected = true;
+                    } else if app.themes.clock_selected {
+                        app.themes.clock_selected = false;
                     } else {
                         let max_idx = theme::themes().len().saturating_sub(1);
-                        app.theme_selected = (app.theme_selected + 1).min(max_idx);
+                        app.themes.selected = (app.themes.selected + 1).min(max_idx);
                     }
                 }
                 KeyCode::Enter | KeyCode::Char(' ') => {
-                    if app.theme_panel_nerd_selected {
+                    if app.themes.nerd_selected {
                         app.toggle_nerd_font();
-                    } else if app.theme_panel_color_selected {
+                    } else if app.themes.color_selected {
                         app.cycle_filename_color_mode();
-                    } else if app.theme_panel_clock_selected {
+                    } else if app.themes.clock_selected {
                         app.toggle_disable_clock();
                     } else {
                         app.apply_selected_theme();
@@ -508,7 +507,7 @@ pub(crate) fn handle_app_key_event_body(
                 }
                 KeyCode::Tab => {
                     app.panel_tab = 5;
-                    app.integration_selected = 0;
+                    app.integration.selected = 0;
                     app.reset_integration_search();
                     app.refresh_integration_rows_cache();
                     app.mode = AppMode::Integrations;
@@ -536,20 +535,20 @@ pub(crate) fn handle_app_key_event_body(
             KeyCode::BackTab => {
                 app.maybe_check_api_key();
                 app.panel_tab = 6;
-                app.theme_selected = theme::themes()
+                app.themes.selected = theme::themes()
                     .iter()
                     .position(|theme| theme.id == app.active_theme)
                     .unwrap_or(0);
-                app.theme_panel_nerd_selected = false;
-                app.theme_panel_color_selected = false;
-                app.theme_panel_clock_selected = false;
+                app.themes.nerd_selected = false;
+                app.themes.color_selected = false;
+                app.themes.clock_selected = false;
                 app.mode = AppMode::Themes;
             }
             KeyCode::Tab => {
                 app.maybe_check_api_key();
                 app.panel_tab = 8;
-                app.shortcuts_selected = 0;
-                app.shortcut_capture = false;
+                app.shortcuts_panel.selected = 0;
+                app.shortcuts_panel.capture = false;
                 app.mode = AppMode::Shortcuts;
             }
             KeyCode::Up => {
@@ -593,10 +592,10 @@ pub(crate) fn handle_app_key_event_body(
         },
         AppMode::Shortcuts => {
             // While capturing, every key is a rebind attempt except Esc.
-            if app.shortcut_capture {
+            if app.shortcuts_panel.capture {
                 match key.code {
                     KeyCode::Esc => {
-                        app.shortcut_capture = false;
+                        app.shortcuts_panel.capture = false;
                         app.set_status("rebind cancelled");
                     }
                     _ => app.apply_shortcut_capture(key),
@@ -616,26 +615,26 @@ pub(crate) fn handle_app_key_event_body(
                         app.open_plugins_panel();
                     }
                     KeyCode::Up => {
-                        cursor_up(&mut app.shortcuts_selected);
+                        cursor_up(&mut app.shortcuts_panel.selected);
                     }
                     KeyCode::Down => {
-                        cursor_down(&mut app.shortcuts_selected, crate::util::keymap::ACTIONS.len());
+                        cursor_down(&mut app.shortcuts_panel.selected, crate::util::keymap::ACTIONS.len());
                     }
                     KeyCode::PageUp => {
-                        app.shortcuts_selected = app.shortcuts_selected.saturating_sub(10);
+                        app.shortcuts_panel.selected = app.shortcuts_panel.selected.saturating_sub(10);
                     }
                     KeyCode::PageDown => {
                         let max = crate::util::keymap::ACTIONS.len().saturating_sub(1);
-                        app.shortcuts_selected = (app.shortcuts_selected + 10).min(max);
+                        app.shortcuts_panel.selected = (app.shortcuts_panel.selected + 10).min(max);
                     }
                     KeyCode::Home => {
-                        app.shortcuts_selected = 0;
+                        app.shortcuts_panel.selected = 0;
                     }
                     KeyCode::End => {
-                        app.shortcuts_selected = crate::util::keymap::ACTIONS.len().saturating_sub(1);
+                        app.shortcuts_panel.selected = crate::util::keymap::ACTIONS.len().saturating_sub(1);
                     }
                     KeyCode::Enter | KeyCode::Char(' ') => {
-                        app.shortcut_capture = true;
+                        app.shortcuts_panel.capture = true;
                     }
                     KeyCode::Backspace | KeyCode::Delete => {
                         app.reset_selected_shortcut();
@@ -646,10 +645,10 @@ pub(crate) fn handle_app_key_event_body(
         }
         AppMode::Plugins => {
             // While capturing, every key is a bind attempt except Esc.
-            if app.plugin_key_capture {
+            if app.plugins_panel.key_capture {
                 match key.code {
                     KeyCode::Esc => {
-                        app.plugin_key_capture = false;
+                        app.plugins_panel.key_capture = false;
                         app.set_status("bind cancelled");
                     }
                     _ => app.apply_plugin_key_capture(key),
@@ -661,26 +660,26 @@ pub(crate) fn handle_app_key_event_body(
                     }
                     KeyCode::BackTab => {
                         app.panel_tab = 8;
-                        app.shortcuts_selected = 0;
-                        app.shortcut_capture = false;
+                        app.shortcuts_panel.selected = 0;
+                        app.shortcuts_panel.capture = false;
                         app.mode = AppMode::Shortcuts;
                     }
                     KeyCode::Tab => {
                         app.panel_tab = 0;
-                        app.help_scroll_offset = 0;
+                        app.help.scroll_offset = 0;
                         app.mode = AppMode::Help;
                     }
                     KeyCode::Up => {
-                        cursor_up(&mut app.plugins_selected);
+                        cursor_up(&mut app.plugins_panel.selected);
                     }
                     KeyCode::Down => {
-                        cursor_down(&mut app.plugins_selected, app.plugins.plugins.len());
+                        cursor_down(&mut app.plugins_panel.selected, app.plugins.plugins.len());
                     }
                     KeyCode::Home => {
-                        app.plugins_selected = 0;
+                        app.plugins_panel.selected = 0;
                     }
                     KeyCode::End => {
-                        app.plugins_selected = app.plugins.plugins.len().saturating_sub(1);
+                        app.plugins_panel.selected = app.plugins.plugins.len().saturating_sub(1);
                     }
                     KeyCode::Enter => {
                         if let Some(name) = app.selected_plugin_name() {
@@ -693,7 +692,7 @@ pub(crate) fn handle_app_key_event_body(
                     }
                     KeyCode::Char('b') => {
                         if app.selected_plugin_name().is_some() {
-                            app.plugin_key_capture = true;
+                            app.plugins_panel.key_capture = true;
                         }
                     }
                     KeyCode::Backspace | KeyCode::Delete => {
@@ -716,21 +715,21 @@ pub(crate) fn handle_app_key_event_body(
                 app.mode = AppMode::SshPicker;
             }
             KeyCode::Up => {
-                cursor_up(&mut app.bookmark_selected);
+                cursor_up(&mut app.bookmarks.selected);
             }
             KeyCode::Down => {
                 let len = app.bookmarks().len();
-                cursor_down(&mut app.bookmark_selected, len);
+                cursor_down(&mut app.bookmarks.selected, len);
             }
             KeyCode::Enter | KeyCode::Right => {
-                let idx = app.bookmark_selected;
+                let idx = app.bookmarks.selected;
                 let target = app.bookmarks().get(idx).and_then(|(_, p)| p.clone());
                 if let Some(path) = target {
                     app.try_enter_dir_on_active_panel(path);
                     app.mode = AppMode::Browsing;
                 } else {
                     let current = app.active_panel_dir().to_string_lossy().to_string();
-                    app.bookmark_edit_idx = idx;
+                    app.bookmarks.edit_idx = idx;
                     app.begin_input_edit(AppMode::BookmarkEditing, current);
                 }
             }
@@ -743,10 +742,10 @@ pub(crate) fn handle_app_key_event_body(
                 app.mode = AppMode::Browsing;
             }
             KeyCode::Char('d') => {
-                let idx = app.bookmark_selected;
+                let idx = app.bookmarks.selected;
                 if app.bookmarks().get(idx).map(|(_, p)| p.is_some()).unwrap_or(false) {
-                    app.bookmark_delete_idx = idx;
-                    app.confirm_delete_bookmark_button_focus = 0;
+                    app.bookmarks.delete_idx = idx;
+                    app.confirm_delete.bookmark_button_focus = 0;
                     app.mode = AppMode::ConfirmDeleteBookmark;
                 }
             }
@@ -756,7 +755,7 @@ pub(crate) fn handle_app_key_event_body(
             KeyCode::Enter => {
                 let path = app.input_buffer.trim().to_string();
                 if !path.is_empty() {
-                    let idx = app.bookmark_edit_idx;
+                    let idx = app.bookmarks.edit_idx;
                     let result = crate::util::config::SbPersistConfig::update(|cfg| {
                         cfg.bookmarks.insert(idx as u8, path);
                     });
@@ -788,8 +787,8 @@ pub(crate) fn handle_app_key_event_body(
         AppMode::ConfirmDownloadOverwrite => match key.code {
             KeyCode::Enter | KeyCode::Char('y') => {
                 if let (Some(url), Some(file_name)) = (
-                    app.download_pending_url.clone(),
-                    app.download_pending_name.clone(),
+                    app.transfer.download_pending_url.clone(),
+                    app.transfer.download_pending_name.clone(),
                 ) {
                     app.start_download_job(url, file_name);
                 } else {

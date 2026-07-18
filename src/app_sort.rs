@@ -105,7 +105,7 @@ impl App {
     }
 
     pub(crate) fn apply_sort_to_current_entries(&mut self) {
-        if !self.tree_expansion_levels.is_empty() {
+        if !self.tree.expansion_levels.is_empty() {
             let selected_path = self.left.entries.get(self.left.selected_index).map(|e| e.path());
             let _ = self.refresh_entries();
             if let Some(path) = selected_path

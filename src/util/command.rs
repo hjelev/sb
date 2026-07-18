@@ -5,11 +5,8 @@
 //! - Returns consistent Result types (no silent failures)
 //! - Provides high-level methods for common commands (git, archive, preview)
 
-// Some builder methods are intended API surface not yet wired up at all call sites.
-#![allow(dead_code)]
-
 use std::io::{self, Read};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
@@ -155,45 +152,19 @@ impl CommandBuilder {
         ))
     }
 
-    /// Run a preview tool (bat, glow, hexyl, etc.) and capture output.
-    ///
-    /// # Arguments
-    /// * `tool` - Tool name (e.g., "bat", "glow", "hexyl")
-    /// * `path` - File to preview
-    /// * `args` - Additional arguments to pass to the tool
-    ///
-    /// # Returns
-    /// * `Ok(Output)` with preview content
-    /// * `Err` if tool execution fails
-    pub fn preview_command(tool: &str, path: &PathBuf, args: &[&str]) -> io::Result<Output> {
-        let mut cmd = Command::new(tool);
-        cmd.arg(path).args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
-
-        cmd.output()
-    }
-
-    /// Run an archive command (tar, unzip, etc.).
-    ///
-    /// Captures both stdout and stderr for proper error reporting.
-    pub fn archive_command(tool: &str, args: &[&str], cwd: Option<&Path>) -> io::Result<Output> {
-        let mut cmd = Command::new(tool);
-        cmd.args(args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        if let Some(cwd) = cwd {
-            cmd.current_dir(cwd);
-        }
-
-        cmd.output()
-    }
-
-    /// Download a URL to the given output path using wget or curl.
-    pub fn download_command(tool: &str, url: &str, output_path: &Path) -> io::Result<Output> {
-        let mut cmd = Command::new(tool);
+    /// Append the `wget`/`curl` arguments that download `url` to `output_path`,
+    /// requesting a progress bar on stderr. Returns an error for tools other
+    /// than `wget`/`curl`.
+    fn apply_download_args(
+        cmd: &mut Command,
+        tool: &str,
+        url: &str,
+        output_path: &Path,
+    ) -> Result<(), String> {
         match tool {
             "wget" => {
-                cmd.args(["--output-document"])
+                cmd.arg("--progress=bar:force")
+                    .arg("--output-document")
                     .arg(output_path)
                     .arg("--")
                     .arg(url);
@@ -201,19 +172,12 @@ impl CommandBuilder {
             "curl" => {
                 cmd.args(["--location", "--fail", "--output"])
                     .arg(output_path)
-                    .arg("--")
+                    .arg("--progress-bar")
                     .arg(url);
             }
-            other => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!("unsupported download tool: {}", other),
-                ));
-            }
+            other => return Err(format!("unsupported download tool: {}", other)),
         }
-
-        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-        cmd.output()
+        Ok(())
     }
 
     /// Download from `url` to `output_path` using `wget` or `curl`, streaming stderr for progress.
@@ -248,27 +212,7 @@ impl CommandBuilder {
         }
 
         let mut cmd = Command::new(tool);
-        match tool {
-            "wget" => {
-                cmd.args(["--progress=bar:force", "--output-document"])
-                    .arg(output_path)
-                    .arg("--")
-                    .arg(url);
-            }
-            "curl" => {
-                cmd.args([
-                    "--location",
-                    "--fail",
-                    "--output",
-                ])
-                .arg(output_path)
-                .arg("--progress-bar")
-                .arg(url);
-            }
-            other => {
-                return Err(format!("unsupported download tool: {}", other));
-            }
-        }
+        Self::apply_download_args(&mut cmd, tool, url, output_path)?;
 
         cmd.stdout(Stdio::null());
         cmd.stderr(Stdio::piped());
@@ -338,28 +282,5 @@ impl CommandBuilder {
             };
             Err(detail)
         }
-    }
-
-    /// Check if a tool is available by running `which`.
-    ///
-    /// Returns true if the tool can be found in PATH.
-    pub fn tool_available(tool: &str) -> bool {
-        Command::new("which")
-            .arg(tool)
-            .output()
-            .map(|output| output.status.success())
-            .unwrap_or(false)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_git_command_tool_check() {
-        // This test just verifies the method exists and returns appropriate Result
-        // Actual git command execution would require git to be installed
-        assert!(CommandBuilder::tool_available("git") || !CommandBuilder::tool_available("nonexistent_tool_12345"));
     }
 }

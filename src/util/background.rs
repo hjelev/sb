@@ -11,7 +11,7 @@ use std::sync::Arc;
 ///
 /// # Usage pattern
 /// ```ignore
-/// self.notes_rx = Some(spawn_worker(move |tx| {
+/// self.notes.rx = Some(spawn_worker(move |tx| {
 ///     let notes = load_notes(&dir);
 ///     let _ = tx.send(NotesLoadMsg { dir, notes });
 /// }));
@@ -33,9 +33,9 @@ where
 ///
 /// # Usage pattern
 /// ```ignore
-/// for msg in drain_channel(&mut self.notes_rx) {
+/// for msg in drain_channel(&mut self.notes.rx) {
 ///     match msg {
-///         Msg::Done(..) => { self.notes_rx = None; /* stop future polls */ }
+///         Msg::Done(..) => { self.notes.rx = None; /* stop future polls */ }
 ///         Msg::Progress(..) => { /* update state */ }
 ///     }
 /// }
@@ -69,7 +69,7 @@ pub fn drain_channel<T>(rx: &mut Option<Receiver<T>>) -> Vec<T> {
 ///
 /// # Usage pattern
 /// ```ignore
-/// if let Some(msg) = pump_once(&mut self.ai_commit_rx) {
+/// if let Some(msg) = pump_once(&mut self.ai.commit_rx) {
 ///     match msg { … }
 /// }
 /// ```

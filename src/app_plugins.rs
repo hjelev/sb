@@ -75,8 +75,8 @@ impl App {
 
     /// Open the Plugins panel (tab 9).
     pub(crate) fn open_plugins_panel(&mut self) {
-        self.plugins_selected = 0;
-        self.plugin_key_capture = false;
+        self.plugins_panel.selected = 0;
+        self.plugins_panel.key_capture = false;
         self.panel_tab = 9;
         self.mode = AppMode::Plugins;
     }
@@ -85,14 +85,14 @@ impl App {
     pub(crate) fn selected_plugin_name(&self) -> Option<String> {
         self.plugins
             .plugins
-            .get(self.plugins_selected)
+            .get(self.plugins_panel.selected)
             .map(|p| p.source.name.clone())
     }
 
     /// Toggle the selected plugin on/off. Enabling (re)loads its script;
     /// disabling drops its bindings/previewers/hooks. Persisted immediately.
     pub(crate) fn toggle_selected_plugin(&mut self) {
-        let idx = self.plugins_selected;
+        let idx = self.plugins_panel.selected;
         let Some(p) = self.plugins.plugins.get_mut(idx) else {
             return;
         };
@@ -129,7 +129,7 @@ impl App {
         }
         let combo = KeyCombo::from_event(key);
         let Some(name) = self.selected_plugin_name() else {
-            self.plugin_key_capture = false;
+            self.plugins_panel.key_capture = false;
             return;
         };
         if KeyMap::is_reserved(combo) {
@@ -160,7 +160,7 @@ impl App {
             ));
             return;
         }
-        self.plugin_key_capture = false;
+        self.plugins_panel.key_capture = false;
         self.set_plugin_binding(&name, Some(combo));
         self.set_status(format!("{} bound to {}", name, combo.label()));
     }
@@ -173,7 +173,7 @@ impl App {
         if self
             .plugins
             .plugins
-            .get(self.plugins_selected)
+            .get(self.plugins_panel.selected)
             .and_then(|p| p.bound_key)
             .is_none()
         {

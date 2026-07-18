@@ -344,7 +344,7 @@ impl App {
             group_w = group_w.max(entry.group_name.chars().count());
             owner_w = owner_w.max(entry.owner_name.chars().count());
         }
-        self.meta_group_width = group_w.min(16);
-        self.meta_owner_width = owner_w.min(20);
+        self.meta.group_width = group_w.min(16);
+        self.meta.owner_width = owner_w.min(20);
     }
 }

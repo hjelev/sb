@@ -18,13 +18,13 @@ impl App {
         match self.view_mode {
             ViewMode::Normal => {
                 self.view_mode = ViewMode::Preview;
-                self.preview_scroll_offset = 0;
-                self.preview_pane_focus = PreviewPaneFocus::Folder;
-                self.preview_lines = vec!["Loading preview...".to_string()];
-                self.preview_footer = None;
-                self.preview_image_rgb = None;
-                self.preview_image_png = None;
-                self.preview_native_last_key = None;
+                self.preview.scroll_offset = 0;
+                self.preview.pane_focus = PreviewPaneFocus::Folder;
+                self.preview.lines = vec!["Loading preview...".to_string()];
+                self.preview.footer = None;
+                self.preview.image_rgb = None;
+                self.preview.image_png = None;
+                self.preview.native_last_key = None;
                 self.request_preview_for_selected();
             }
             ViewMode::Preview => {
@@ -71,32 +71,32 @@ impl App {
     }
 
     fn clear_preview_state(&mut self) {
-        if self.preview_native_last_key.is_some() {
+        if self.preview.native_last_key.is_some() {
             match Self::terminal_image_protocol().0 {
                 crate::integration::probe::TerminalImageProtocol::Kitty => {
                     let _ = Self::clear_kitty_pane_image(crate::app_images::KITTY_IMAGE_ID_PREVIEW);
                 }
                 crate::integration::probe::TerminalImageProtocol::Iterm2Inline
                 | crate::integration::probe::TerminalImageProtocol::Sixel => {
-                    if let Some(area) = self.preview_native_area {
+                    if let Some(area) = self.preview.native_area {
                         let _ = Self::clear_preview_pane_area(area);
                     }
                 }
                 _ => {}
             }
         }
-        self.preview_target_path = None;
-        self.preview_lines.clear();
-        self.preview_line_kinds.clear();
-        self.preview_footer = None;
-        self.preview_pending = false;
-        self.preview_rx = None;
-        self.preview_native_area = None;
-        self.preview_native_last_key = None;
-        self.preview_image_rgb = None;
-        self.preview_image_png = None;
-        self.preview_pane_focus = PreviewPaneFocus::Folder;
-        self.preview_scroll_offset = 0;
+        self.preview.target_path = None;
+        self.preview.lines.clear();
+        self.preview.line_kinds.clear();
+        self.preview.footer = None;
+        self.preview.pending = false;
+        self.preview.rx = None;
+        self.preview.native_area = None;
+        self.preview.native_last_key = None;
+        self.preview.image_rgb = None;
+        self.preview.image_png = None;
+        self.preview.pane_focus = PreviewPaneFocus::Folder;
+        self.preview.scroll_offset = 0;
     }
 
     pub(crate) fn refresh_right_panel_entries(&mut self) -> std::io::Result<()> {
@@ -105,13 +105,13 @@ impl App {
         } else {
             None
         };
-        let entries: Vec<_> = if !self.tree_expansion_levels.is_empty() {
+        let entries: Vec<_> = if !self.tree.expansion_levels.is_empty() {
             let rows = crate::ui::tree::collect_tree_rows_with_expansions(
                 &self.right.dir,
                 self.right.show_hidden,
                 self.right.sort_mode,
                 folder_size_cache,
-                &self.tree_expansion_levels,
+                &self.tree.expansion_levels,
             )?;
             self.right.tree_row_prefixes = rows.iter().map(|row| row.prefix.clone()).collect();
             rows.into_iter().map(|row| row.entry).collect()
@@ -187,27 +187,27 @@ impl App {
     }
 
     pub(crate) fn toggle_preview_pane_focus(&mut self) {
-        self.preview_pane_focus = match self.preview_pane_focus {
+        self.preview.pane_focus = match self.preview.pane_focus {
             PreviewPaneFocus::Folder => PreviewPaneFocus::Preview,
             PreviewPaneFocus::Preview => PreviewPaneFocus::Folder,
         };
     }
 
     pub(crate) fn preview_focus_is_preview(&self) -> bool {
-        self.is_preview_mode() && self.preview_pane_focus == PreviewPaneFocus::Preview
+        self.is_preview_mode() && self.preview.pane_focus == PreviewPaneFocus::Preview
     }
 
     pub(crate) fn preview_max_scroll(&self) -> usize {
-        self.preview_lines.len().saturating_sub(1)
+        self.preview.lines.len().saturating_sub(1)
     }
 
     pub(crate) fn preview_scroll_up(&mut self, amount: usize) {
-        self.preview_scroll_offset = self.preview_scroll_offset.saturating_sub(amount);
+        self.preview.scroll_offset = self.preview.scroll_offset.saturating_sub(amount);
     }
 
     pub(crate) fn preview_scroll_down(&mut self, amount: usize) {
-        let next = self.preview_scroll_offset.saturating_add(amount);
-        self.preview_scroll_offset = next.min(self.preview_max_scroll());
+        let next = self.preview.scroll_offset.saturating_add(amount);
+        self.preview.scroll_offset = next.min(self.preview_max_scroll());
     }
 
     pub(crate) fn request_preview_for_selected(&mut self) {
@@ -215,47 +215,47 @@ impl App {
             return;
         }
         let Some(path) = self.left.entries.get(self.left.selected_index).map(|e| e.path()) else {
-            self.preview_lines = vec!["No selection".to_string()];
-            self.preview_line_kinds = vec![crate::PreviewLineKind::Plain];
-            self.preview_footer = None;
-            self.preview_target_path = None;
-            self.preview_pending = false;
-            self.preview_rx = None;
-            self.preview_image_rgb = None;
-            self.preview_image_png = None;
+            self.preview.lines = vec!["No selection".to_string()];
+            self.preview.line_kinds = vec![crate::PreviewLineKind::Plain];
+            self.preview.footer = None;
+            self.preview.target_path = None;
+            self.preview.pending = false;
+            self.preview.rx = None;
+            self.preview.image_rgb = None;
+            self.preview.image_png = None;
             return;
         };
 
-        if self.preview_target_path.as_ref() == Some(&path)
-            && (self.preview_pending
-                || !self.preview_lines.is_empty()
-                || self.preview_image_rgb.is_some())
+        if self.preview.target_path.as_ref() == Some(&path)
+            && (self.preview.pending
+                || !self.preview.lines.is_empty()
+                || self.preview.image_rgb.is_some())
         {
             return;
         }
 
-        self.preview_image_rgb = None;
-        self.preview_image_png = None;
+        self.preview.image_rgb = None;
+        self.preview.image_png = None;
 
         if !Self::is_image_file(&path)
-            && let Some(cached) = self.preview_cache.get(&path).cloned() {
-                self.preview_target_path = Some(path);
-                self.preview_lines = cached.0;
-                self.preview_line_kinds = cached.1;
-                self.preview_footer = cached.2;
-                self.preview_pending = false;
-                self.preview_scroll_offset = 0;
+            && let Some(cached) = self.preview.cache.get(&path).cloned() {
+                self.preview.target_path = Some(path);
+                self.preview.lines = cached.0;
+                self.preview.line_kinds = cached.1;
+                self.preview.footer = cached.2;
+                self.preview.pending = false;
+                self.preview.scroll_offset = 0;
                 return;
             }
 
-        self.preview_request_id = self.preview_request_id.saturating_add(1);
-        let request_id = self.preview_request_id;
-        self.preview_target_path = Some(path.clone());
-        self.preview_pending = true;
-        self.preview_scroll_offset = 0;
-        self.preview_lines = vec!["Loading preview...".to_string()];
-        self.preview_line_kinds = vec![crate::PreviewLineKind::Plain];
-        self.preview_footer = None;
+        self.preview.request_id = self.preview.request_id.saturating_add(1);
+        let request_id = self.preview.request_id;
+        self.preview.target_path = Some(path.clone());
+        self.preview.pending = true;
+        self.preview.scroll_offset = 0;
+        self.preview.lines = vec!["Loading preview...".to_string()];
+        self.preview.line_kinds = vec![crate::PreviewLineKind::Plain];
+        self.preview.footer = None;
 
         let opts = crate::PreviewBuildOptions {
             use_bat: Self::integration_availability_and_detail("bat").0,
@@ -269,7 +269,7 @@ impl App {
         // Plugin previewer registrations are plain data (`Send`); the worker
         // instantiates its own Lua to run a matching plugin's `peek()`.
         let plugin_regs = self.plugins.previewer_regs();
-        self.preview_rx = Some(spawn_worker(move |tx| {
+        self.preview.rx = Some(spawn_worker(move |tx| {
             let msg = App::build_preview_content_with_plugins(request_id, path, opts, &plugin_regs);
             let _ = tx.send(msg);
         }));
@@ -278,10 +278,10 @@ impl App {
 
 impl App {
     pub(crate) fn pump_preview_progress(&mut self) {
-        if self.preview_rx.is_none() {
+        if self.preview.rx.is_none() {
             return;
         }
-        match pump_once(&mut self.preview_rx) {
+        match pump_once(&mut self.preview.rx) {
             Some(PreviewContentMsg::Ready {
                 request_id,
                 path,
@@ -290,23 +290,23 @@ impl App {
                 footer,
                 image_rgb,
             }) => {
-                if request_id == self.preview_request_id {
-                    self.preview_target_path = Some(path.clone());
+                if request_id == self.preview.request_id {
+                    self.preview.target_path = Some(path.clone());
                     if image_rgb.is_none() {
-                        self.preview_cache
+                        self.preview.cache
                             .insert(path.clone(), (lines.clone(), line_kinds.clone(), footer.clone()));
                     }
-                    self.preview_lines = lines;
-                    self.preview_line_kinds = line_kinds;
-                    self.preview_footer = footer;
+                    self.preview.lines = lines;
+                    self.preview.line_kinds = line_kinds;
+                    self.preview.footer = footer;
                     if let Some((ref rgb, w, h)) = image_rgb {
-                        self.preview_image_png = App::encode_rgb_to_png(rgb, w, h);
+                        self.preview.image_png = App::encode_rgb_to_png(rgb, w, h);
                     } else {
-                        self.preview_image_png = None;
+                        self.preview.image_png = None;
                     }
-                    self.preview_image_rgb = image_rgb;
-                    self.preview_pending = false;
-                    self.preview_scroll_offset = 0;
+                    self.preview.image_rgb = image_rgb;
+                    self.preview.pending = false;
+                    self.preview.scroll_offset = 0;
                 }
             }
             Some(PreviewContentMsg::Failed {
@@ -314,22 +314,22 @@ impl App {
                 path,
                 message,
             }) => {
-                if request_id == self.preview_request_id {
-                    self.preview_target_path = Some(path);
-                    self.preview_lines = vec![message];
-                    self.preview_line_kinds = vec![PreviewLineKind::Plain];
-                    self.preview_footer = None;
-                self.preview_image_rgb = None;
-                self.preview_image_png = None;
-                    self.preview_pending = false;
-                    self.preview_scroll_offset = 0;
+                if request_id == self.preview.request_id {
+                    self.preview.target_path = Some(path);
+                    self.preview.lines = vec![message];
+                    self.preview.line_kinds = vec![PreviewLineKind::Plain];
+                    self.preview.footer = None;
+                self.preview.image_rgb = None;
+                self.preview.image_png = None;
+                    self.preview.pending = false;
+                    self.preview.scroll_offset = 0;
                 }
             }
             None => {
                 // `pump_once` drops the receiver when the worker disconnected
                 // without sending; stop showing the pending state in that case.
-                if self.preview_rx.is_none() {
-                    self.preview_pending = false;
+                if self.preview.rx.is_none() {
+                    self.preview.pending = false;
                 }
             }
         }

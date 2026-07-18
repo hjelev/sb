@@ -173,9 +173,10 @@ pub(crate) enum AiCommitMsg {
 }
 
 /// Validation state of the AI API key shown in the Settings panel.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum AiKeyStatus {
     /// Not checked (no key, or the key changed since the last check).
+    #[default]
     Unknown,
     /// A validation request is in flight.
     Checking,
@@ -316,8 +317,9 @@ pub(crate) enum InternalSearchResult {
     },
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum PreviewPaneFocus {
+    #[default]
     Folder,
     Preview,
 }

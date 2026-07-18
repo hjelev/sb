@@ -23,7 +23,7 @@ pub(crate) fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user:
     };
     let os_icon_glyph: Option<&'static str> = if app.nerd_font_active {
         // Use the remote OS icon if we're inside an SSH/rclone mount
-        app.ssh_mounts.iter().rfind(|m| app.left.dir.starts_with(&m.mount_path))
+        app.remote.ssh_mounts.iter().rfind(|m| app.left.dir.starts_with(&m.mount_path))
             .and_then(|m| m.remote_os_icon.map(|(glyph, _)| glyph))
             .or_else(|| app.os_icon.map(|(glyph, _)| glyph))
     } else {
@@ -117,8 +117,7 @@ pub(crate) fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user:
         for ch in disk_info.folder_segment.chars() {
             if ch == '\u{f10b7}' {
                 if !text_buf.is_empty() {
-                    spans.push(Span::styled(text_buf.clone(), text_style));
-                    text_buf.clear();
+                    spans.push(Span::styled(std::mem::take(&mut text_buf), text_style));
                 }
                 spans.push(Span::styled(ch.to_string(), icon_style));
             } else {
@@ -126,8 +125,7 @@ pub(crate) fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user:
             }
         }
         if !text_buf.is_empty() {
-            spans.push(Span::styled(text_buf.clone(), text_style));
-            text_buf.clear();
+            spans.push(Span::styled(std::mem::take(&mut text_buf), text_style));
         }
 
         // Disk label rendered as a two-tone pill progress bar (same look as the
@@ -192,7 +190,7 @@ pub(crate) fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user:
     } else if !app.size.folder_size_enabled {
         header_right_is_clock = true;
         Some(Line::from(vec![
-            Span::styled(app.header_clock_text.clone(), Style::default().fg(active_theme.text_normal)),
+            Span::styled(app.header_clock.text.clone(), Style::default().fg(active_theme.text_normal)),
         ]))
     } else {
         None

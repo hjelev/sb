@@ -6,14 +6,12 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use crossterm::{
-    cursor::{Hide, Show},
     event::{self, Event, KeyCode},
-    execute,
     terminal::{disable_raw_mode, enable_raw_mode},
 };
 
 use crate::util::classify::has_ext;
-use crate::util::tui::{resume_tui, resume_tui_cleared, suspend_tui};
+use crate::util::tui::{self, ResumeMode};
 use crate::{App, ArchiveKind, ZIP_BASED_EXTENSIONS};
 
 /// Tar-family suffixes (including compressed variants) recognized as archives.
@@ -234,10 +232,10 @@ impl App {
             return Ok(());
         }
 
-        suspend_tui()?;
-        let result = Self::age_encrypt_file_interactive(input, &protected_path);
-        resume_tui_cleared()?;
-        enable_raw_mode()?;
+        let result = {
+            let _tui = tui::suspend(ResumeMode::Cleared)?;
+            Self::age_encrypt_file_interactive(input, &protected_path)
+        };
 
         match result {
             Ok(()) => {
@@ -264,10 +262,10 @@ impl App {
             return Ok(());
         }
 
-        suspend_tui()?;
-        let result = Self::age_decrypt_file_interactive(input, &plain_path);
-        resume_tui_cleared()?;
-        enable_raw_mode()?;
+        let result = {
+            let _tui = tui::suspend(ResumeMode::Cleared)?;
+            Self::age_decrypt_file_interactive(input, &plain_path)
+        };
 
         match result {
             Ok(()) => {
@@ -291,7 +289,7 @@ impl App {
             return Ok(false);
         };
 
-        suspend_tui()?;
+        let _tui = tui::suspend(ResumeMode::Cleared)?;
         let decrypted = Self::age_decrypt_file_interactive(input, &tmp_path);
 
         let mut shown = false;
@@ -391,8 +389,7 @@ impl App {
             }
         }
 
-        resume_tui_cleared()?;
-        enable_raw_mode()?;
+        drop(_tui);
         let _ = fs::remove_file(&tmp_path);
         let _ = fs::remove_dir_all(&tmp_dir);
 
@@ -409,12 +406,10 @@ impl App {
             return Ok(false);
         };
 
-        suspend_tui()?;
-        execute!(io::stdout(), Show)?;
+        let _tui = tui::suspend_showing_cursor(ResumeMode::Plain)?;
         let decrypted = Self::age_decrypt_file_interactive(input, &tmp_path);
         if decrypted.is_err() {
-            resume_tui()?;
-            execute!(io::stdout(), Hide)?;
+            drop(_tui);
             let _ = fs::remove_file(&tmp_path);
             let _ = fs::remove_dir_all(&tmp_dir);
             self.set_status(format!("decrypt failed: {}", decrypted.err().unwrap_or_default()));
@@ -427,8 +422,7 @@ impl App {
             .status();
 
         let result = Self::age_encrypt_file_interactive(&tmp_path, input);
-        resume_tui()?;
-        execute!(io::stdout(), Hide)?;
+        drop(_tui);
 
         let _ = fs::remove_file(&tmp_path);
         let _ = fs::remove_dir_all(&tmp_dir);
