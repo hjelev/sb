@@ -111,6 +111,14 @@ impl App {
         has_ext(path, &["pdf"])
     }
 
+    pub(crate) fn is_excel_file(path: &Path) -> bool {
+        has_ext(path, &["xlsx", "xls", "xlsm", "xlsb", "ods"])
+    }
+
+    pub(crate) fn is_docx_file(path: &Path) -> bool {
+        has_ext(path, &["docx"])
+    }
+
     pub(crate) fn is_cast_file(path: &Path) -> bool {
         has_ext(path, &["cast"])
     }
@@ -362,6 +370,19 @@ impl App {
                 }
             } else if Self::is_cast_file(&tmp_path) && self.integration_active("asciinema") {
                 shown = Self::preview_cast_with_asciinema(&tmp_path)?;
+            } else if Self::is_excel_file(&tmp_path) && self.integration_active("xleak") {
+                shown = Command::new("xleak")
+                    .arg("-i")
+                    .arg(&tmp_path)
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false);
+            } else if Self::is_docx_file(&tmp_path) && self.integration_active("doxx") {
+                shown = Command::new("doxx")
+                    .arg(&tmp_path)
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false);
             } else if Self::is_supported_archive(&tmp_path) {
                 shown = self.preview_archive_contents(&tmp_path);
             } else if Self::is_pdf_file(&tmp_path) && self.integration_active("pdftotext") {

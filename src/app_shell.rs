@@ -328,6 +328,16 @@ impl App {
             return Ok(());
         }
 
+        if Self::is_excel_file(path) && Self::integration_probe("xleak").0 {
+            let _ = Command::new("xleak").arg("-i").arg(path).status();
+            return Ok(());
+        }
+
+        if Self::is_docx_file(path) && Self::integration_probe("doxx").0 {
+            let _ = Command::new("doxx").arg(path).status();
+            return Ok(());
+        }
+
         if Self::is_audio_file(path) && Self::integration_probe("sox").0 {
             if Self::integration_probe("play").0 {
                 let _ = Command::new("play")

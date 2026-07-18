@@ -698,6 +698,23 @@ fn handle_enter_or_right(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app:
                         terminal.clear()?;
                     }
                 }
+                else if App::is_excel_file(&selected_path) && app.integration_active("xleak") {
+                    {
+                        let _tui = tui::suspend(ResumeMode::Plain)?;
+                        let _ = Command::new("xleak")
+                            .arg("-i")
+                            .arg(&selected_path)
+                            .status();
+                    }
+                    terminal.clear()?;
+                }
+                else if App::is_docx_file(&selected_path) && app.integration_active("doxx") {
+                    {
+                        let _tui = tui::suspend(ResumeMode::Plain)?;
+                        let _ = Command::new("doxx").arg(&selected_path).status();
+                    }
+                    terminal.clear()?;
+                }
                 else if App::is_fuse_zip_archive(&selected_path) && app.integration_active("fuse-zip") {
                     let _ = app.try_mount_archive(selected_path);
                 }
