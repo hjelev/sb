@@ -33,6 +33,33 @@ pub fn pipe_to_pager(mut cmd: Command) -> bool {
     shown
 }
 
+/// Spawn `git <args>` in `cwd` with its stdout piped into `tool`'s stdin,
+/// leaving the terminal otherwise inherited so stdin-fed diff pagers like
+/// `diffnav` can take over the screen. Returns whether the pager ran and
+/// exited successfully, so callers can fall back to another diff viewer.
+pub fn pipe_git_to_tool<P: AsRef<Path>>(cwd: P, git_args: &[&str], tool: &str, tool_args: &[&str]) -> bool {
+    let Ok(mut git) = Command::new("git")
+        .args(git_args)
+        .current_dir(cwd.as_ref())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+    else {
+        return false;
+    };
+    let mut shown = false;
+    if let Some(out) = git.stdout.take() {
+        shown = Command::new(tool)
+            .args(tool_args)
+            .stdin(out)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+    }
+    let _ = git.wait();
+    shown
+}
+
 /// Page `cmd`'s output through `less -R`, falling back to paging `path` directly
 /// when the tool can't be spawned.
 ///

@@ -14,7 +14,7 @@ use crossterm::{
 
 use crate::{App, AppMode, GitInfo, GitInfoCache, GitInfoRef};
 use crate::util::background::{pump_once, spawn_worker};
-use crate::util::command::CommandBuilder;
+use crate::util::command::{pipe_git_to_tool, CommandBuilder};
 use crate::util::tui::{self, ResumeMode};
 
 impl App {
@@ -214,25 +214,38 @@ impl App {
         let _tui = tui::suspend(ResumeMode::Plain)?;
         execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
 
-        let delta_available = self.integration_active("delta");
-        if delta_available {
-            println!("$ git -c core.pager=delta -c delta.side-by-side=true -c delta.features=side-by-side diff");
-            CommandBuilder::git_interactive(
-                &self.left.dir,
-                &[
-                    "-c",
-                    "core.pager=delta",
-                    "-c",
-                    "delta.side-by-side=true",
-                    "-c",
-                    "delta.features=side-by-side",
-                    "diff",
-                ],
-            );
-        } else {
-            println!("$ git -c color.ui=always diff");
-            CommandBuilder::git_interactive(&self.left.dir, &["-c", "color.ui=always", "diff"]);
-            println!("\nTip: install delta for side-by-side colored diff preview.");
+        // diffnav reads the diff on stdin and opens its own full-screen UI, so
+        // only hand off to it when `git diff` actually has output; otherwise it
+        // would open an empty navigator the user has to quit manually.
+        let has_unstaged_diff = CommandBuilder::git_command(&self.left.dir, &["diff", "--quiet"])
+            .map(|out| !out.status.success())
+            .unwrap_or(false);
+        let mut shown = false;
+        if has_unstaged_diff && self.integration_active("diffnav") {
+            println!("$ git diff | diffnav   (press q to close the diff and continue)");
+            shown = pipe_git_to_tool(&self.left.dir, &["diff"], "diffnav", &[]);
+        }
+
+        if !shown {
+            if self.integration_active("delta") {
+                println!("$ git -c core.pager=delta -c delta.side-by-side=true -c delta.features=side-by-side diff");
+                CommandBuilder::git_interactive(
+                    &self.left.dir,
+                    &[
+                        "-c",
+                        "core.pager=delta",
+                        "-c",
+                        "delta.side-by-side=true",
+                        "-c",
+                        "delta.features=side-by-side",
+                        "diff",
+                    ],
+                );
+            } else {
+                println!("$ git -c color.ui=always diff");
+                CommandBuilder::git_interactive(&self.left.dir, &["-c", "color.ui=always", "diff"]);
+                println!("\nTip: install diffnav or delta for a nicer diff preview.");
+            }
         }
 
         println!("\n$ git status");
