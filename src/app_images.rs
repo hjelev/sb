@@ -23,7 +23,7 @@ use ratatui::{
     text::{Line, Span},
 };
 
-use crate::util::tui::{resume_tui, resume_tui_cleared, suspend_tui};
+use crate::util::tui::{self, ResumeMode};
 use crate::{integration::probe::TerminalImageProtocol, App};
 
 /// Kitty Graphics Protocol image IDs for the app's two independent, concurrently
@@ -174,12 +174,11 @@ impl App {
 
         let start_idx = images.iter().position(|p| *p == start_path).unwrap_or(0);
 
-        suspend_tui()?;
+        let fallback_result = {
+            let _tui = tui::suspend(ResumeMode::Cleared)?;
+            Self::render_halfblock_fullscreen_slideshow(&images, start_idx)
+        };
 
-        let fallback_result = Self::render_halfblock_fullscreen_slideshow(&images, start_idx);
-
-        resume_tui_cleared()?;
-        enable_raw_mode()?;
         Self::drain_pending_terminal_events();
 
         match fallback_result {
@@ -626,12 +625,11 @@ impl App {
 
         let start_idx = images.iter().position(|p| *p == start_path).unwrap_or(0);
 
-        suspend_tui()?;
+        let native_result = {
+            let _tui = tui::suspend(ResumeMode::Cleared)?;
+            Self::render_native_fullscreen_slideshow(&images, start_idx, protocol)
+        };
 
-        let native_result = Self::render_native_fullscreen_slideshow(&images, start_idx, protocol);
-
-        resume_tui_cleared()?;
-        enable_raw_mode()?;
         Self::drain_pending_terminal_events();
 
         match native_result {
@@ -857,7 +855,7 @@ impl App {
             stamp
         ));
 
-        suspend_tui()?;
+        let _tui = tui::suspend(ResumeMode::Plain)?;
 
         let script = r#"
 idx="$1"
@@ -923,7 +921,7 @@ printf '%s\n' "${paths[$idx]}" > "$out_file"
         }
         let _ = fs::remove_file(&result_file);
 
-        resume_tui()?;
+        drop(_tui);
         Self::drain_pending_terminal_events();
 
         if let Some(name) = images[idx].file_name() {

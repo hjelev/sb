@@ -1,7 +1,7 @@
 use super::*;
 use crate::ui::theme;
 use crate::util::keymap::Action;
-use crate::util::tui::{resume_tui, resume_tui_cleared, suspend_tui};
+use crate::util::tui::{self, ResumeMode};
 
 /// Browsing-mode dispatch runs in two stages: first the fixed structural keys
 /// (navigation, marking, dialogs, digit bookmarks, and the non-rebindable
@@ -112,7 +112,7 @@ pub(crate) fn handle_browsing_key(
         }
         KeyCode::Home => {
             if app.preview_focus_is_preview() {
-                app.preview_scroll_offset = 0;
+                app.preview.scroll_offset = 0;
             } else if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
                 app.right.selected_index = 0;
                 app.right.table_state.select(Some(0));
@@ -123,7 +123,7 @@ pub(crate) fn handle_browsing_key(
         }
         KeyCode::End => {
             if app.preview_focus_is_preview() {
-                app.preview_scroll_offset = app.preview_max_scroll();
+                app.preview.scroll_offset = app.preview_max_scroll();
             } else if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
                 if !app.right.entries.is_empty() {
                     app.right.selected_index = app.right.entries.len() - 1;
@@ -189,21 +189,21 @@ pub(crate) fn run_plugin_entry(
                     }
                     PluginEffect::EditPath(path) => {
                         let path = app.resolve_plugin_path(path);
-                        suspend_tui()?;
-                        execute!(io::stdout(), Show)?;
-                        let _ = Command::new(crate::util::command::editor_command())
-                            .arg(&path)
-                            .status();
-                        resume_tui()?;
-                        execute!(io::stdout(), Hide)?;
+                        {
+                            let _tui = tui::suspend_showing_cursor(ResumeMode::Plain)?;
+                            let _ = Command::new(crate::util::command::editor_command())
+                                .arg(&path)
+                                .status();
+                        }
                         terminal.clear()?;
                         app.refresh_entries_or_status();
                     }
                     PluginEffect::ViewPath(path) => {
                         let path = app.resolve_plugin_path(path);
-                        suspend_tui()?;
-                        App::open_path_in_view_mode(&path, true)?;
-                        resume_tui()?;
+                        {
+                            let _tui = tui::suspend(ResumeMode::Plain)?;
+                            App::open_path_in_view_mode(&path, true)?;
+                        }
                         terminal.clear()?;
                     }
                     _ => {}
@@ -239,7 +239,7 @@ fn dispatch_action(
             app.begin_input_edit(AppMode::CommandInput, String::new());
         }
         Action::Help => {
-            app.help_scroll_offset = 0;
+            app.help.scroll_offset = 0;
             app.panel_tab = 0;
             app.mode = AppMode::Help;
         }
@@ -374,17 +374,18 @@ fn dispatch_action(
         Action::ViewFile => {
             if let Some(selected_path) = app.active_selected_entry_path()
                 && !selected_path.is_dir() {
-                    suspend_tui()?;
-                    if App::is_binary_file(&selected_path) && app.integration_active("hexyl") {
-                        let mut hexyl = Command::new("hexyl");
-                        hexyl.arg(&selected_path);
-                        crate::util::command::pipe_to_pager_or_less(hexyl, &selected_path);
-                    } else {
-                        let _ = Command::new("less")
-                            .args(["-R", selected_path.to_str().unwrap_or_default()])
-                            .status();
+                    {
+                        let _tui = tui::suspend(ResumeMode::Plain)?;
+                        if App::is_binary_file(&selected_path) && app.integration_active("hexyl") {
+                            let mut hexyl = Command::new("hexyl");
+                            hexyl.arg(&selected_path);
+                            crate::util::command::pipe_to_pager_or_less(hexyl, &selected_path);
+                        } else {
+                            let _ = Command::new("less")
+                                .args(["-R", selected_path.to_str().unwrap_or_default()])
+                                .status();
+                        }
                     }
-                    resume_tui()?;
                     terminal.clear()?;
                 }
         }
@@ -408,7 +409,7 @@ fn dispatch_action(
             app.mode = AppMode::Bookmarks;
         }
         Action::Integrations => {
-            app.integration_selected = 0;
+            app.integration.selected = 0;
             app.reset_integration_search();
             app.refresh_integration_rows_cache();
             app.panel_tab = 5;
@@ -416,19 +417,19 @@ fn dispatch_action(
         }
         Action::Themes => {
             app.panel_tab = 6;
-            app.theme_selected = theme::themes()
+            app.themes.selected = theme::themes()
                 .iter()
                 .position(|theme| theme.id == app.active_theme)
                 .unwrap_or(0);
-            app.theme_panel_nerd_selected = false;
-            app.theme_panel_color_selected = false;
+            app.themes.nerd_selected = false;
+            app.themes.color_selected = false;
             app.mode = AppMode::Themes;
         }
         Action::RemoteMounts => {
             let has_sshfs = app.integration_active("sshfs");
             let has_rclone = app.integration_active("rclone");
             app.refresh_remote_entries();
-            if app.remote_entries.is_empty() {
+            if app.remote.entries.is_empty() {
                 if !has_sshfs && !has_rclone {
                     app.set_status("No media mounts or mounted archives found (sshfs/rclone not installed)");
                 } else {
@@ -462,13 +463,14 @@ fn dispatch_action(
                     if targets.is_empty() {
                         app.set_status("no selected item to rename");
                     } else {
-                        suspend_tui()?;
-                        let mut cmd = Command::new("vidir");
-                        for p in &targets {
-                            cmd.arg(p);
+                        {
+                            let _tui = tui::suspend(ResumeMode::Plain)?;
+                            let mut cmd = Command::new("vidir");
+                            for p in &targets {
+                                cmd.arg(p);
+                            }
+                            let _ = cmd.status();
                         }
-                        let _ = cmd.status();
-                        resume_tui()?;
                         terminal.clear()?;
                         app.refresh_entries_or_status();
                     }
@@ -513,7 +515,7 @@ fn handle_git_commit_workflow(
                 if confirmed {
                     app.begin_input_edit(AppMode::GitCommitMessage, String::new());
                     app.set_status("enter commit message (include --amend to amend+force-push)");
-                    if app.ai_auto_commit {
+                    if app.ai.auto_commit {
                         app.request_commit_message();
                     }
                 } else {
@@ -532,7 +534,7 @@ fn handle_git_commit_workflow(
 }
 
 fn handle_organize_workflow(app: &mut App) -> io::Result<KeyDispatchOutcome> {
-    if app.organize_rx.is_some() {
+    if app.organize.rx.is_some() {
         app.set_status("organize plan already generating...");
         return Ok(KeyDispatchOutcome::Ok);
     }
@@ -548,7 +550,7 @@ fn handle_git_log_key(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &m
                 && App::get_git_info(&work_dir).is_some()
             {
                 let fmt = "%C(bold blue)%h%C(reset) - %C(cyan)%ad%C(reset) | %C(yellow)%d%C(reset) %C(white)%s%C(reset) %C(green)[%an]%C(reset)";
-                suspend_tui()?;
+                let _tui = tui::suspend(ResumeMode::Cleared)?;
                 execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
                 let mut log_cmd = Command::new("git");
                 log_cmd
@@ -576,8 +578,7 @@ fn handle_git_log_key(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &m
                         ],
                     );
                 }
-                resume_tui_cleared()?;
-                enable_raw_mode()?;
+                drop(_tui);
                 terminal.clear()?;
             } else {
                 app.set_status("not a git repository");
@@ -724,39 +725,44 @@ fn handle_enter_or_right(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app:
                     }
                 }
                 else if App::is_markdown_file(&selected_path) && app.integration_active("glow") {
-                    suspend_tui()?;
-                    let _ = Command::new("glow")
-                        .arg("-p")
-                        .arg(&selected_path)
-                        .status();
-                    resume_tui()?;
+                    {
+                        let _tui = tui::suspend(ResumeMode::Plain)?;
+                        let _ = Command::new("glow")
+                            .arg("-p")
+                            .arg(&selected_path)
+                            .status();
+                    }
                     terminal.clear()?;
                 }
                 else if App::is_mermaid_file(&selected_path) && app.integration_active("mmdflux") {
-                    suspend_tui()?;
-                    let mut cmd = Command::new("mmdflux");
-                    cmd.arg(&selected_path);
-                    let _ = crate::util::command::pipe_to_pager(cmd);
-                    resume_tui()?;
+                    {
+                        let _tui = tui::suspend(ResumeMode::Plain)?;
+                        let mut cmd = Command::new("mmdflux");
+                        cmd.arg(&selected_path);
+                        let _ = crate::util::command::pipe_to_pager(cmd);
+                    }
                     terminal.clear()?;
                 }
                 else if App::is_html_file(&selected_path) && app.integration_active("links") {
-                    suspend_tui()?;
-                    let _ = Command::new("links").arg(&selected_path).status();
-                    resume_tui()?;
+                    {
+                        let _tui = tui::suspend(ResumeMode::Plain)?;
+                        let _ = Command::new("links").arg(&selected_path).status();
+                    }
                     terminal.clear()?;
                 }
                 else if App::is_json_file(&selected_path) && app.integration_active("jnv") {
-                    suspend_tui()?;
-                    execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
-                    let _ = App::preview_json_with_jnv(&selected_path);
-                    resume_tui()?;
+                    {
+                        let _tui = tui::suspend(ResumeMode::Plain)?;
+                        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+                        let _ = App::preview_json_with_jnv(&selected_path);
+                    }
                     terminal.clear()?;
                 }
                 else if App::is_delimited_text_file(&selected_path) && app.integration_active("csvlens") {
-                    suspend_tui()?;
-                    let _ = Command::new("csvlens").arg(&selected_path).status();
-                    resume_tui()?;
+                    {
+                        let _tui = tui::suspend(ResumeMode::Plain)?;
+                        let _ = Command::new("csvlens").arg(&selected_path).status();
+                    }
                     terminal.clear()?;
                 }
                 else if App::is_sqlite_db_file(&selected_path) {
@@ -767,73 +773,76 @@ fn handle_enter_or_right(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app:
                     }
                 }
                 else if App::is_audio_file(&selected_path) && app.integration_active("sox") {
-                    suspend_tui()?;
-                    execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+                    {
+                        let _tui = tui::suspend(ResumeMode::Plain)?;
+                        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
 
-                    let (player, extra): (&str, &[&str]) = if App::integration_probe("play").0 {
-                        ("play", &[])
-                    } else {
-                        ("sox", &["-d"])
-                    };
-                    let mut child =
-                        crate::util::command::spawn_detached(player, &selected_path, extra);
+                        let (player, extra): (&str, &[&str]) = if App::integration_probe("play").0 {
+                            ("play", &[])
+                        } else {
+                            ("sox", &["-d"])
+                        };
+                        let mut child =
+                            crate::util::command::spawn_detached(player, &selected_path, extra);
 
-                    if let Ok(ref mut proc) = child {
-                        println!("Playing: {}", selected_path.display());
-                        println!("Press q, Esc, or Left to stop playback.");
-                        enable_raw_mode()?;
-                        loop {
-                            if proc.try_wait()?.is_some() {
-                                break;
+                        if let Ok(ref mut proc) = child {
+                            println!("Playing: {}", selected_path.display());
+                            println!("Press q, Esc, or Left to stop playback.");
+                            enable_raw_mode()?;
+                            loop {
+                                if proc.try_wait()?.is_some() {
+                                    break;
+                                }
+                                if event::poll(Duration::from_millis(120))?
+                                    && let Event::Key(k) = event::read()?
+                                        && matches!(k.code, KeyCode::Char('q') | KeyCode::Esc | KeyCode::Left) {
+                                            let _ = proc.kill();
+                                            let _ = proc.wait();
+                                            break;
+                                        }
                             }
-                            if event::poll(Duration::from_millis(120))?
-                                && let Event::Key(k) = event::read()?
-                                    && matches!(k.code, KeyCode::Char('q') | KeyCode::Esc | KeyCode::Left) {
-                                        let _ = proc.kill();
-                                        let _ = proc.wait();
-                                        break;
-                                    }
+                            disable_raw_mode()?;
                         }
-                        disable_raw_mode()?;
                     }
 
-                    resume_tui()?;
                     terminal.clear()?;
                 }
                 else if App::is_pdf_file(&selected_path) && app.integration_active("pdftotext") {
-                    suspend_tui()?;
+                    {
+                        let _tui = tui::suspend(ResumeMode::Plain)?;
 
-                    let mut cmd = Command::new("pdftotext");
-                    cmd.args(["-layout", "-nopgbrk"]).arg(&selected_path).arg("-");
-                    crate::util::command::pipe_to_pager_or_less(cmd, &selected_path);
+                        let mut cmd = Command::new("pdftotext");
+                        cmd.args(["-layout", "-nopgbrk"]).arg(&selected_path).arg("-");
+                        crate::util::command::pipe_to_pager_or_less(cmd, &selected_path);
+                    }
 
-                    resume_tui()?;
                     terminal.clear()?;
                 }
                 else if App::is_cast_file(&selected_path) && app.integration_active("asciinema") {
-                    suspend_tui()?;
+                    {
+                        let _tui = tui::suspend(ResumeMode::Plain)?;
+                        let _ = App::preview_cast_with_asciinema(&selected_path)?;
+                    }
 
-                    let _ = App::preview_cast_with_asciinema(&selected_path)?;
-
-                    resume_tui()?;
                     terminal.clear()?;
                 }
                 else {
-                    suspend_tui()?;
-                    if App::is_binary_file(&selected_path) && app.integration_active("hexyl") {
-                        let mut cmd = Command::new("hexyl");
-                        cmd.arg(&selected_path);
-                        let _ = crate::util::command::pipe_to_pager(cmd);
-                    } else if app.integration_active("bat") {
-                        let bat_cmd = App::bat_tool().unwrap_or_else(|| "bat".to_string());
-                        let _ = Command::new(bat_cmd)
-                            .args(["--paging=always", "--style=full", "--color=always"])
-                            .arg(&selected_path)
-                            .status();
-                    } else {
-                        let _ = Command::new("less").arg("-R").arg(&selected_path).status();
+                    {
+                        let _tui = tui::suspend(ResumeMode::Plain)?;
+                        if App::is_binary_file(&selected_path) && app.integration_active("hexyl") {
+                            let mut cmd = Command::new("hexyl");
+                            cmd.arg(&selected_path);
+                            let _ = crate::util::command::pipe_to_pager(cmd);
+                        } else if app.integration_active("bat") {
+                            let bat_cmd = App::bat_tool().unwrap_or_else(|| "bat".to_string());
+                            let _ = Command::new(bat_cmd)
+                                .args(["--paging=always", "--style=full", "--color=always"])
+                                .arg(&selected_path)
+                                .status();
+                        } else {
+                            let _ = Command::new("less").arg("-R").arg(&selected_path).status();
+                        }
                     }
-                    resume_tui()?;
                     terminal.clear()?;
                 }
             }
@@ -863,15 +872,16 @@ fn handle_grep_search_key(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app
                         tmp.display()
                     )
                 };
-                suspend_tui()?;
-                let _ = Command::new("sh")
-                    .args(["-c", &cmd])
-                    .current_dir(&work_dir)
-                    .stdin(Stdio::inherit())
-                    .stdout(Stdio::inherit())
-                    .stderr(Stdio::inherit())
-                    .status();
-                resume_tui()?;
+                {
+                    let _tui = tui::suspend(ResumeMode::Plain)?;
+                    let _ = Command::new("sh")
+                        .args(["-c", &cmd])
+                        .current_dir(&work_dir)
+                        .stdin(Stdio::inherit())
+                        .stdout(Stdio::inherit())
+                        .stderr(Stdio::inherit())
+                        .status();
+                }
                 terminal.clear()?;
                 let selected = fs::read_to_string(&tmp).unwrap_or_default();
                 let _ = fs::remove_file(&tmp);
@@ -900,15 +910,16 @@ fn handle_fzf_find_key(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &
                     "find . -path '*/.*' -prune -o -print 2>/dev/null | fzf --layout=reverse > {}",
                     tmp.display()
                 );
-                suspend_tui()?;
-                let _ = Command::new("sh")
-                    .args(["-c", &cmd])
-                    .current_dir(&work_dir)
-                    .stdin(Stdio::inherit())
-                    .stdout(Stdio::inherit())
-                    .stderr(Stdio::inherit())
-                    .status();
-                resume_tui()?;
+                {
+                    let _tui = tui::suspend(ResumeMode::Plain)?;
+                    let _ = Command::new("sh")
+                        .args(["-c", &cmd])
+                        .current_dir(&work_dir)
+                        .stdin(Stdio::inherit())
+                        .stdout(Stdio::inherit())
+                        .stderr(Stdio::inherit())
+                        .status();
+                }
                 terminal.clear()?;
                 let selected = fs::read_to_string(&tmp).unwrap_or_default();
                 let _ = fs::remove_file(&tmp);
@@ -940,15 +951,14 @@ fn handle_edit_key(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut 
                         terminal.clear()?;
                     }
                 } else {
-                    suspend_tui()?;
-                    execute!(io::stdout(), Show)?;
-                    if !path.is_dir() && App::is_binary_file(&path) && app.integration_active("hexedit") {
-                        let _ = Command::new("hexedit").arg(&path).status();
-                    } else {
-                        let _ = Command::new(crate::util::command::editor_command()).arg(&path).status();
+                    {
+                        let _tui = tui::suspend_showing_cursor(ResumeMode::Plain)?;
+                        if !path.is_dir() && App::is_binary_file(&path) && app.integration_active("hexedit") {
+                            let _ = Command::new("hexedit").arg(&path).status();
+                        } else {
+                            let _ = Command::new(crate::util::command::editor_command()).arg(&path).status();
+                        }
                     }
-                    resume_tui()?;
-                    execute!(io::stdout(), Hide)?;
                     terminal.clear()?;
                     app.refresh_entries_or_status();
                 }

@@ -15,32 +15,32 @@ use crossterm::{
 use crate::{App, AppMode, GitInfo, GitInfoCache, GitInfoRef};
 use crate::util::background::{pump_once, spawn_worker};
 use crate::util::command::CommandBuilder;
-use crate::util::tui::{resume_tui, resume_tui_cleared, suspend_tui};
+use crate::util::tui::{self, ResumeMode};
 
 impl App {
     pub(crate) fn pump_git_info(&mut self) {
-        if let Some((path, info)) = pump_once(&mut self.git_info_rx) {
-            self.git_info_cache = Some(GitInfoCache { path, info });
+        if let Some((path, info)) = pump_once(&mut self.git.info_rx) {
+            self.git.info_cache = Some(GitInfoCache { path, info });
         }
     }
 
     pub(crate) fn request_git_info_for_current_dir_once(&mut self) {
         if !self.integration_enabled("git") {
-            self.git_info_rx = None;
-            self.git_info_cache = None;
+            self.git.info_rx = None;
+            self.git.info_cache = None;
             return;
         }
-        if self.git_info_rx.is_some() {
+        if self.git.info_rx.is_some() {
             return;
         }
         let cache_is_current = self
-            .git_info_cache
+            .git.info_cache
             .as_ref()
             .map(|cache| cache.path == self.left.dir)
             .unwrap_or(false);
 
         let is_fresh = self
-            .git_last_check_at
+            .git.last_check_at
             .map(|t| t.elapsed() < Duration::from_secs(8))
             .unwrap_or(false);
 
@@ -50,19 +50,19 @@ impl App {
 
         if !cache_is_current {
             // Clear stale data from a previously visited path until the new result arrives.
-            self.git_info_cache = None;
+            self.git.info_cache = None;
         }
 
         let path = self.left.dir.clone();
-        self.git_last_check_at = Some(Instant::now());
-        self.git_info_rx = Some(spawn_worker(move |tx| {
+        self.git.last_check_at = Some(Instant::now());
+        self.git.info_rx = Some(spawn_worker(move |tx| {
             let info = App::get_git_info(&path);
             let _ = tx.send((path, info));
         }));
     }
 
     pub(crate) fn cached_git_info_for_current_dir(&self) -> Option<GitInfoRef<'_>> {
-        let cache = self.git_info_cache.as_ref()?;
+        let cache = self.git.info_cache.as_ref()?;
         if cache.path != self.left.dir {
             return None;
         }
@@ -211,7 +211,7 @@ impl App {
     }
 
     pub(crate) fn preview_git_diff_and_confirm_commit(&mut self) -> io::Result<bool> {
-        suspend_tui()?;
+        let _tui = tui::suspend(ResumeMode::Plain)?;
         execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
 
         let delta_available = self.integration_active("delta");
@@ -244,14 +244,14 @@ impl App {
         let _ = io::stdin().read_line(&mut answer);
         let confirmed = matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes");
 
-        resume_tui()?;
+        drop(_tui);
         execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
 
         Ok(confirmed)
     }
 
     pub(crate) fn run_git_commit_and_push(&mut self, commit_message: &str, amend: bool) -> io::Result<()> {
-        suspend_tui()?;
+        let _tui = tui::suspend(ResumeMode::Cleared)?;
 
         let mut failed_step: Option<String> = None;
         let mut push_forced = false;
@@ -328,8 +328,7 @@ impl App {
             disable_raw_mode()?;
         }
 
-        resume_tui_cleared()?;
-        enable_raw_mode()?;
+        drop(_tui);
 
         if let Some(step) = failed_step {
             self.set_status(step);
@@ -350,13 +349,13 @@ impl App {
         }
 
         self.refresh_entries_or_status();
-        self.git_info_cache = None;
+        self.git.info_cache = None;
         self.request_git_info_for_current_dir_once();
         Ok(())
     }
 
     pub(crate) fn run_git_tag_and_push(&mut self, tag: &str) -> io::Result<()> {
-        suspend_tui()?;
+        let _tui = tui::suspend(ResumeMode::Plain)?;
 
         let run_step = |args: &[&str], dir: &PathBuf| -> io::Result<bool> {
             let out = CommandBuilder::git_command(dir, args)?;
@@ -382,7 +381,7 @@ impl App {
         let mut line = String::new();
         let _ = io::stdin().read_line(&mut line);
 
-        resume_tui()?;
+        drop(_tui);
         execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
 
         if let Some(step) = failed_step {
@@ -392,7 +391,7 @@ impl App {
         }
 
         self.refresh_entries_or_status();
-        self.git_info_cache = None;
+        self.git.info_cache = None;
         self.request_git_info_for_current_dir_once();
         Ok(())
     }

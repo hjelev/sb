@@ -6,13 +6,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crossterm::{
-    cursor::{Hide, Show},
-    execute,
-    terminal::enable_raw_mode,
-};
-
-use crate::util::tui::{resume_tui, resume_tui_cleared, suspend_tui};
+use crate::util::tui::{self, ResumeMode};
 use crate::{App, DualPanelSide};
 
 impl App {
@@ -108,17 +102,13 @@ impl App {
         current_dir: &str,
         right_cmd: &str,
     ) -> io::Result<()> {
-        suspend_tui()?;
-        execute!(io::stdout(), Show)?;
-
-        let result = match mux {
-            "zellij" => Self::run_zellij_split(session_name, shell, current_dir, right_cmd),
-            _ => Self::run_tmux_split(session_name, shell, current_dir, right_cmd),
+        let result = {
+            let _tui = tui::suspend_showing_cursor(ResumeMode::Cleared)?;
+            match mux {
+                "zellij" => Self::run_zellij_split(session_name, shell, current_dir, right_cmd),
+                _ => Self::run_tmux_split(session_name, shell, current_dir, right_cmd),
+            }
         };
-
-        resume_tui_cleared()?;
-        enable_raw_mode()?;
-        execute!(io::stdout(), Hide)?;
 
         match result {
             Ok(()) => self.set_status("returned from split shell"),
@@ -240,37 +230,36 @@ impl App {
             return Ok(());
         }
 
-        suspend_tui()?;
+        {
+            let _tui = tui::suspend(ResumeMode::Cleared)?;
 
-        println!("$ {}", trimmed);
-        let shell = Self::login_shell();
-        let mut cmd = Command::new(&shell);
-        // Non-interactive mode avoids shell job-control side effects that can
-        // suspend sb when returning from the command runner.
-        cmd.args(["-c", trimmed]);
+            println!("$ {}", trimmed);
+            let shell = Self::login_shell();
+            let mut cmd = Command::new(&shell);
+            // Non-interactive mode avoids shell job-control side effects that can
+            // suspend sb when returning from the command runner.
+            cmd.args(["-c", trimmed]);
 
-        let status = cmd.current_dir(&self.left.dir).status();
+            let status = cmd.current_dir(&self.left.dir).status();
 
-        match status {
-            Ok(s) => {
-                if let Some(code) = s.code() {
-                    println!("\n[exit code: {}]", code);
-                } else {
-                    println!("\n[process terminated by signal]");
+            match status {
+                Ok(s) => {
+                    if let Some(code) = s.code() {
+                        println!("\n[exit code: {}]", code);
+                    } else {
+                        println!("\n[process terminated by signal]");
+                    }
+                }
+                Err(e) => {
+                    println!("\n[failed to execute command: {}]", e);
                 }
             }
-            Err(e) => {
-                println!("\n[failed to execute command: {}]", e);
-            }
+
+            println!("\nPress Enter to return to shell buddy...");
+            let _ = io::stdout().flush();
+            let mut line = String::new();
+            let _ = io::stdin().read_line(&mut line);
         }
-
-        println!("\nPress Enter to return to shell buddy...");
-        let _ = io::stdout().flush();
-        let mut line = String::new();
-        let _ = io::stdin().read_line(&mut line);
-
-        resume_tui_cleared()?;
-        enable_raw_mode()?;
 
         self.set_status(format!("ran command: {}", trimmed));
         self.refresh_entries_or_status();
@@ -280,14 +269,12 @@ impl App {
 
     pub(crate) fn drop_to_shell(&mut self) -> io::Result<()> {
         let shell = Self::login_shell();
-        suspend_tui()?;
-        execute!(io::stdout(), Show)?;
-        let _ = Command::new(&shell)
-            .current_dir(&self.left.dir)
-            .status();
-        resume_tui_cleared()?;
-        enable_raw_mode()?;
-        execute!(io::stdout(), Hide)?;
+        {
+            let _tui = tui::suspend_showing_cursor(ResumeMode::Cleared)?;
+            let _ = Command::new(&shell)
+                .current_dir(&self.left.dir)
+                .status();
+        }
         self.set_status("returned from shell");
         self.refresh_entries_or_status();
         self.sync_inactive_panel_if_same_dir();
@@ -462,14 +449,15 @@ impl App {
             return Ok(());
         }
 
-        suspend_tui()?;
-        let _ = Command::new("delta")
-            .arg("--side-by-side")
-            .arg("--paging=always")
-            .arg(&marked_path)
-            .arg(&cursor_path)
-            .status();
-        resume_tui()?;
+        {
+            let _tui = tui::suspend(ResumeMode::Plain)?;
+            let _ = Command::new("delta")
+                .arg("--side-by-side")
+                .arg("--paging=always")
+                .arg(&marked_path)
+                .arg(&cursor_path)
+                .status();
+        }
 
         let left = crate::util::classify::display_name(marked_path.as_path());
         let right = crate::util::classify::display_name(cursor_path.as_path());

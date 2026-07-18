@@ -14,9 +14,9 @@ impl App {
             return;
         }
         let combo = KeyCombo::from_event(key);
-        let idx = self.shortcuts_selected;
+        let idx = self.shortcuts_panel.selected;
         let Some(spec) = ACTIONS.get(idx) else {
-            self.shortcut_capture = false;
+            self.shortcuts_panel.capture = false;
             return;
         };
         if KeyMap::is_reserved(combo) {
@@ -31,7 +31,7 @@ impl App {
             ));
             return;
         }
-        self.shortcut_capture = false;
+        self.shortcuts_panel.capture = false;
         self.rebind_shortcut(idx, combo);
         self.set_status(format!("{} rebound to {}", spec.label, combo.label()));
     }
@@ -39,7 +39,7 @@ impl App {
     /// Reset the selected action to its default key (removing the persisted
     /// override), unless the default is now taken by another action.
     pub(crate) fn reset_selected_shortcut(&mut self) {
-        let idx = self.shortcuts_selected;
+        let idx = self.shortcuts_panel.selected;
         let Some(spec) = ACTIONS.get(idx) else {
             return;
         };

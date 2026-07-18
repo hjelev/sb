@@ -7,19 +7,14 @@ use std::{
     time::Instant,
 };
 
-use crossterm::{
-    cursor::{Hide, Show},
-    execute,
-};
-
 use crate::util::background::{drain_channel, pump_once, spawn_worker};
-use crate::util::tui::{resume_tui, suspend_tui};
+use crate::util::tui::{self, ResumeMode};
 use crate::{util, App, AppMode, CopyProgressMsg, DualPanelSide};
 
 impl App {
 
     pub(crate) fn is_path_inside_remote_mount(&self, path: &PathBuf) -> bool {
-        self.ssh_mounts
+        self.remote.ssh_mounts
             .iter()
             .any(|m| path == &m.mount_path || path.starts_with(&m.mount_path))
     }
@@ -42,13 +37,13 @@ impl App {
             self.set_status("copy already in progress");
             return;
         }
-        self.paste_queue = sources.iter().cloned().collect();
-        self.paste_current_src = None;
-        self.paste_move_mode = move_mode;
-        self.paste_target_dir = Some(target_dir);
-        self.paste_total_items = sources.len();
-        self.paste_ok_items = 0;
-        self.paste_failed_items = 0;
+        self.transfer.paste_queue = sources.iter().cloned().collect();
+        self.transfer.paste_current_src = None;
+        self.transfer.paste_move_mode = move_mode;
+        self.transfer.paste_target_dir = Some(target_dir);
+        self.transfer.paste_total_items = sources.len();
+        self.transfer.paste_ok_items = 0;
+        self.transfer.paste_failed_items = 0;
         self.copy.total_rx = Some(spawn_worker(move |tx_total| {
             let total = sources
                 .iter()
@@ -266,18 +261,13 @@ impl App {
             return Ok(());
         }
 
-        suspend_tui()?;
-        execute!(io::stdout(), Show)?;
-
         let edit_result = {
+            let _tui = tui::suspend_showing_cursor(ResumeMode::Plain)?;
             let _ = Command::new(crate::util::command::editor_command())
                 .arg(&tmp)
                 .status();
             fs::read_to_string(&tmp)
         };
-
-        resume_tui()?;
-        execute!(io::stdout(), Hide)?;
 
         let _ = fs::remove_file(&tmp);
 
@@ -378,7 +368,7 @@ impl App {
         };
         let eta_label = if total == 0 { "-".to_string() } else { Self::format_eta(eta_secs) };
         let scan_suffix = if scanning { " scanning size..." } else { "" };
-        let current_idx = (self.paste_ok_items + self.paste_failed_items + 1).min(self.paste_total_items.max(1));
+        let current_idx = (self.transfer.paste_ok_items + self.transfer.paste_failed_items + 1).min(self.transfer.paste_total_items.max(1));
         let scope = if self.copy.from_remote { "remote " } else { "" };
         self.set_status(format!(
             "{}copy [{}] {:>3.0}% {}/{} {}/s eta {} ({}/{}) {}{}",
@@ -390,7 +380,7 @@ impl App {
             Self::format_size(bytes_per_sec as u64),
             eta_label,
             current_idx,
-            self.paste_total_items,
+            self.transfer.paste_total_items,
             self.copy.item_name,
             scan_suffix
         ));
@@ -442,7 +432,7 @@ impl App {
             self.copy.rx = None;
             match result {
                 Ok(()) => {
-                    if self.paste_move_mode
+                    if self.transfer.paste_move_mode
                         && let Some(src) = self.copy.current_src.take() {
                             let delete_res = if src.is_dir() {
                                 fs::remove_dir_all(&src)
@@ -450,7 +440,7 @@ impl App {
                                 fs::remove_file(&src)
                             };
                             if let Err(e) = delete_res {
-                                self.paste_failed_items += 1;
+                                self.transfer.paste_failed_items += 1;
                                 self.set_status(format!("move cleanup failed for {}: {}", self.copy.item_name, e));
                                 self.copy.job_total_bytes = 0;
                                 self.copy.done_before_job = self.copy.done_bytes;
@@ -464,13 +454,13 @@ impl App {
                                 return;
                             }
                         }
-                    self.paste_ok_items += 1;
+                    self.transfer.paste_ok_items += 1;
                     self.copy.done_bytes = self
                         .copy.done_before_job
                         .saturating_add(self.copy.job_total_bytes);
                 }
                 Err(e) => {
-                    self.paste_failed_items += 1;
+                    self.transfer.paste_failed_items += 1;
                     self.set_status(format!("paste failed for {}: {}", self.copy.item_name, e));
                 }
             }
@@ -497,27 +487,27 @@ impl App {
         if self.copy.rx.is_some() {
             return;
         }
-        while let Some(src) = self.paste_queue.pop_front() {
+        while let Some(src) = self.transfer.paste_queue.pop_front() {
             let name = src
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "pasted_item".to_string());
             let target_dir = self
-                .paste_target_dir
+                .transfer.paste_target_dir
                 .as_ref()
                 .cloned()
                 .unwrap_or_else(|| self.left.dir.clone());
             let dest = target_dir.join(&name);
             if dest.exists() {
-                self.paste_current_src = Some(src);
+                self.transfer.paste_current_src = Some(src);
                 self.begin_input_edit(AppMode::PasteRenaming, name);
                 self.set_status("target exists: edit name and press Enter");
                 return;
             }
 
-            if self.paste_move_mode
+            if self.transfer.paste_move_mode
                 && fs::rename(&src, &dest).is_ok() {
-                    self.paste_ok_items += 1;
+                    self.transfer.paste_ok_items += 1;
                     let _ = self.refresh_entries();
                     if self.is_dual_panel_mode() {
                         let _ = self.refresh_right_panel_entries();
@@ -529,9 +519,9 @@ impl App {
             return;
         }
 
-        self.paste_current_src = None;
-        self.paste_move_mode = false;
-        self.paste_target_dir = None;
+        self.transfer.paste_current_src = None;
+        self.transfer.paste_move_mode = false;
+        self.transfer.paste_target_dir = None;
         self.clear_input_edit();
         self.mode = AppMode::Browsing;
         self.copy.started_at = None;
@@ -541,14 +531,14 @@ impl App {
         if self.is_dual_panel_mode() {
             let _ = self.refresh_right_panel_entries();
         }
-        if self.paste_failed_items == 0 && self.paste_ok_items > 0 {
-            self.set_status(format!("transfer complete: {} item", self.paste_ok_items));
-        } else if self.paste_failed_items == 0 {
+        if self.transfer.paste_failed_items == 0 && self.transfer.paste_ok_items > 0 {
+            self.set_status(format!("transfer complete: {} item", self.transfer.paste_ok_items));
+        } else if self.transfer.paste_failed_items == 0 {
             self.set_status("nothing to transfer");
         } else {
             self.set_status(format!(
                 "transfer finished: {} ok, {} failed ({} total)",
-                self.paste_ok_items, self.paste_failed_items, self.paste_total_items
+                self.transfer.paste_ok_items, self.transfer.paste_failed_items, self.transfer.paste_total_items
             ));
         }
     }

@@ -60,7 +60,7 @@ impl App {
         match tab {
             0 => {
                 self.panel_tab = 0;
-                self.help_scroll_offset = 0;
+                self.help.scroll_offset = 0;
                 self.mode = AppMode::Help;
             }
             1 => {
@@ -81,21 +81,21 @@ impl App {
                 self.begin_sort_menu();
             }
             5 => {
-                self.integration_selected = 0;
+                self.integration.selected = 0;
                 self.reset_integration_search();
                 self.refresh_integration_rows_cache();
                 self.panel_tab = 5;
                 self.mode = AppMode::Integrations;
             }
             6 => {
-                self.theme_selected = ui::theme::themes()
+                self.themes.selected = ui::theme::themes()
                     .iter()
                     .position(|theme| theme.id == self.active_theme)
                     .unwrap_or(0);
                 self.panel_tab = 6;
-                self.theme_panel_nerd_selected = false;
-                self.theme_panel_color_selected = false;
-                self.theme_panel_clock_selected = false;
+                self.themes.nerd_selected = false;
+                self.themes.color_selected = false;
+                self.themes.clock_selected = false;
                 self.mode = AppMode::Themes;
             }
             7 => {
@@ -105,8 +105,8 @@ impl App {
                 self.maybe_check_api_key();
             }
             8 => {
-                self.shortcuts_selected = 0;
-                self.shortcut_capture = false;
+                self.shortcuts_panel.selected = 0;
+                self.shortcuts_panel.capture = false;
                 self.panel_tab = 8;
                 self.mode = AppMode::Shortcuts;
             }
@@ -134,8 +134,8 @@ impl App {
             | AppMode::Shortcuts
             | AppMode::Plugins
             | AppMode::SshPicker => {
-                self.shortcut_capture = false;
-                self.plugin_key_capture = false;
+                self.shortcuts_panel.capture = false;
+                self.plugins_panel.key_capture = false;
                 self.mode = AppMode::Browsing;
             }
             _ => {}
@@ -205,8 +205,8 @@ impl App {
             return false;
         }
 
-        let folder_count = self.confirm_delete_targets.iter().filter(|t| t.is_dir).count();
-        let file_count = self.confirm_delete_targets.len() - folder_count;
+        let folder_count = self.confirm_delete.targets.iter().filter(|t| t.is_dir).count();
+        let file_count = self.confirm_delete.targets.len() - folder_count;
         let title = ui::dialogs::confirm_delete_title(file_count, folder_count);
         let confirm_area = ui::dialogs::confirm_delete_dialog_area(area, &title);
         let Some((button_area, confirm_start, confirm_w, cancel_start, cancel_w)) =
@@ -220,12 +220,12 @@ impl App {
         }
 
         if column >= confirm_start && column < confirm_start + confirm_w {
-            self.confirm_delete_button_focus = 0;
+            self.confirm_delete.button_focus = 0;
             self.confirm_delete_selected_targets();
             return true;
         }
         if column >= cancel_start && column < cancel_start + cancel_w {
-            self.confirm_delete_button_focus = 1;
+            self.confirm_delete.button_focus = 1;
             self.mode = AppMode::Browsing;
             return true;
         }
@@ -265,15 +265,15 @@ impl App {
 
     pub(crate) fn confirm_integration_install_msg_lines(&self) -> Vec<String> {
         let key = self
-            .integration_install_key
+            .integration.install_key
             .clone()
             .unwrap_or_else(|| "(unknown)".to_string());
         let package = self
-            .integration_install_package
+            .integration.install_package
             .clone()
             .unwrap_or_else(|| "(unknown)".to_string());
         let brew_display = self
-            .integration_install_brew_path
+            .integration.install_brew_path
             .clone()
             .unwrap_or_else(|| "brew (not found)".to_string());
 
@@ -281,7 +281,7 @@ impl App {
             &key,
             &package,
             &brew_display,
-            self.integration_install_brew_path.is_none(),
+            self.integration.install_brew_path.is_none(),
         )
     }
 
@@ -420,7 +420,7 @@ impl App {
 
                 let line_idx = row.saturating_sub(content.y) as usize;
                 if line_idx >= 1 && line_idx <= bookmarks_len {
-                    self.bookmark_selected = line_idx - 1;
+                    self.bookmarks.selected = line_idx - 1;
                     return Some(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
                 }
 
@@ -428,7 +428,7 @@ impl App {
             }
             AppMode::Integrations => {
                 let overlay = Self::tab_overlay_anchor(area);
-                let integrations_len = self.integration_rows_cache.len();
+                let integrations_len = self.integration.rows_cache.len();
                 if integrations_len == 0 {
                     return None;
                 }
@@ -451,25 +451,25 @@ impl App {
                 }
 
                 let visible_rows = content.height as usize;
-                let selected_line = self.integration_selected + 1;
+                let selected_line = self.integration.selected + 1;
                 let int_scroll = (selected_line + 1).saturating_sub(visible_rows);
                 let line_idx = int_scroll + row.saturating_sub(content.y) as usize;
                 if line_idx >= 1 && line_idx <= integrations_len {
-                    self.integration_selected = line_idx - 1;
+                    self.integration.selected = line_idx - 1;
                     return Some(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
                 }
 
                 None
             }
             AppMode::SshPicker => {
-                if self.remote_entries.is_empty() {
+                if self.remote.entries.is_empty() {
                     return None;
                 }
 
                 let overlay = Self::tab_overlay_anchor(area);
                 let ssh_w = (area.width * 2 / 3).max(60).min(area.width);
                 let ssh_popup_w = ssh_w.min(overlay.width);
-                let lines_len = 1usize + self.remote_entries.len();
+                let lines_len = 1usize + self.remote.entries.len();
                 let ssh_h = (lines_len as u16 + 4).max(8).min(overlay.height);
                 let ssh_area = Rect::new(overlay.x, overlay.y, ssh_popup_w, ssh_h);
                 let ssh_inner = Self::inner_with_borders(ssh_area);
@@ -487,8 +487,8 @@ impl App {
                 }
 
                 let line_idx = row.saturating_sub(content.y) as usize;
-                if line_idx >= 1 && line_idx <= self.remote_entries.len() {
-                    self.ssh_picker_selection = line_idx - 1;
+                if line_idx >= 1 && line_idx <= self.remote.entries.len() {
+                    self.remote.picker_selection = line_idx - 1;
                     return Some(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
                 }
 
@@ -555,25 +555,25 @@ impl App {
                 let offset = row.saturating_sub(content.y) as usize;
                 match offset {
                     1 => {
-                        self.theme_panel_nerd_selected = true;
-                        self.theme_panel_color_selected = false;
-                        self.theme_panel_clock_selected = false;
+                        self.themes.nerd_selected = true;
+                        self.themes.color_selected = false;
+                        self.themes.clock_selected = false;
                     }
                     2 => {
-                        self.theme_panel_nerd_selected = false;
-                        self.theme_panel_color_selected = true;
-                        self.theme_panel_clock_selected = false;
+                        self.themes.nerd_selected = false;
+                        self.themes.color_selected = true;
+                        self.themes.clock_selected = false;
                     }
                     3 => {
-                        self.theme_panel_nerd_selected = false;
-                        self.theme_panel_color_selected = false;
-                        self.theme_panel_clock_selected = true;
+                        self.themes.nerd_selected = false;
+                        self.themes.color_selected = false;
+                        self.themes.clock_selected = true;
                     }
                     o if o >= 5 && (o - 5) < themes.len() => {
-                        self.theme_panel_nerd_selected = false;
-                        self.theme_panel_color_selected = false;
-                        self.theme_panel_clock_selected = false;
-                        self.theme_selected = o - 5;
+                        self.themes.nerd_selected = false;
+                        self.themes.color_selected = false;
+                        self.themes.clock_selected = false;
+                        self.themes.selected = o - 5;
                     }
                     _ => return None, // blank separator rows
                 }
@@ -610,9 +610,9 @@ impl App {
             }
             AppMode::Help => {
                 if scroll_up {
-                    self.help_scroll_offset = self.help_scroll_offset.saturating_sub(1);
+                    self.help.scroll_offset = self.help.scroll_offset.saturating_sub(1);
                 } else {
-                    self.help_scroll_offset = (self.help_scroll_offset + 1).min(self.help_max_offset);
+                    self.help.scroll_offset = (self.help.scroll_offset + 1).min(self.help.max_offset);
                 }
             }
             AppMode::InternalSearch => {
@@ -632,17 +632,17 @@ impl App {
             }
             AppMode::Bookmarks => {
                 if scroll_up {
-                    cursor_up(&mut self.bookmark_selected);
+                    cursor_up(&mut self.bookmarks.selected);
                 } else {
                     let len = self.bookmarks().len();
-                    cursor_down(&mut self.bookmark_selected, len);
+                    cursor_down(&mut self.bookmarks.selected, len);
                 }
             }
             AppMode::Integrations => {
                 if scroll_up {
-                    cursor_up(&mut self.integration_selected);
+                    cursor_up(&mut self.integration.selected);
                 } else {
-                    cursor_down(&mut self.integration_selected, self.integration_rows_cache.len());
+                    cursor_down(&mut self.integration.selected, self.integration.rows_cache.len());
                 }
             }
             AppMode::Settings => {
@@ -654,16 +654,16 @@ impl App {
             }
             AppMode::Shortcuts => {
                 if scroll_up {
-                    cursor_up(&mut self.shortcuts_selected);
+                    cursor_up(&mut self.shortcuts_panel.selected);
                 } else {
-                    cursor_down(&mut self.shortcuts_selected, crate::util::keymap::ACTIONS.len());
+                    cursor_down(&mut self.shortcuts_panel.selected, crate::util::keymap::ACTIONS.len());
                 }
             }
             AppMode::Plugins => {
                 if scroll_up {
-                    cursor_up(&mut self.plugins_selected);
+                    cursor_up(&mut self.plugins_panel.selected);
                 } else {
-                    cursor_down(&mut self.plugins_selected, self.plugins.plugins.len());
+                    cursor_down(&mut self.plugins_panel.selected, self.plugins.plugins.len());
                 }
             }
             AppMode::SortMenu => {
@@ -675,47 +675,47 @@ impl App {
             }
             AppMode::SshPicker => {
                 if scroll_up {
-                    cursor_up(&mut self.ssh_picker_selection);
+                    cursor_up(&mut self.remote.picker_selection);
                 } else {
-                    cursor_down(&mut self.ssh_picker_selection, self.remote_entries.len());
+                    cursor_down(&mut self.remote.picker_selection, self.remote.entries.len());
                 }
             }
             AppMode::Themes => {
                 // Mirror the keyboard Up/Down focus order:
                 // Nerd Fonts → Filename colors → Disable clock → theme list.
                 if scroll_up {
-                    if self.theme_panel_nerd_selected {
+                    if self.themes.nerd_selected {
                         // already at the top row
-                    } else if self.theme_panel_color_selected {
-                        self.theme_panel_color_selected = false;
-                        self.theme_panel_nerd_selected = true;
-                    } else if self.theme_panel_clock_selected {
-                        self.theme_panel_clock_selected = false;
-                        self.theme_panel_color_selected = true;
-                    } else if self.theme_selected == 0 {
-                        self.theme_panel_clock_selected = true;
+                    } else if self.themes.color_selected {
+                        self.themes.color_selected = false;
+                        self.themes.nerd_selected = true;
+                    } else if self.themes.clock_selected {
+                        self.themes.clock_selected = false;
+                        self.themes.color_selected = true;
+                    } else if self.themes.selected == 0 {
+                        self.themes.clock_selected = true;
                     } else {
-                        self.theme_selected -= 1;
+                        self.themes.selected -= 1;
                     }
-                } else if self.theme_panel_nerd_selected {
-                    self.theme_panel_nerd_selected = false;
-                    self.theme_panel_color_selected = true;
-                } else if self.theme_panel_color_selected {
-                    self.theme_panel_color_selected = false;
-                    self.theme_panel_clock_selected = true;
-                } else if self.theme_panel_clock_selected {
-                    self.theme_panel_clock_selected = false;
+                } else if self.themes.nerd_selected {
+                    self.themes.nerd_selected = false;
+                    self.themes.color_selected = true;
+                } else if self.themes.color_selected {
+                    self.themes.color_selected = false;
+                    self.themes.clock_selected = true;
+                } else if self.themes.clock_selected {
+                    self.themes.clock_selected = false;
                 } else {
                     let max_idx = crate::ui::theme::themes().len().saturating_sub(1);
-                    self.theme_selected = (self.theme_selected + 1).min(max_idx);
+                    self.themes.selected = (self.themes.selected + 1).min(max_idx);
                 }
             }
             AppMode::ConfirmDelete => {
                 if scroll_up {
-                    self.confirm_delete_scroll_offset = self.confirm_delete_scroll_offset.saturating_sub(1);
+                    self.confirm_delete.scroll_offset = self.confirm_delete.scroll_offset.saturating_sub(1);
                 } else {
-                    self.confirm_delete_scroll_offset =
-                        (self.confirm_delete_scroll_offset + 1).min(self.confirm_delete_max_offset);
+                    self.confirm_delete.scroll_offset =
+                        (self.confirm_delete.scroll_offset + 1).min(self.confirm_delete.max_offset);
                 }
             }
             _ => {}
@@ -824,12 +824,12 @@ impl App {
             && row < preview_area.y + preview_area.height;
 
         if in_folder {
-            self.preview_pane_focus = PreviewPaneFocus::Folder;
+            self.preview.pane_focus = PreviewPaneFocus::Folder;
             return false;
         }
 
         if in_preview {
-            self.preview_pane_focus = PreviewPaneFocus::Preview;
+            self.preview.pane_focus = PreviewPaneFocus::Preview;
             return true;
         }
 

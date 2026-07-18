@@ -5,9 +5,7 @@ use std::{
     process::Command,
 };
 
-use crossterm::terminal::enable_raw_mode;
-
-use crate::util::tui::{resume_tui_cleared, suspend_tui};
+use crate::util::tui::{self, ResumeMode};
 use crate::{integration, App, AppMode, ArchiveKind};
 
 use super::{catalog, probe, rows::IntegrationRow};
@@ -51,18 +49,18 @@ impl App {
     }
 
     pub(crate) fn clear_integration_install_prompt(&mut self) {
-        self.integration_install_key = None;
-        self.integration_install_package = None;
-        self.integration_install_brew_path = None;
+        self.integration.install_key = None;
+        self.integration.install_package = None;
+        self.integration.install_brew_path = None;
     }
 
     pub(crate) fn begin_integration_install_prompt_for_selected(&mut self) {
-        if self.integration_rows_cache.is_empty() {
+        if self.integration.rows_cache.is_empty() {
             self.set_status("no integration selected");
             return;
         }
 
-        let Some(row) = self.integration_rows_cache.get(self.integration_selected).cloned() else {
+        let Some(row) = self.integration.rows_cache.get(self.integration.selected).cloned() else {
             self.set_status("invalid integration selection");
             return;
         };
@@ -87,16 +85,16 @@ impl App {
             return;
         };
 
-        self.integration_install_key = Some(row.key);
-        self.integration_install_package = Some(package.to_string());
-        self.integration_install_brew_path = Self::brew_command_path();
+        self.integration.install_key = Some(row.key);
+        self.integration.install_package = Some(package.to_string());
+        self.integration.install_brew_path = Self::brew_command_path();
         self.confirm_integration_install_button_focus = 0;
         self.mode = AppMode::ConfirmIntegrationInstall;
         self.set_status("confirm integration install");
     }
 
     pub(crate) fn show_brew_setup_guidance(&mut self) -> io::Result<()> {
-        suspend_tui()?;
+        let _tui = tui::suspend(ResumeMode::Cleared)?;
 
         println!("Homebrew was not found on this system.");
         println!();
@@ -112,25 +110,24 @@ impl App {
         let mut line = String::new();
         let _ = io::stdin().read_line(&mut line);
 
-        resume_tui_cleared()?;
-        enable_raw_mode()?;
+        drop(_tui);
         Ok(())
     }
 
     pub(crate) fn confirm_integration_install(&mut self) -> io::Result<()> {
-        let Some(key) = self.integration_install_key.clone() else {
+        let Some(key) = self.integration.install_key.clone() else {
             self.mode = AppMode::Integrations;
             self.set_status("no pending integration install");
             return Ok(());
         };
-        let Some(package) = self.integration_install_package.clone() else {
+        let Some(package) = self.integration.install_package.clone() else {
             self.mode = AppMode::Integrations;
             self.set_status("no pending integration package");
             return Ok(());
         };
 
         let brew_path = self
-            .integration_install_brew_path
+            .integration.install_brew_path
             .clone()
             .or_else(Self::brew_command_path);
 
@@ -145,7 +142,7 @@ impl App {
 
         let brew = brew_path.unwrap_or_default();
 
-        suspend_tui()?;
+        let _tui = tui::suspend(ResumeMode::Cleared)?;
 
         println!("Installing integration '{}' with Homebrew", key);
 
@@ -201,8 +198,7 @@ impl App {
         let mut line = String::new();
         let _ = io::stdin().read_line(&mut line);
 
-        resume_tui_cleared()?;
-        enable_raw_mode()?;
+        drop(_tui);
 
         match failed_step {
             None => {
@@ -243,7 +239,7 @@ impl App {
         {
             true
         } else {
-            self.integration_overrides.get(key).copied().unwrap_or(true)
+            self.integration.overrides.get(key).copied().unwrap_or(true)
         }
     }
 
@@ -259,7 +255,7 @@ impl App {
         {
             return;
         }
-        self.integration_overrides.insert(key.to_string(), enabled);
+        self.integration.overrides.insert(key.to_string(), enabled);
     }
 
     pub(crate) fn set_all_optional_integrations(&mut self, enabled: bool) {
@@ -269,7 +265,7 @@ impl App {
             if !available && !partially_supported {
                 continue;
             }
-            self.integration_overrides
+            self.integration.overrides
                 .insert(spec.key.to_string(), enabled);
         }
     }
@@ -296,7 +292,7 @@ impl App {
 
     pub(crate) fn refresh_integration_rows_cache(&mut self) {
         let mut rows = self.integration_rows();
-        let query = self.integration_search_query.trim().to_lowercase();
+        let query = self.integration.search_query.trim().to_lowercase();
         if !query.is_empty() {
             rows.retain(|row| {
                 row.key != "__all_optional__"
@@ -305,18 +301,18 @@ impl App {
                         || row.description.to_lowercase().contains(&query))
             });
         }
-        self.integration_rows_cache = rows;
-        let len = self.integration_rows_cache.len();
+        self.integration.rows_cache = rows;
+        let len = self.integration.rows_cache.len();
         if len == 0 {
-            self.integration_selected = 0;
-        } else if self.integration_selected >= len {
-            self.integration_selected = len - 1;
+            self.integration.selected = 0;
+        } else if self.integration.selected >= len {
+            self.integration.selected = len - 1;
         }
     }
 
     pub(crate) fn reset_integration_search(&mut self) {
-        self.integration_search_active = false;
-        self.integration_search_query.clear();
+        self.integration.search_active = false;
+        self.integration.search_query.clear();
     }
 
     pub(crate) fn seven_zip_tool() -> Option<String> {

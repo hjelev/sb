@@ -85,46 +85,46 @@ impl App {
     }
 
     pub(crate) fn refresh_sqlite_preview_rows(&mut self) {
-        self.db_preview_output_lines.clear();
-        self.db_preview_error = None;
+        self.db_preview.output_lines.clear();
+        self.db_preview.error = None;
 
-        let Some(path) = self.db_preview_path.clone() else {
+        let Some(path) = self.db_preview.path.clone() else {
             return;
         };
-        let Some(table_name) = self.db_preview_tables.get(self.db_preview_selected).cloned() else {
+        let Some(table_name) = self.db_preview.tables.get(self.db_preview.selected).cloned() else {
             return;
         };
 
         let quoted_table = Self::sqlite_quote_ident(&table_name);
-        let sql = format!("SELECT * FROM {} LIMIT {};", quoted_table, self.db_preview_row_limit);
+        let sql = format!("SELECT * FROM {} LIMIT {};", quoted_table, self.db_preview.row_limit);
         match Self::sqlite_query_box_lines(&path, &sql) {
             Ok(lines) => {
-                self.db_preview_output_lines = lines;
+                self.db_preview.output_lines = lines;
             }
             Err(err) => {
-                self.db_preview_error = Some(err.to_string());
+                self.db_preview.error = Some(err.to_string());
             }
         }
     }
 
     pub(crate) fn begin_sqlite_preview(&mut self, db_path: PathBuf) {
-        self.db_preview_path = Some(db_path.clone());
-        self.db_preview_tables.clear();
-        self.db_preview_selected = 0;
-        self.db_preview_output_lines.clear();
-        self.db_preview_error = None;
+        self.db_preview.path = Some(db_path.clone());
+        self.db_preview.tables.clear();
+        self.db_preview.selected = 0;
+        self.db_preview.output_lines.clear();
+        self.db_preview.error = None;
 
         match Self::sqlite_list_tables(&db_path) {
             Ok(tables) => {
-                self.db_preview_tables = tables;
-                if self.db_preview_tables.is_empty() {
-                    self.db_preview_error = Some("No tables/views found in this database".to_string());
+                self.db_preview.tables = tables;
+                if self.db_preview.tables.is_empty() {
+                    self.db_preview.error = Some("No tables/views found in this database".to_string());
                 } else {
                     self.refresh_sqlite_preview_rows();
                 }
             }
             Err(err) => {
-                self.db_preview_error = Some(err.to_string());
+                self.db_preview.error = Some(err.to_string());
             }
         }
 
@@ -132,13 +132,13 @@ impl App {
     }
 
     pub(crate) fn switch_sqlite_preview_table(&mut self, delta: isize) {
-        if self.db_preview_tables.is_empty() {
+        if self.db_preview.tables.is_empty() {
             return;
         }
-        let last = self.db_preview_tables.len().saturating_sub(1) as isize;
-        let next = (self.db_preview_selected as isize + delta).clamp(0, last) as usize;
-        if next != self.db_preview_selected {
-            self.db_preview_selected = next;
+        let last = self.db_preview.tables.len().saturating_sub(1) as isize;
+        let next = (self.db_preview.selected as isize + delta).clamp(0, last) as usize;
+        if next != self.db_preview.selected {
+            self.db_preview.selected = next;
             self.refresh_sqlite_preview_rows();
         }
     }

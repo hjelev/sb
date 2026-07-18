@@ -7,13 +7,8 @@ use std::{
     process::Command,
 };
 
-use crossterm::{
-    cursor::{Hide, Show},
-    execute,
-};
-
 use crate::util::background::{drain_channel, spawn_worker};
-use crate::util::tui::{resume_tui, suspend_tui};
+use crate::util::tui::{self, ResumeMode};
 use crate::{App, AppMode, DualPanelSide, NotesLoadMsg};
 
 impl App {
@@ -90,11 +85,11 @@ impl App {
     }
 
     pub(crate) fn request_notes_for_current_dir_once(&mut self) {
-        if self.notes_rx.is_some() {
+        if self.notes.rx.is_some() {
             return;
         }
         if self
-            .notes_loaded_for
+            .notes.loaded_for
             .as_ref()
             .map(|p| p == &self.left.dir)
             .unwrap_or(false)
@@ -102,21 +97,21 @@ impl App {
             return;
         }
 
-        self.notes_scan_id = self.notes_scan_id.wrapping_add(1);
-        let scan_id = self.notes_scan_id;
+        self.notes.scan_id = self.notes.scan_id.wrapping_add(1);
+        let scan_id = self.notes.scan_id;
         let dir = self.left.dir.clone();
-        self.notes_by_name.clear();
-        self.notes_rx = Some(spawn_worker(move |tx| {
+        self.notes.by_name.clear();
+        self.notes.rx = Some(spawn_worker(move |tx| {
             let notes = App::load_notes_map_for_dir(&dir);
             let _ = tx.send(NotesLoadMsg::Finished(scan_id, dir, notes));
         }));
     }
 
     pub(crate) fn pump_notes_progress(&mut self) {
-        for NotesLoadMsg::Finished(scan_id, path, notes) in drain_channel(&mut self.notes_rx) {
-            if scan_id == self.notes_scan_id && path == self.left.dir {
-                self.notes_by_name = notes;
-                self.notes_loaded_for = Some(path);
+        for NotesLoadMsg::Finished(scan_id, path, notes) in drain_channel(&mut self.notes.rx) {
+            if scan_id == self.notes.scan_id && path == self.left.dir {
+                self.notes.by_name = notes;
+                self.notes.loaded_for = Some(path);
             }
         }
     }
@@ -159,7 +154,7 @@ impl App {
         let notes_map = if active_dir != self.left.dir {
             Self::load_notes_map_for_dir(&active_dir)
         } else {
-            self.notes_by_name.clone()
+            self.notes.by_name.clone()
         };
 
         let initial = if targets.len() == 1 {
@@ -168,8 +163,8 @@ impl App {
             String::new()
         };
 
-        self.note_edit_dir = active_dir;
-        self.note_edit_targets = targets;
+        self.notes.edit_dir = active_dir;
+        self.notes.edit_targets = targets;
         self.begin_input_edit(AppMode::NoteEditing, initial);
     }
 
@@ -218,15 +213,15 @@ impl App {
 
     pub(crate) fn save_notes_for_current_dir(&mut self) -> io::Result<()> {
         let existing = Self::entry_names_in_dir(&self.left.dir);
-        self.notes_by_name
+        self.notes.by_name
             .retain(|name, note| existing.contains(name) && !note.trim().is_empty());
-        Self::write_notes_map(&self.left.dir, &self.notes_by_name, self.notes_scan_id)?;
-        self.notes_loaded_for = Some(self.left.dir.clone());
+        Self::write_notes_map(&self.left.dir, &self.notes.by_name, self.notes.scan_id)?;
+        self.notes.loaded_for = Some(self.left.dir.clone());
         Ok(())
     }
 
     pub(crate) fn commit_note_edit(&mut self) {
-        if self.note_edit_targets.is_empty() {
+        if self.notes.edit_targets.is_empty() {
             self.clear_input_edit();
             self.mode = AppMode::Browsing;
             return;
@@ -234,15 +229,15 @@ impl App {
 
         let note = self.input_buffer.clone();
         let is_empty = note.trim().is_empty();
-        let count = self.note_edit_targets.len();
-        let edit_dir = self.note_edit_dir.clone();
+        let count = self.notes.edit_targets.len();
+        let edit_dir = self.notes.edit_dir.clone();
 
         let save_result = if edit_dir == self.left.dir || edit_dir == PathBuf::new() {
-            for target in &self.note_edit_targets {
+            for target in &self.notes.edit_targets {
                 if is_empty {
-                    self.notes_by_name.remove(target);
+                    self.notes.by_name.remove(target);
                 } else {
-                    self.notes_by_name.insert(target.clone(), note.clone());
+                    self.notes.by_name.insert(target.clone(), note.clone());
                 }
             }
             self.save_notes_for_current_dir()
@@ -250,14 +245,14 @@ impl App {
             let mut notes = Self::load_notes_map_for_dir(&edit_dir);
             let existing = Self::entry_names_in_dir(&edit_dir);
             notes.retain(|name, n| existing.contains(name) && !n.trim().is_empty());
-            for target in &self.note_edit_targets {
+            for target in &self.notes.edit_targets {
                 if is_empty {
                     notes.remove(target);
                 } else {
                     notes.insert(target.clone(), note.clone());
                 }
             }
-            Self::write_notes_map(&edit_dir, &notes, self.notes_scan_id)
+            Self::write_notes_map(&edit_dir, &notes, self.notes.scan_id)
         };
 
         match save_result {
@@ -267,12 +262,12 @@ impl App {
                 // matches the edited dir must pick up the just-saved note.
                 let saved = Self::load_notes_map_for_dir(&edit_dir);
                 if self.left.dir == edit_dir {
-                    self.notes_by_name = saved.clone();
-                    self.notes_loaded_for = Some(edit_dir.clone());
+                    self.notes.by_name = saved.clone();
+                    self.notes.loaded_for = Some(edit_dir.clone());
                 }
                 if self.is_dual_panel_mode() && self.right.dir == edit_dir {
-                    self.right_notes_by_name = saved;
-                    self.right_notes_loaded_for = Some(edit_dir.clone());
+                    self.notes.right_by_name = saved;
+                    self.notes.right_loaded_for = Some(edit_dir.clone());
                 }
                 if is_empty {
                     self.set_status(format!("cleared note for {} item(s)", count));
@@ -285,7 +280,7 @@ impl App {
             }
         }
 
-        self.note_edit_targets.clear();
+        self.notes.edit_targets.clear();
         self.clear_input_edit();
         self.mode = AppMode::Browsing;
     }
@@ -311,11 +306,10 @@ impl App {
             }
 
         let editor = crate::util::command::editor_command();
-        suspend_tui()?;
-        execute!(io::stdout(), Show)?;
-        let _ = Command::new(editor).arg(&todo_path).status();
-        resume_tui()?;
-        execute!(io::stdout(), Hide)?;
+        {
+            let _tui = tui::suspend_showing_cursor(ResumeMode::Plain)?;
+            let _ = Command::new(editor).arg(&todo_path).status();
+        }
         self.refresh_entries_or_status();
         self.set_status("opened ~/.todo");
         Ok(())

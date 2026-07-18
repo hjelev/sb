@@ -165,11 +165,11 @@ impl App {
     /// Kick off a background AI organize-plan request for the given directory's
     /// top-level entries. Called right after entering `AppMode::Organize`.
     pub(crate) fn request_organize_plan(&mut self, dir: PathBuf) {
-        if self.organize_rx.is_some() {
+        if self.organize.rx.is_some() {
             self.set_status("organize plan already generating...");
             return;
         }
-        let provider = provider_by_key(&self.ai_provider);
+        let provider = provider_by_key(&self.ai.provider);
         let Some(api_key) = self.resolve_ai_api_key() else {
             self.set_status(format!(
                 "no API key — set it in Settings (Tab) or export ${}",
@@ -219,13 +219,13 @@ impl App {
         let valid_names: HashSet<String> = entries.iter().map(|(n, _)| n.clone()).collect();
         let endpoint = provider.endpoint.to_string();
         let model = self.resolve_ai_model();
-        self.organize_work_dir = Some(dir);
-        self.organize_plan = None;
-        self.organize_scroll_offset = 0;
-        self.organize_max_offset = 0;
-        self.organize_button_focus = 0;
+        self.organize.work_dir = Some(dir);
+        self.organize.plan = None;
+        self.organize.scroll_offset = 0;
+        self.organize.max_offset = 0;
+        self.organize.button_focus = 0;
         self.set_status(format!("generating organize plan via {}...", provider.label));
-        self.organize_rx = Some(spawn_worker(move |tx| {
+        self.organize.rx = Some(spawn_worker(move |tx| {
             let result = generate_organize_plan(
                 &endpoint,
                 &api_key,
@@ -244,12 +244,12 @@ impl App {
     /// Poll the AI organize-plan channel. On success, stores the plan for
     /// review; on failure, drops back to browsing with a status message.
     pub(crate) fn pump_ai_organize(&mut self) {
-        match pump_once(&mut self.organize_rx) {
+        match pump_once(&mut self.organize.rx) {
             Some(OrganizePlanMsg::Ok(plan)) => {
                 if self.mode == AppMode::Organize {
-                    self.organize_plan = Some(plan);
-                    self.organize_scroll_offset = 0;
-                    self.organize_button_focus = 0;
+                    self.organize.plan = Some(plan);
+                    self.organize.scroll_offset = 0;
+                    self.organize.button_focus = 0;
                     self.set_status("organize plan ready — review and Confirm");
                 }
             }
@@ -258,7 +258,7 @@ impl App {
                 if self.mode == AppMode::Organize {
                     self.mode = AppMode::Browsing;
                 }
-                self.organize_work_dir = None;
+                self.organize.work_dir = None;
             }
             None => {}
         }
@@ -266,9 +266,9 @@ impl App {
 
     /// Cancel the Organize dialog without touching the filesystem.
     pub(crate) fn cancel_organize(&mut self) {
-        self.organize_plan = None;
-        self.organize_work_dir = None;
-        self.organize_rx = None;
+        self.organize.plan = None;
+        self.organize.work_dir = None;
+        self.organize.rx = None;
         self.mode = AppMode::Browsing;
         self.set_status("organize cancelled");
     }
@@ -279,11 +279,11 @@ impl App {
     /// copy followed by removing the source (mirrors the fallback already
     /// used by the paste queue in `app_transfer.rs`).
     pub(crate) fn apply_organize_plan(&mut self) {
-        let Some(dir) = self.organize_work_dir.clone() else {
+        let Some(dir) = self.organize.work_dir.clone() else {
             self.mode = AppMode::Browsing;
             return;
         };
-        let Some(plan) = self.organize_plan.take() else {
+        let Some(plan) = self.organize.plan.take() else {
             self.mode = AppMode::Browsing;
             return;
         };
@@ -341,7 +341,7 @@ impl App {
             }
         }
 
-        self.organize_work_dir = None;
+        self.organize.work_dir = None;
         self.mode = AppMode::Browsing;
         self.refresh_entries_or_status();
         if self.is_dual_panel_mode() {

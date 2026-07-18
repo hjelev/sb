@@ -7,14 +7,14 @@ use crate::{App, AppMode, DownloadProgressMsg};
 
 impl App {
     pub(crate) fn begin_download_input(&mut self) {
-        if self.download_rx.is_some() {
+        if self.transfer.download_rx.is_some() {
             self.set_status("download already in progress");
             return;
         }
 
-        self.download_pending_url = None;
-        self.download_pending_name = None;
-        self.download_resume_input = None;
+        self.transfer.download_pending_url = None;
+        self.transfer.download_pending_name = None;
+        self.transfer.download_resume_input = None;
         self.begin_input_edit(AppMode::DownloadInput, String::new());
     }
 
@@ -109,9 +109,9 @@ impl App {
     }
 
     fn queue_download_request(&mut self, url: String, file_name: String, resume_input: String) {
-        self.download_pending_url = Some(url.clone());
-        self.download_pending_name = Some(file_name.clone());
-        self.download_resume_input = Some(resume_input);
+        self.transfer.download_pending_url = Some(url.clone());
+        self.transfer.download_pending_name = Some(file_name.clone());
+        self.transfer.download_resume_input = Some(resume_input);
 
         if self.left.dir.join(&file_name).exists() {
             self.clear_input_edit();
@@ -154,15 +154,15 @@ impl App {
             return;
         };
 
-        self.download_pending_url = Some(url);
-        self.download_pending_name = None;
-        self.download_resume_input = Some(resume_input);
+        self.transfer.download_pending_url = Some(url);
+        self.transfer.download_pending_name = None;
+        self.transfer.download_resume_input = Some(resume_input);
         self.begin_input_edit(AppMode::DownloadNaming, host_name);
         self.set_status("edit download name and press Enter");
     }
 
     pub(crate) fn submit_download_name(&mut self) {
-        let Some(url) = self.download_pending_url.clone() else {
+        let Some(url) = self.transfer.download_pending_url.clone() else {
             self.mode = AppMode::Browsing;
             self.clear_input_edit();
             self.set_status("download target is missing");
@@ -179,9 +179,9 @@ impl App {
     }
 
     pub(crate) fn cancel_download_overwrite(&mut self) {
-        let resume_input = self.download_resume_input.clone().unwrap_or_default();
+        let resume_input = self.transfer.download_resume_input.clone().unwrap_or_default();
         self.begin_input_edit(AppMode::DownloadInput, resume_input);
-        self.download_pending_name = None;
+        self.transfer.download_pending_name = None;
         self.set_status("download overwrite cancelled");
     }
 
@@ -196,7 +196,7 @@ impl App {
     }
 
     pub(crate) fn start_download_job(&mut self, url: String, file_name: String) {
-        if self.download_rx.is_some() {
+        if self.transfer.download_rx.is_some() {
             self.set_status("download already in progress");
             return;
         }
@@ -207,15 +207,15 @@ impl App {
         };
 
         let output_path = self.left.dir.join(&file_name);
-        self.download_active_name = file_name.clone();
-        self.download_pending_url = None;
-        self.download_pending_name = None;
-        self.download_resume_input = None;
+        self.transfer.download_active_name = file_name.clone();
+        self.transfer.download_pending_url = None;
+        self.transfer.download_pending_name = None;
+        self.transfer.download_resume_input = None;
         self.clear_input_edit();
         self.mode = AppMode::Browsing;
         self.set_status(format!("downloading {} via {}", file_name, tool));
 
-        self.download_rx = Some(util::background::spawn_worker(move |tx| {
+        self.transfer.download_rx = Some(util::background::spawn_worker(move |tx| {
             let result = util::command::CommandBuilder::download_with_progress(tool, &url, &output_path, |hint| {
                 let _ = tx.send(DownloadProgressMsg::Status(hint.to_string()));
             });
@@ -230,13 +230,13 @@ impl App {
     /// message was already delivered as `Ok(Finished)` in this same drain loop (never skip the
     /// `finished` block by returning early on `Disconnected`).
     pub(crate) fn pump_download_progress(&mut self) {
-        if self.download_rx.is_none() {
+        if self.transfer.download_rx.is_none() {
             return;
         }
 
         let mut finished: Option<(String, Result<(), String>)> = None;
         let mut latest_status: Option<String> = None;
-        for msg in drain_channel(&mut self.download_rx) {
+        for msg in drain_channel(&mut self.transfer.download_rx) {
             match msg {
                 DownloadProgressMsg::Status(s) => latest_status = Some(s),
                 DownloadProgressMsg::Finished { file_name, result } => {
@@ -246,11 +246,11 @@ impl App {
         }
         // Queue empty and all senders dropped. If the worker exited normally, we already
         // received `Finished` above; otherwise `finished` stays empty.
-        let channel_closed = self.download_rx.is_none();
+        let channel_closed = self.transfer.download_rx.is_none();
 
         if let Some((file_name, result)) = finished {
-            self.download_rx = None;
-            self.download_active_name.clear();
+            self.transfer.download_rx = None;
+            self.transfer.download_active_name.clear();
             self.refresh_entries_or_status();
             self.sync_inactive_panel_if_same_dir();
             match result {
@@ -266,14 +266,14 @@ impl App {
         }
 
         if channel_closed {
-            self.download_active_name.clear();
-            self.download_rx = None;
+            self.transfer.download_active_name.clear();
+            self.transfer.download_rx = None;
             self.set_status("download worker disconnected");
             return;
         }
 
         if let Some(s) = latest_status {
-            let name = self.download_active_name.clone();
+            let name = self.transfer.download_active_name.clone();
             if name.is_empty() {
                 self.set_status(format!("downloading: {}", s));
             } else {
