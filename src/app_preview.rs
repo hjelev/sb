@@ -721,7 +721,9 @@ impl App {
         if use_mmdflux
             && App::is_mermaid_file(&path)
             && let Some(lines) = App::capture_preview_tool(
-                Command::new("mmdflux").args(["-f", "text"]).arg(&path),
+                // Explicit --color skips mmdflux's OSC 11 tty query, whose
+                // reply sb's own event loop would swallow, hanging mmdflux.
+                Command::new("mmdflux").args(["-f", "text", "--color", "always"]).arg(&path),
                 400,
             )
         {
@@ -862,6 +864,10 @@ impl App {
     /// returns up to `max_lines` lines; None on spawn failure, non-zero exit,
     /// or blank output so callers fall through to the next renderer.
     fn capture_preview_tool(cmd: &mut Command, max_lines: usize) -> Option<Vec<String>> {
+        // Detached from the tty: even with stdin null some tools (mmdflux)
+        // open /dev/tty for a terminal query whose reply sb's event loop
+        // eats, stalling the tool — and flip the tty's termios while at it.
+        crate::util::command::detach_from_tty(cmd);
         let out = cmd.stdin(Stdio::null()).output().ok()?;
         if !out.status.success() {
             return None;

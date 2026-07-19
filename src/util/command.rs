@@ -16,19 +16,31 @@ use std::time::{Duration, Instant};
 /// Centralizes the repeated "spawn preview tool → pipe into `less -R`" blocks
 /// (mermaid/`mmdflux`, `pdftotext`, `hexyl`, …). Callers that don't care about
 /// success use `let _ = pipe_to_pager(cmd);`.
+///
+/// The producer runs detached from the tty ([`detach_from_tty`]): tools like
+/// `mmdflux` otherwise open `/dev/tty`, flip it into raw mode for a terminal
+/// query, and later restore the termios *they* saw at startup — clobbering the
+/// pager's cbreak state so its keys (`q`) sit unread in a canonical buffer.
+///
+/// The pager runs via [`status_ignoring_sigint`]: raw mode is suspended here,
+/// so a Ctrl+C must kill only the children, not sb. A producer still alive
+/// after the pager closes is killed rather than waited on — nothing will read
+/// its output anymore, and a tool blocked on e.g. a terminal query it will
+/// never get an answer to (the pager consumed it) would wedge sb forever.
 pub fn pipe_to_pager(mut cmd: Command) -> bool {
+    detach_from_tty(&mut cmd);
     let Ok(mut child) = cmd.stdout(Stdio::piped()).spawn() else {
         return false;
     };
     let mut shown = false;
     if let Some(out) = child.stdout.take() {
-        shown = Command::new("less")
-            .args(["-R"])
-            .stdin(out)
-            .status()
+        let mut pager = Command::new("less");
+        pager.args(["-R"]).stdin(out);
+        shown = status_ignoring_sigint(&mut pager)
             .map(|s| s.success())
             .unwrap_or(false);
     }
+    let _ = child.kill();
     let _ = child.wait();
     shown
 }
@@ -68,6 +80,25 @@ pub fn pipe_git_to_tool<P: AsRef<Path>>(cwd: P, git_args: &[&str], tool: &str, t
 pub fn pipe_to_pager_or_less(cmd: Command, path: &Path) {
     if !pipe_to_pager(cmd) {
         let _ = Command::new("less").arg("-R").arg(path).status();
+    }
+}
+
+/// Make `cmd` run in its own session with no controlling terminal (`setsid`
+/// in the child), so tools that open `/dev/tty` for terminal-appearance
+/// queries or termios tweaks fail fast (`ENXIO`) instead of blocking on a
+/// reply another tty reader will consume, or corrupting that reader's
+/// terminal state. Use for non-interactive producers whose output is
+/// captured or piped; never for tools that must own the terminal.
+pub fn detach_from_tty(cmd: &mut Command) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::setsid();
+                Ok(())
+            });
+        }
     }
 }
 

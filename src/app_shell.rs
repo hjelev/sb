@@ -310,12 +310,15 @@ impl App {
         }
 
         if Self::is_mermaid_file(path) && Self::integration_probe("mmdflux").0 {
+            // Explicit --color skips mmdflux's OSC 11 background query on
+            // /dev/tty; under `auto` it blocks forever when another reader
+            // (the pager, sb's event loop) consumes the terminal's reply.
             if use_pager {
                 let mut cmd = Command::new("mmdflux");
-                cmd.arg(path);
+                cmd.args(["--color", "always"]).arg(path);
                 let _ = crate::util::command::pipe_to_pager(cmd);
             } else {
-                let _ = Command::new("mmdflux").arg(path).status();
+                let _ = Command::new("mmdflux").args(["--color", "always"]).arg(path).status();
             }
             return Ok(());
         }

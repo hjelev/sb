@@ -769,7 +769,9 @@ fn handle_enter_or_right(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app:
                     {
                         let _tui = tui::suspend(ResumeMode::Plain)?;
                         let mut cmd = Command::new("mmdflux");
-                        cmd.arg(&selected_path);
+                        // Explicit --color skips mmdflux's OSC 11 tty query,
+                        // whose reply `less` would swallow, hanging mmdflux.
+                        cmd.args(["--color", "always"]).arg(&selected_path);
                         let _ = crate::util::command::pipe_to_pager(cmd);
                     }
                     terminal.clear()?;
