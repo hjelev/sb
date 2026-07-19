@@ -84,6 +84,35 @@ impl App {
         Ok(tables)
     }
 
+    /// Table list plus a sample of the first table's rows, rendered for the
+    /// preview pane; None when sqlite3 can't read the file (e.g. a non-sqlite
+    /// `.db`) so the caller falls back to the binary preview.
+    pub(crate) fn render_sqlite_preview_lines(path: &PathBuf) -> Option<Vec<String>> {
+        let tables = Self::sqlite_list_tables(path).ok()?;
+        if tables.is_empty() {
+            return Some(vec!["[sqlite database: no tables]".to_string()]);
+        }
+        let mut lines = vec![
+            format!("[sqlite database: {} tables]", tables.len()),
+            String::new(),
+        ];
+        for table in tables.iter().take(50) {
+            lines.push(format!("  {}", table));
+        }
+        if tables.len() > 50 {
+            lines.push(format!("  … and {} more", tables.len() - 50));
+        }
+        if let Some(first) = tables.first() {
+            let sql = format!("SELECT * FROM {} LIMIT 20;", Self::sqlite_quote_ident(first));
+            if let Ok(rows) = Self::sqlite_query_box_lines(path, &sql) {
+                lines.push(String::new());
+                lines.push(format!("{} — first rows:", first));
+                lines.extend(rows.into_iter().take(60));
+            }
+        }
+        Some(lines)
+    }
+
     pub(crate) fn refresh_sqlite_preview_rows(&mut self) {
         self.db_preview.output_lines.clear();
         self.db_preview.error = None;

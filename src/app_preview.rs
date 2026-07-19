@@ -283,6 +283,19 @@ impl App {
             use_file: Self::integration_availability_and_detail("file").0,
             use_resvg: self.integration_active("resvg"),
             use_timg: self.integration_active("timg"),
+            use_pdftotext: self.integration_active("pdftotext"),
+            use_glow: self.integration_active("glow"),
+            use_doxx: self.integration_active("doxx"),
+            use_xleak: self.integration_active("xleak"),
+            use_sqlite3: self.integration_active("sqlite3"),
+            use_sox: self.integration_active("sox"),
+            use_mmdflux: self.integration_active("mmdflux"),
+            use_links: self.integration_active("links"),
+            use_hexyl: self.integration_active("hexyl"),
+            use_zip_list: self.integration_active("zip"),
+            use_tar_list: self.integration_active("tar"),
+            use_7z_list: self.integration_active("7z"),
+            use_rar_list: self.integration_active("rar"),
             pane_cols,
             pane_rows,
             show_icons: self.show_icons,
@@ -404,6 +417,19 @@ impl App {
             use_file,
             use_resvg,
             use_timg,
+            use_pdftotext,
+            use_glow,
+            use_doxx,
+            use_xleak,
+            use_sqlite3,
+            use_sox,
+            use_mmdflux,
+            use_links,
+            use_hexyl,
+            use_zip_list,
+            use_tar_list,
+            use_7z_list,
+            use_rar_list,
             pane_cols,
             pane_rows,
             show_icons,
@@ -645,6 +671,109 @@ impl App {
             };
         }
 
+        // Integration-backed document/database/media/archive previews: each
+        // tool emits capturable text or ANSI and returns early on success; a
+        // missing, disabled, or failing tool falls through to the generic
+        // binary/text handling below. The doxx/xleak branches must precede the
+        // archive listing — .docx/.xlsx/.ods are zip-based.
+        if use_pdftotext
+            && App::is_pdf_file(&path)
+            && let Some(lines) = App::capture_preview_tool(
+                Command::new("pdftotext").args(["-l", "8", "-layout"]).arg(&path).arg("-"),
+                400,
+            )
+        {
+            return Self::tool_preview_ready(request_id, path, lines, "pdftotext");
+        }
+        if use_doxx
+            && App::is_docx_file(&path)
+            && let Some(lines) = App::capture_preview_tool(
+                Command::new("doxx")
+                    .arg(&path)
+                    .args(["--export", "ansi", "-w"])
+                    .arg(pane_cols.to_string()),
+                400,
+            )
+        {
+            return Self::tool_preview_ready(request_id, path, lines, "doxx");
+        }
+        if use_xleak
+            && App::is_excel_file(&path)
+            && let Some(lines) = App::capture_preview_tool(
+                Command::new("xleak").arg(&path).args(["-n", "100"]),
+                400,
+            )
+        {
+            return Self::tool_preview_ready(request_id, path, lines, "xleak");
+        }
+        if use_sqlite3
+            && App::is_sqlite_db_file(&path)
+            && let Some(lines) = App::render_sqlite_preview_lines(&path)
+        {
+            return Self::tool_preview_ready(request_id, path, lines, "sqlite3");
+        }
+        if use_sox
+            && App::is_audio_file(&path)
+            && let Some(lines) = App::capture_preview_tool(Command::new("soxi").arg(&path), 60)
+        {
+            return Self::tool_preview_ready(request_id, path, lines, "soxi");
+        }
+        if use_mmdflux
+            && App::is_mermaid_file(&path)
+            && let Some(lines) = App::capture_preview_tool(
+                Command::new("mmdflux").args(["-f", "text"]).arg(&path),
+                400,
+            )
+        {
+            return Self::tool_preview_ready(request_id, path, lines, "mmdflux");
+        }
+        if use_links
+            && App::is_html_file(&path)
+            && let Some(lines) = App::capture_preview_tool(
+                Command::new("links").arg("-dump").arg(&path),
+                400,
+            )
+        {
+            return Self::tool_preview_ready(request_id, path, lines, "links");
+        }
+        // `-s dark` forces ANSI styling when stdout is a pipe (glow's auto
+        // style degrades to plain text there).
+        if use_glow
+            && App::is_markdown_file(&path)
+            && let Some(lines) = App::capture_preview_tool(
+                Command::new("glow")
+                    .args(["-s", "dark", "-w"])
+                    .arg(pane_cols.min(120).to_string())
+                    .arg(&path),
+                400,
+            )
+        {
+            return Self::tool_preview_ready(request_id, path, lines, "glow");
+        }
+        if let Some(kind) = App::archive_kind(&path) {
+            let listed = match kind {
+                crate::ArchiveKind::Zip if use_zip_list => App::capture_preview_tool(
+                    Command::new("unzip").arg("-l").arg(&path),
+                    220,
+                ),
+                crate::ArchiveKind::Tar if use_tar_list => App::capture_preview_tool(
+                    Command::new("tar").arg("-tvf").arg(&path),
+                    220,
+                ),
+                crate::ArchiveKind::SevenZip if use_7z_list => Self::seven_zip_tool()
+                    .and_then(|tool| {
+                        App::capture_preview_tool(Command::new(tool).arg("l").arg(&path), 220)
+                    }),
+                crate::ArchiveKind::Rar if use_rar_list => Self::rar_tool().and_then(|tool| {
+                    App::capture_preview_tool(Command::new(tool).arg("l").arg(&path), 220)
+                }),
+                _ => None,
+            };
+            if let Some(lines) = listed {
+                return Self::tool_preview_ready(request_id, path, lines, "archive listing");
+            }
+        }
+
         let mut lines: Vec<String> = Vec::new();
 
         if App::is_binary_file(&path) {
@@ -656,6 +785,15 @@ impl App {
                         lines.push(text);
                     }
                 }
+            if use_hexyl
+                && let Some(hex) = App::capture_preview_tool(
+                    Command::new("hexyl").args(["-n", "1024", "--color=always"]).arg(&path),
+                    80,
+                )
+            {
+                lines.push(String::new());
+                lines.extend(hex);
+            }
             let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             let footer = Some(format!("Size: {}", App::format_size(size)));
             let line_kinds = vec![PreviewLineKind::Plain; lines.len()];
@@ -709,6 +847,43 @@ impl App {
         }
 
         let footer = Some(format!("Size: {}", App::format_size(size)));
+        let line_kinds = vec![PreviewLineKind::Plain; lines.len()];
+        PreviewContentMsg::Ready {
+            request_id,
+            path,
+            lines,
+            line_kinds,
+            footer,
+            image_rgb: None,
+        }
+    }
+
+    /// Runs a preview tool that prints capturable text/ANSI to stdout and
+    /// returns up to `max_lines` lines; None on spawn failure, non-zero exit,
+    /// or blank output so callers fall through to the next renderer.
+    fn capture_preview_tool(cmd: &mut Command, max_lines: usize) -> Option<Vec<String>> {
+        let out = cmd.stdin(Stdio::null()).output().ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let text = String::from_utf8_lossy(&out.stdout);
+        let lines: Vec<String> = text.lines().take(max_lines).map(|s| s.to_string()).collect();
+        if lines.iter().all(|l| l.trim().is_empty()) {
+            return None;
+        }
+        Some(lines)
+    }
+
+    /// Wraps captured tool output into a Ready message with the standard size
+    /// footer, tagging which integration produced the preview.
+    fn tool_preview_ready(
+        request_id: u64,
+        path: PathBuf,
+        lines: Vec<String>,
+        tool: &str,
+    ) -> PreviewContentMsg {
+        let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        let footer = Some(format!("{} · Size: {}", tool, App::format_size(size)));
         let line_kinds = vec![PreviewLineKind::Plain; lines.len()];
         PreviewContentMsg::Ready {
             request_id,
