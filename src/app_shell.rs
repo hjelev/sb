@@ -282,6 +282,13 @@ impl App {
     }
 
     pub(crate) fn open_path_in_view_mode(path: &PathBuf, use_pager: bool) -> io::Result<()> {
+        if (Self::is_image_file(path) || Self::is_video_file(path))
+            && Self::integration_probe("timg").0 {
+            // --loops=1: a lone animated gif would otherwise loop forever.
+            let _ = Command::new("timg").args(["-C", "--loops=1"]).arg(path).status();
+            return Ok(());
+        }
+
         if Self::is_image_file(path) {
             if Self::integration_probe("viu").0 {
                 let _ = Command::new("viu").arg(path).status();

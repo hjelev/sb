@@ -71,6 +71,35 @@ pub fn pipe_to_pager_or_less(cmd: Command, path: &Path) {
     }
 }
 
+/// Run `cmd` to completion while this process ignores SIGINT, so a Ctrl+C
+/// aimed at a full-screen child (image slideshow, video playback) kills only
+/// the child and not sb, whose raw mode is suspended while the child runs.
+/// The child is reset to the default SIGINT disposition via `pre_exec` — an
+/// ignored disposition is inherited across exec and would otherwise make the
+/// child itself immune to Ctrl+C.
+pub fn status_ignoring_sigint(cmd: &mut Command) -> io::Result<std::process::ExitStatus> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::signal(libc::SIGINT, libc::SIG_DFL);
+                Ok(())
+            });
+        }
+        let prev = unsafe { libc::signal(libc::SIGINT, libc::SIG_IGN) };
+        let result = cmd.status();
+        unsafe {
+            libc::signal(libc::SIGINT, prev);
+        }
+        result
+    }
+    #[cfg(not(unix))]
+    {
+        cmd.status()
+    }
+}
+
 /// Spawn `program path [args…]` fully detached (all stdio set to null) and
 /// return the [`Child`] so the caller can wait on or kill it.
 ///

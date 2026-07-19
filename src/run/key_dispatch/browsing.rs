@@ -728,7 +728,10 @@ fn handle_enter_or_right(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app:
                 else if App::is_image_file(&selected_path)
                     || (App::is_svg_file(&selected_path) && app.integration_active("resvg")) {
                     let is_bitmap_image = App::is_image_file(&selected_path);
-                    if app.preview_images_with_native(selected_path.clone())?
+                    if is_bitmap_image && app.integration_active("timg") {
+                        app.preview_images_with_timg(selected_path)?;
+                        terminal.clear()?;
+                    } else if app.preview_images_with_native(selected_path.clone())?
                         || app.preview_images_with_halfblock_fullscreen(selected_path.clone())? {
                         terminal.clear()?;
                     } else if is_bitmap_image && app.integration_active("viu") {
@@ -738,8 +741,19 @@ fn handle_enter_or_right(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app:
                         app.preview_images_with_chafa(selected_path)?;
                         terminal.clear()?;
                     } else {
-                        app.set_status("image preview unavailable (native, halfblock, viu, chafa, resvg)");
+                        app.set_status("image preview unavailable (timg, native, halfblock, viu, chafa, resvg)");
                     }
+                }
+                else if App::is_video_file(&selected_path) && app.integration_active("timg") {
+                    {
+                        let _tui = tui::suspend(ResumeMode::Plain)?;
+                        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+                        let mut cmd = Command::new("timg");
+                        cmd.args(["-C", "--loops=1"]).arg(&selected_path);
+                        let _ = crate::util::command::status_ignoring_sigint(&mut cmd);
+                    }
+                    App::drain_pending_terminal_events();
+                    terminal.clear()?;
                 }
                 else if App::is_markdown_file(&selected_path) && app.integration_active("glow") {
                     {

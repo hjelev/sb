@@ -36,6 +36,7 @@ pub fn integration_catalog() -> Vec<IntegrationSpec> {
         IntegrationSpec { key: "archivemount", description: "browse tar/zip archives as folders (Enter)", category: "archive", required: false },
         IntegrationSpec { key: "sox", description: "play audio files on Enter", category: "preview", required: false },
         IntegrationSpec { key: "image-native", description: "native terminal image protocol preview (kitty/iterm2/sixel)", category: "preview", required: false },
+        IntegrationSpec { key: "timg", description: "image/video preview and open (preferred when installed)", category: "preview", required: false },
         IntegrationSpec { key: "viu", description: "image preview on Enter (fallback)", category: "preview", required: false },
         IntegrationSpec { key: "chafa", description: "image preview on Enter (fallback)", category: "preview", required: false },
         IntegrationSpec { key: "resvg", description: "SVG preview and slideshow support (.svg)", category: "preview", required: false },
@@ -99,6 +100,7 @@ pub fn integration_brew_package(key: &str) -> Option<&'static str> {
             }
         }
         "sox" => Some("sox"),
+        "timg" => Some("timg"),
         "viu" => Some("viu"),
         "chafa" => Some("chafa"),
         "resvg" => Some("resvg"),

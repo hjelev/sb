@@ -85,6 +85,12 @@ impl App {
         has_ext(path, &["svg"])
     }
 
+    pub(crate) fn is_video_file(path: &Path) -> bool {
+        has_ext(path, &[
+            "mp4", "mkv", "webm", "mov", "avi", "m4v", "mpg", "mpeg", "wmv", "flv",
+        ])
+    }
+
     pub(crate) fn is_audio_file(path: &Path) -> bool {
         has_ext(path, &[
             "mp3", "flac", "wav", "ogg", "opus", "m4a", "aac", "wma", "aiff", "aif", "alac", "mid", "midi",
@@ -302,7 +308,9 @@ impl App {
 
         let mut shown = false;
         if decrypted.is_ok() {
-            if Self::is_image_file(&tmp_path) && self.integration_active("viu") {
+            if Self::is_image_file(&tmp_path) && self.integration_active("timg") {
+                shown = Self::preview_single_image_with_tool(&tmp_path, "timg --loops=1");
+            } else if Self::is_image_file(&tmp_path) && self.integration_active("viu") {
                 shown = Self::preview_single_image_with_tool(&tmp_path, "viu");
             } else if Self::is_image_file(&tmp_path) && self.integration_active("chafa") {
                 shown = Self::preview_single_image_with_tool(&tmp_path, "chafa");

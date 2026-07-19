@@ -237,7 +237,10 @@ impl App {
         self.preview.image_rgb = None;
         self.preview.image_png = None;
 
+        // Image and video previews are never cached: their rendering depends
+        // on the pane size (timg / in-process scaling), not just the path.
         if !Self::is_image_file(&path)
+            && !Self::is_video_file(&path)
             && let Some(cached) = self.preview.cache.get(&path).cloned() {
                 self.preview.target_path = Some(path);
                 self.preview.lines = cached.0;
@@ -257,10 +260,30 @@ impl App {
         self.preview.line_kinds = vec![crate::PreviewLineKind::Plain];
         self.preview.footer = None;
 
+        // Approximate the preview pane's inner cell size for tools that render
+        // to a fixed geometry (timg); falls back to the 67% split of the
+        // terminal when the pane layout is unavailable (e.g. overlay active).
+        let (pane_cols, pane_rows) = {
+            let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
+            let area = ratatui::layout::Rect::new(0, 0, cols, rows);
+            match self.preview_pane_frame_areas(area) {
+                Some((_, preview)) => (
+                    preview.width.saturating_sub(2).max(10),
+                    preview.height.saturating_sub(2).max(5),
+                ),
+                None => (
+                    (cols.saturating_mul(2) / 3).max(10),
+                    rows.saturating_sub(4).max(5),
+                ),
+            }
+        };
         let opts = crate::PreviewBuildOptions {
             use_bat: Self::integration_availability_and_detail("bat").0,
             use_file: Self::integration_availability_and_detail("file").0,
             use_resvg: self.integration_active("resvg"),
+            use_timg: self.integration_active("timg"),
+            pane_cols,
+            pane_rows,
             show_icons: self.show_icons,
             nerd_font_active: self.nerd_font_active,
             theme_id: self.active_theme,
@@ -292,7 +315,10 @@ impl App {
             }) => {
                 if request_id == self.preview.request_id {
                     self.preview.target_path = Some(path.clone());
-                    if image_rgb.is_none() {
+                    if image_rgb.is_none()
+                        && !Self::is_image_file(&path)
+                        && !Self::is_video_file(&path)
+                    {
                         self.preview.cache
                             .insert(path.clone(), (lines.clone(), line_kinds.clone(), footer.clone()));
                     }
@@ -376,6 +402,9 @@ impl App {
             use_bat,
             use_file,
             use_resvg,
+            use_timg,
+            pane_cols,
+            pane_rows,
             show_icons,
             nerd_font_active,
             theme_id,
@@ -510,6 +539,24 @@ impl App {
             };
         }
 
+        // timg renders images and video first-frames as capturable quarter-block
+        // ANSI text; on any failure fall through to the built-in renderers.
+        if use_timg
+            && (App::is_image_file(&path) || App::is_video_file(&path))
+            && let Some(lines) = App::render_preview_with_timg(&path, pane_cols, pane_rows) {
+                let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                let footer = Some(format!("Size: {}", App::format_size(size)));
+                let line_kinds = vec![PreviewLineKind::Plain; lines.len()];
+                return PreviewContentMsg::Ready {
+                    request_id,
+                    path,
+                    lines,
+                    line_kinds,
+                    footer,
+                    image_rgb: None,
+                };
+            }
+
         if App::is_svg_file(&path) && use_resvg {
             let image_rgb = App::decode_svg_to_rgb_scaled(&path);
             let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
@@ -625,6 +672,29 @@ impl App {
         }
     }
 
+    /// Renders an image or a video's first frame to ANSI quarter-block text
+    /// sized to the preview pane. `-pq` keeps the output plain capturable text
+    /// (never kitty/sixel escapes); returns None on any failure so callers can
+    /// fall back to the built-in renderers.
+    fn render_preview_with_timg(path: &PathBuf, cols: u16, rows: u16) -> Option<Vec<String>> {
+        let out = Command::new("timg")
+            .arg(format!("-g{}x{}", cols.max(4), rows.max(2)))
+            .args(["-pq", "--frames=1", "--loops=1"])
+            .arg(path)
+            .stdin(Stdio::null())
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let text = String::from_utf8_lossy(&out.stdout);
+        let lines: Vec<String> = text.lines().map(|s| s.to_string()).collect();
+        if lines.iter().all(|l| l.trim().is_empty()) {
+            return None;
+        }
+        Some(lines)
+    }
+
     pub(crate) fn preview_json_with_jnv(path: &PathBuf) -> io::Result<bool> {
         let mut child = Command::new("jnv").arg(path).spawn();
         if let Ok(ref mut proc) = child {
@@ -651,11 +721,16 @@ impl App {
     }
 
     pub(crate) fn preview_single_image_with_tool(path: &PathBuf, tool: &str) -> bool {
+        // `$tool` is expanded unquoted on purpose: it is a trusted, hardcoded
+        // invocation that may carry flags (e.g. "timg --loops=1").
         let script = r#"
 tool="$1"
 img="$2"
 clear
-"$tool" -- "$img"
+$tool -- "$img"
+# Drain stray terminal-query replies left by the viewer (cell size,
+# background color) so they don't count as the dismissing keypress.
+while IFS= read -rsn1 -t 0.05 _; do :; done
 printf '\n[Press any key to return]\n'
 IFS= read -rsn1 _
 "#;

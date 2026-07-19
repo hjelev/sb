@@ -809,6 +809,10 @@ impl App {
         out.flush().map_err(|e| e.to_string())
     }
 
+    pub(crate) fn preview_images_with_timg(&mut self, start_path: PathBuf) -> io::Result<()> {
+        self.preview_images_with_tool(start_path, "timg", "timg -C --loops=1")
+    }
+
     pub(crate) fn preview_images_with_chafa(&mut self, start_path: PathBuf) -> io::Result<()> {
         self.preview_images_with_tool(
             start_path,
@@ -871,28 +875,44 @@ fi
 while true; do
   clear
     __VIEWER__ -- "${paths[$idx]}"
+
+  # Viewers like timg query the terminal on startup (cell size CSI 16 t,
+  # background color OSC 11, kitty graphics acks) and exit before the replies
+  # arrive, so they land on our stdin. Drain them before showing the prompt
+  # or they read as keypresses; once the prompt is visible, keys are live.
+  while IFS= read -rsn1 -t 0.05 _; do :; done
   printf '\n[←/→ prev/next (exits at ends), q/Esc/Enter exit]\n'
 
-  IFS= read -rsn1 key || break
-  if [[ "$key" == $'\x1b' ]]; then
-        # Read arrow-sequence tail without blocking so lone Esc exits immediately.
-        IFS= read -rsn2 -t 0.02 key2 || key2=""
-    key+="$key2"
-  fi
+  # Read keys without redrawing until one is actionable: redrawing on
+  # unrecognized input would re-run the viewer, emitting fresh queries and
+  # flooding stdin faster than one-key-per-redraw can drain it.
+  while true; do
+    IFS= read -rsn1 key || break 2
+    if [[ "$key" == $'\x1b' ]]; then
+      # Consume the whole escape-sequence tail; an empty tail is a lone Esc.
+      seq=""
+      while IFS= read -rsn1 -t 0.02 ch; do seq+="$ch"; done
+      if [[ -z "$seq" ]]; then break 2; fi
+      key+="$seq"
+    fi
 
-  case "$key" in
-    $'\x1b[D')
-      if (( idx == 0 )); then break; fi
-      ((idx--))
-      ;;
-    $'\x1b[C')
-      if (( idx + 1 >= count )); then break; fi
-      ((idx++))
-      ;;
-    q|$'\x1b'|$'\n'|$'\r')
-      break
-      ;;
-  esac
+    case "$key" in
+      $'\x1b[D')
+        if (( idx == 0 )); then break 2; fi
+        ((idx--))
+        break
+        ;;
+      $'\x1b[C')
+        if (( idx + 1 >= count )); then break 2; fi
+        ((idx++))
+        break
+        ;;
+      # read -n1 returns an empty key for Enter (the read delimiter).
+      q|''|$'\n'|$'\r')
+        break 2
+        ;;
+    esac
+  done
 done
 
 printf '%s\n' "${paths[$idx]}" > "$out_file"
@@ -908,7 +928,7 @@ printf '%s\n' "${paths[$idx]}" > "$out_file"
         for image in &images {
             cmd.arg(image);
         }
-        let _ = cmd.status();
+        let _ = crate::util::command::status_ignoring_sigint(&mut cmd);
 
         if let Ok(selected_path) = fs::read_to_string(&result_file) {
             let selected = selected_path.trim();
