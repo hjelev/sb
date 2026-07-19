@@ -71,6 +71,7 @@ impl App {
     }
 
     fn clear_preview_state(&mut self) {
+        self.discard_pane_video();
         if self.preview.native_last_key.is_some() {
             match Self::terminal_image_protocol().0 {
                 crate::integration::probe::TerminalImageProtocol::Kitty => {
@@ -539,10 +540,40 @@ impl App {
             };
         }
 
+        let protocol = App::terminal_image_protocol().0;
+        let native_pane = matches!(
+            protocol,
+            crate::integration::probe::TerminalImageProtocol::Kitty
+                | crate::integration::probe::TerminalImageProtocol::Iterm2Inline
+                | crate::integration::probe::TerminalImageProtocol::Sixel
+        );
+
+        // Videos on kitty-protocol terminals play live in the pane (see
+        // app_video.rs): return placeholder text only; the run loop starts
+        // timg playback once this message lands and the selection settles.
+        if use_timg
+            && matches!(protocol, crate::integration::probe::TerminalImageProtocol::Kitty)
+            && App::is_video_file(&path)
+        {
+            let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            let footer = Some(format!("Size: {}", App::format_size(size)));
+            return PreviewContentMsg::Ready {
+                request_id,
+                path,
+                lines: vec!["[video]".to_string()],
+                line_kinds: vec![PreviewLineKind::Plain],
+                footer,
+                image_rgb: None,
+            };
+        }
+
         // timg renders images and video first-frames as capturable quarter-block
         // ANSI text; on any failure fall through to the built-in renderers.
+        // Images are only routed here when no native pixel protocol is
+        // available — otherwise the in-process decode below feeds the sharper
+        // kitty/iterm2/sixel pane renderer.
         if use_timg
-            && (App::is_image_file(&path) || App::is_video_file(&path))
+            && (App::is_video_file(&path) || (!native_pane && App::is_image_file(&path)))
             && let Some(lines) = App::render_preview_with_timg(&path, pane_cols, pane_rows) {
                 let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
                 let footer = Some(format!("Size: {}", App::format_size(size)));
@@ -579,6 +610,23 @@ impl App {
 
         if App::is_image_file(&path) {
             let image_rgb = App::decode_image_to_rgb_scaled(&path);
+            // Formats the `image` crate can't decode (HEIC, TIFF, ...): timg's
+            // GraphicsMagick backend can still render them as block art.
+            if image_rgb.is_none()
+                && use_timg
+                && let Some(lines) = App::render_preview_with_timg(&path, pane_cols, pane_rows) {
+                    let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                    let footer = Some(format!("Size: {}", App::format_size(size)));
+                    let line_kinds = vec![PreviewLineKind::Plain; lines.len()];
+                    return PreviewContentMsg::Ready {
+                        request_id,
+                        path,
+                        lines,
+                        line_kinds,
+                        footer,
+                        image_rgb: None,
+                    };
+                }
             let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             let footer = Some(format!("Size: {}", App::format_size(size)));
             let lines = if image_rgb.is_none() {

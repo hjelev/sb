@@ -65,6 +65,7 @@ mod app_shell;
 mod app_shortcuts;
 mod app_sqlite;
 mod app_transfer;
+mod app_video;
 mod plugin;
 mod ui;
 mod util;
@@ -482,6 +483,12 @@ struct App {
     /// Preview pane content + scroll, the async content-load channel/request id,
     /// the rendered-content cache, and native/bitmap image render state.
     preview: PreviewState,
+    /// Live in-pane video playback (timg with kitty graphics); kept after
+    /// playback ends so the same video is not auto-restarted.
+    pane_video: Option<app_video::PaneVideoSession>,
+    /// Debounce marker for starting pane video playback: the candidate path
+    /// and when it first became the preview target.
+    pane_video_want_since: Option<(PathBuf, Instant)>,
     // Click hit-zones for the footer shortcut pills (main footer + tabbed
     // overlay footers), rebuilt every render. Each entry is
     // (key event to synthesize, x_start, x_end_exclusive, y) in terminal cells.

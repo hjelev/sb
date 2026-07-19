@@ -57,8 +57,13 @@ pub(crate) fn run_tui_body(
         // Skip the whole render (cursor update + draw) on idle iterations where
         // nothing changed. `needs_redraw` is set by event handling (below) and by
         // init; `clock_changed`/`had_async_work` cover time- and channel-driven
-        // updates that arrive without user input.
-        let should_draw = app.needs_redraw || clock_changed || had_async_work;
+        // updates that arrive without user input. While a pane video is playing,
+        // the timg relay thread owns the terminal cursor: any draw here would
+        // move it and derail the relative frame positioning, so rendering is
+        // deferred until playback stops (any keypress stops it).
+        let video_playing = app.pane_video_is_playing();
+        let should_draw =
+            (app.needs_redraw || clock_changed || had_async_work) && !video_playing;
         if should_draw {
         if text_input_cursor {
             execute!(terminal.backend_mut(), SetCursorStyle::BlinkingBar)?;
@@ -270,13 +275,19 @@ pub(crate) fn run_tui_body(
             app.help.logo_native_last_area = None;
         }
 
+        // Start/stop live video playback in the preview pane (kitty terminals
+        // with timg): runs after the draw so `preview.native_area` is current.
+        app.sync_pane_video();
+
         let mut next_key: Option<KeyEvent> = deferred_key.take();
         if next_key.is_none() && event::poll(Duration::from_millis(80))? {
             match event::read()? {
                 Event::Key(key) => {
+                    app.pause_pane_video_for_input();
                     next_key = Some(key);
                 }
                 Event::Mouse(mouse) => {
+                    app.pause_pane_video_for_input();
                     let is_scroll = matches!(
                         mouse.kind,
                         crossterm::event::MouseEventKind::ScrollUp
@@ -323,6 +334,8 @@ pub(crate) fn run_tui_body(
             }
         }
     }
+
+    app.discard_pane_video();
 
     Ok(())
 

@@ -130,6 +130,8 @@ impl App {
             },
             view_mode: ViewMode::Normal,
             preview: PreviewState::default(),
+            pane_video: None,
+            pane_video_want_since: None,
             footer_shortcut_zones: Vec::new(),
             active_panel: DualPanelSide::Left,
             right: PanelState {
