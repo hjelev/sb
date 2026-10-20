@@ -9,6 +9,7 @@
   <a href="https://github.com/hjelev/sb/actions/workflows/release.yml"><img src="https://github.com/hjelev/sb/actions/workflows/release.yml/badge.svg?branch=master&style=flat-square" alt="Build Status" /></a>
   <a href="https://github.com/hjelev/sb/blob/master/LICENSE"><img src="https://img.shields.io/github/license/hjelev/sb.svg?style=flat-square&color=purple" alt="License" /></a>
   <a href="https://github.com/hjelev/sb/stargazers"><img src="https://img.shields.io/github/stars/hjelev/sb.svg?style=flat-square&color=gold" alt="GitHub Stars" /></a>
+  <a href="https://cli.masoko.net/tools/sb/"><img src="https://cli.masoko.net/badge/sb.svg" alt="sb on The Terminal Index"></a>
 </p>
 
 
