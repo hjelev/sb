@@ -185,9 +185,14 @@ impl App {
         app.filename_color_mode = persist.filename_color_mode;
         // Restore persisted AI commit-message settings (provider/model/key).
         app.ai.provider = persist.ai_provider.clone();
-        app.ai.model = persist.ai_model.clone();
+        app.ai.models = persist.ai_models.clone();
         app.ai.api_keys = persist.ai_api_keys.clone();
-        // The live buffer shows the active provider's key.
+        // The live buffers show the active provider's model and key.
+        app.ai.model = app
+            .ai.models
+            .get(&app.ai.provider)
+            .cloned()
+            .unwrap_or_default();
         app.ai.api_key = app
             .ai.api_keys
             .get(&app.ai.provider)

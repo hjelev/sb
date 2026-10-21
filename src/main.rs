@@ -227,15 +227,16 @@ struct ThemePanelState {
 }
 
 /// AI commit-message settings + runtime state: provider/model/key edit buffers,
-/// stored per-provider keys, the auto-commit flag, the in-flight commit-request
-/// and key-validation channels, and key-validation bookkeeping. Grouped out of
-/// `App`.
+/// stored per-provider keys and models, the auto-commit flag, the in-flight
+/// commit-request and key-validation channels, and key-validation bookkeeping.
+/// Grouped out of `App`.
 #[derive(Default)]
 struct AiState {
     provider: String,
     model: String,
     api_key: String,
     api_keys: HashMap<String, String>,
+    models: HashMap<String, String>,
     auto_commit: bool,
     commit_rx: Option<Receiver<AiCommitMsg>>,
     key_status: AiKeyStatus,

@@ -39,7 +39,7 @@ pub(crate) const AI_PROVIDERS: &[AiProvider] = &[
         key: "groq",
         label: "Groq",
         endpoint: "https://api.groq.com/openai/v1/chat/completions",
-        default_model: "llama-3.3-70b-versatile",
+        default_model: "openai/gpt-oss-120b",
         env_var: "GROQ_API_KEY",
     },
     AiProvider {
@@ -130,7 +130,9 @@ fn build_request_body(model: &str, diff: &str) -> serde_json::Value {
             }
         ],
         "temperature": 0.2,
-        "max_tokens": 100
+        // Generous because reasoning models (e.g. gpt-oss) spend completion
+        // tokens on hidden reasoning first; a tight cap leaves the content empty.
+        "max_tokens": 2000
     })
 }
 
@@ -149,6 +151,9 @@ fn parse_commit_message(value: &serde_json::Value) -> Result<String, String> {
         .trim()
         .to_string();
     if msg.is_empty() {
+        if value["choices"][0]["finish_reason"].as_str() == Some("length") {
+            return Err("AI ran out of tokens before answering (reasoning model?)".to_string());
+        }
         Err("AI returned an empty message".to_string())
     } else {
         Ok(msg)
@@ -190,10 +195,24 @@ fn generate_commit_message(
     endpoint: &str,
     api_key: &str,
     model: &str,
+    default_model: &str,
     diff: &str,
 ) -> Result<String, String> {
-    let value = post_chat_completions(endpoint, api_key, build_request_body(model, diff))?;
-    parse_commit_message(&value)
+    let mut result = post_chat_completions(endpoint, api_key, build_request_body(model, diff));
+    // A custom model that no longer exists comes back as a 404; retry once
+    // with the provider default so generation keeps working.
+    if model != default_model {
+        if let Err(e) = &result {
+            if e.starts_with("AI API error 404") {
+                result = post_chat_completions(
+                    endpoint,
+                    api_key,
+                    build_request_body(default_model, diff),
+                );
+            }
+        }
+    }
+    parse_commit_message(&result?)
 }
 
 impl App {
@@ -245,9 +264,10 @@ impl App {
         }
         let endpoint = provider.endpoint.to_string();
         let model = self.resolve_ai_model();
+        let default_model = provider.default_model.to_string();
         self.set_status(format!("generating commit message via {}...", provider.label));
         self.ai.commit_rx = Some(spawn_worker(move |tx| {
-            let result = generate_commit_message(&endpoint, &api_key, &model, &diff);
+            let result = generate_commit_message(&endpoint, &api_key, &model, &default_model, &diff);
             let _ = tx.send(match result {
                 Ok(msg) => AiCommitMsg::Ok(msg),
                 Err(err) => AiCommitMsg::Err(err),
@@ -263,11 +283,19 @@ impl App {
             .position(|p| p.key == self.ai.provider)
             .unwrap_or(0);
         let next = if forward { (idx + 1) % n } else { (idx + n - 1) % n };
-        // Save the current provider's key, then switch and load the new
-        // provider's key into the live buffer so the Settings field shows it.
+        // Save the current provider's model + key, then switch and load the
+        // new provider's model + key into the live buffers so the Settings
+        // fields show them.
+        self.ai.models
+            .insert(self.ai.provider.clone(), self.ai.model.clone());
         self.ai.api_keys
             .insert(self.ai.provider.clone(), self.ai.api_key.clone());
         self.ai.provider = AI_PROVIDERS[next].key.to_string();
+        self.ai.model = self
+            .ai.models
+            .get(&self.ai.provider)
+            .cloned()
+            .unwrap_or_default();
         self.ai.api_key = self
             .ai.api_keys
             .get(&self.ai.provider)
@@ -285,7 +313,10 @@ impl App {
     /// Append a character to the focused Settings text field (Model or API Key).
     pub(crate) fn settings_input_char(&mut self, c: char) {
         match self.settings_selected {
-            1 => self.ai.model.push(c),
+            1 => {
+                self.ai.model.push(c);
+                self.sync_active_model();
+            }
             2 => {
                 self.ai.api_key.push(c);
                 self.sync_active_api_key();
@@ -301,6 +332,7 @@ impl App {
         match self.settings_selected {
             1 => {
                 self.ai.model.pop();
+                self.sync_active_model();
             }
             2 => {
                 self.ai.api_key.pop();
@@ -310,6 +342,13 @@ impl App {
             _ => return,
         }
         self.persist_ai_settings();
+    }
+
+    /// Mirror the live model buffer into the active provider's slot so the
+    /// per-provider store stays authoritative between provider switches.
+    fn sync_active_model(&mut self) {
+        self.ai.models
+            .insert(self.ai.provider.clone(), self.ai.model.clone());
     }
 
     /// Mirror the live API-key buffer into the active provider's slot so the
@@ -387,12 +426,12 @@ impl App {
     /// it is surfaced as a status message.
     fn persist_ai_settings(&mut self) {
         let provider = self.ai.provider.clone();
-        let model = self.ai.model.clone();
+        let models = self.ai.models.clone();
         let keys = self.ai.api_keys.clone();
         let auto = self.ai.auto_commit;
         let result = crate::util::config::SbPersistConfig::update(move |cfg| {
             cfg.ai_provider = provider;
-            cfg.ai_model = model;
+            cfg.ai_models = models;
             cfg.ai_api_keys = keys;
             cfg.ai_auto_commit = auto;
         });
