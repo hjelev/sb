@@ -67,7 +67,10 @@ pub(crate) fn input(prompt: &str, prefill: Option<&str>) -> io::Result<Option<St
 
     let result = loop {
         redraw_line(&label, &buffer, cursor)?;
-        let Event::Key(KeyEvent { code, modifiers, .. }) = event::read()? else {
+        let Event::Key(KeyEvent {
+            code, modifiers, ..
+        }) = event::read()?
+        else {
             continue;
         };
         match code {

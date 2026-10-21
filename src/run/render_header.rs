@@ -1,6 +1,12 @@
 use super::*;
 
-pub(crate) fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user: &str, hostname: &str) {
+pub(crate) fn render_header(
+    f: &mut Frame,
+    app: &mut App,
+    ctx: &RenderCtx,
+    user: &str,
+    hostname: &str,
+) {
     let active_theme = ctx.theme;
     let chunks = [ctx.main, ctx.footer];
     #[allow(unused_variables)]
@@ -17,13 +23,20 @@ pub(crate) fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user:
     let normal_view = !app.is_preview_mode() && !app.is_dual_panel_mode();
     // In normal mode, nudge the folder icon one character to the right.
     let header_sep = if app.nerd_font_active {
-        if normal_view { " \u{f0256} " } else { "\u{f0256} " }
+        if normal_view {
+            " \u{f0256} "
+        } else {
+            "\u{f0256} "
+        }
     } else {
         " » "
     };
     let os_icon_glyph: Option<&'static str> = if app.nerd_font_active {
         // Use the remote OS icon if we're inside an SSH/rclone mount
-        app.remote.ssh_mounts.iter().rfind(|m| app.left.dir.starts_with(&m.mount_path))
+        app.remote
+            .ssh_mounts
+            .iter()
+            .rfind(|m| app.left.dir.starts_with(&m.mount_path))
             .and_then(|m| m.remote_os_icon.map(|(glyph, _)| glyph))
             .or_else(|| app.os_icon.map(|(glyph, _)| glyph))
     } else {
@@ -44,9 +57,8 @@ pub(crate) fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user:
         middle_spans.push(Span::raw(right_identity.to_string()));
     } else {
         // Fallback: prepend icon (with trailing space) then identity
-        let os_icon_span: Option<Span> = os_icon_glyph.map(|glyph| {
-            Span::styled(format!("{} ", glyph), Style::default().fg(os_icon_color))
-        });
+        let os_icon_span: Option<Span> = os_icon_glyph
+            .map(|glyph| Span::styled(format!("{} ", glyph), Style::default().fg(os_icon_color)));
         os_icon_width = os_icon_span
             .as_ref()
             .map(|s| UnicodeWidthStr::width(s.content.as_ref()) as u16)
@@ -56,7 +68,10 @@ pub(crate) fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user:
         }
         if let Some((left_identity, right_identity)) = header_identity.split_once('@') {
             middle_spans.push(Span::raw(left_identity.to_string()));
-            middle_spans.push(Span::styled("@", Style::default().fg(active_theme.text_dim)));
+            middle_spans.push(Span::styled(
+                "@",
+                Style::default().fg(active_theme.text_dim),
+            ));
             middle_spans.push(Span::raw(right_identity.to_string()));
         } else {
             middle_spans.push(Span::raw(header_identity.as_str()));
@@ -79,33 +94,40 @@ pub(crate) fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user:
         vec![
             header_sep_span,
             if app.mode == AppMode::PathEditing {
-                Span::styled(current_display_path.as_str(), Style::default().fg(active_theme.warning))
+                Span::styled(
+                    current_display_path.as_str(),
+                    Style::default().fg(active_theme.warning),
+                )
             } else {
                 Span::raw(current_display_path.as_str())
             },
         ]
     };
     if app.integration_enabled("git")
-        && let Some((branch, is_dirty, tag_info)) = app.cached_git_info_for_current_dir() {
-            let branch_style = Style::default().fg(active_theme.git_branch);
-            left_spans.push(Span::styled(" (", branch_style));
-            left_spans.push(Span::styled(branch, branch_style));
-            if is_dirty {
-                left_spans.push(Span::styled("*", Style::default().fg(active_theme.text_normal)));
-            }
-            if let Some((tag_name, ahead)) = tag_info {
-                let at_style = Style::default().fg(active_theme.text_dim);
-                let tag_style = Style::default().fg(active_theme.git_tag);
-                let tag_text = if ahead > 0 {
-                    format!("{}+{}", tag_name, ahead)
-                } else {
-                    tag_name.to_string()
-                };
-                left_spans.push(Span::styled("@", at_style));
-                left_spans.push(Span::styled(tag_text, tag_style));
-            }
-            left_spans.push(Span::styled(")", branch_style));
+        && let Some((branch, is_dirty, tag_info)) = app.cached_git_info_for_current_dir()
+    {
+        let branch_style = Style::default().fg(active_theme.git_branch);
+        left_spans.push(Span::styled(" (", branch_style));
+        left_spans.push(Span::styled(branch, branch_style));
+        if is_dirty {
+            left_spans.push(Span::styled(
+                "*",
+                Style::default().fg(active_theme.text_normal),
+            ));
         }
+        if let Some((tag_name, ahead)) = tag_info {
+            let at_style = Style::default().fg(active_theme.text_dim);
+            let tag_style = Style::default().fg(active_theme.git_tag);
+            let tag_text = if ahead > 0 {
+                format!("{}+{}", tag_name, ahead)
+            } else {
+                tag_name.to_string()
+            };
+            left_spans.push(Span::styled("@", at_style));
+            left_spans.push(Span::styled(tag_text, tag_style));
+        }
+        left_spans.push(Span::styled(")", branch_style));
+    }
     let mut header_right_is_clock = false;
     let header_right = if let Some(disk_info) = app.current_dir_total_size_header_info() {
         let icon_style = Style::default().fg(active_theme.accent_primary);
@@ -155,8 +177,16 @@ pub(crate) fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user:
             .min(bar_width);
 
         // Cap colors match the color of the cell they round into.
-        let first_color = if fill_cols > 0 { used_bg.unwrap_or(free_bg) } else { free_bg };
-        let last_color = if fill_cols >= bar_width { used_bg.unwrap_or(free_bg) } else { free_bg };
+        let first_color = if fill_cols > 0 {
+            used_bg.unwrap_or(free_bg)
+        } else {
+            free_bg
+        };
+        let last_color = if fill_cols >= bar_width {
+            used_bg.unwrap_or(free_bg)
+        } else {
+            free_bg
+        };
 
         // Split the label into the used (filled) and free runs by column.
         let mut col = 0usize;
@@ -175,10 +205,22 @@ pub(crate) fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user:
             spans.push(Span::styled("\u{e0b6}", Style::default().fg(first_color)));
         }
         if !used_text.is_empty() {
-            spans.push(bar_span(used_text, true, used_bg, free_bg, active_theme.text_normal));
+            spans.push(bar_span(
+                used_text,
+                true,
+                used_bg,
+                free_bg,
+                active_theme.text_normal,
+            ));
         }
         if !free_text.is_empty() {
-            spans.push(bar_span(free_text, false, used_bg, free_bg, active_theme.text_normal));
+            spans.push(bar_span(
+                free_text,
+                false,
+                used_bg,
+                free_bg,
+                active_theme.text_normal,
+            ));
         }
         if app.nerd_font_active {
             spans.push(Span::styled("\u{e0b4}", Style::default().fg(last_color)));
@@ -189,9 +231,10 @@ pub(crate) fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user:
         Some(Line::from(spans))
     } else if !app.size.folder_size_enabled {
         header_right_is_clock = true;
-        Some(Line::from(vec![
-            Span::styled(app.header_clock.text.clone(), Style::default().fg(active_theme.text_normal)),
-        ]))
+        Some(Line::from(vec![Span::styled(
+            app.header_clock.text.clone(),
+            Style::default().fg(active_theme.text_normal),
+        )]))
     } else {
         None
     };
@@ -200,7 +243,8 @@ pub(crate) fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user:
         .iter()
         .map(|s| UnicodeWidthStr::width(s.content.as_ref()) as u16)
         .sum();
-    let middle_content_width = os_icon_width + (UnicodeWidthStr::width(header_identity.as_str()) as u16);
+    let middle_content_width =
+        os_icon_width + (UnicodeWidthStr::width(header_identity.as_str()) as u16);
 
     let min_left_width: u16 = 12;
     let min_middle_width: u16 = 8;
@@ -237,9 +281,7 @@ pub(crate) fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user:
     }
 
     let total_width = chunks[0].width;
-    let desired_middle_width = middle_content_width
-        .saturating_add(1)
-        .min(max_middle_width);
+    let desired_middle_width = middle_content_width.saturating_add(1).min(max_middle_width);
     let mut middle_width = desired_middle_width
         .max(min_middle_width)
         .min(total_width.saturating_sub(2));
@@ -302,7 +344,12 @@ pub(crate) fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user:
     } else {
         total_width.saturating_sub(middle_start)
     };
-    let middle_rect = Rect::new(chunks[0].x + middle_start, chunks[0].y, middle_rect_width, 1);
+    let middle_rect = Rect::new(
+        chunks[0].x + middle_start,
+        chunks[0].y,
+        middle_rect_width,
+        1,
+    );
 
     if left_rect.width > 0 {
         f.render_widget(
@@ -311,49 +358,52 @@ pub(crate) fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user:
         );
     }
     if middle_rect.width > 0 {
-        let middle_alignment = if show_right { Alignment::Center } else { Alignment::Right };
+        let middle_alignment = if show_right {
+            Alignment::Center
+        } else {
+            Alignment::Right
+        };
         f.render_widget(
             Paragraph::new(Line::from(middle_spans)).alignment(middle_alignment),
             middle_rect,
         );
     }
-    if show_right
-        && let Some(header_right_line) = header_right {
-            let mut scrollbar_offset = if scrollbar_visible_in_main { 1 } else { 0 };
-            // Nudge the clock left by a per-view amount.
-            if header_right_is_clock {
-                if normal_view {
-                    scrollbar_offset += 1;
-                } else if app.is_dual_panel_mode() {
-                    scrollbar_offset += 2;
-                } else if app.is_preview_mode() {
-                    scrollbar_offset += 1;
-                }
-            }
-            let right_rect = Rect::new(
-                chunks[0].x + total_width.saturating_sub(right_width).saturating_sub(scrollbar_offset),
-                chunks[0].y,
-                right_width,
-                1,
-            );
-            if right_rect.width > 0 {
-                f.render_widget(
-                    Paragraph::new(header_right_line).alignment(Alignment::Right),
-                    right_rect,
-                );
+    if show_right && let Some(header_right_line) = header_right {
+        let mut scrollbar_offset = if scrollbar_visible_in_main { 1 } else { 0 };
+        // Nudge the clock left by a per-view amount.
+        if header_right_is_clock {
+            if normal_view {
+                scrollbar_offset += 1;
+            } else if app.is_dual_panel_mode() {
+                scrollbar_offset += 2;
+            } else if app.is_preview_mode() {
+                scrollbar_offset += 1;
             }
         }
+        let right_rect = Rect::new(
+            chunks[0].x
+                + total_width
+                    .saturating_sub(right_width)
+                    .saturating_sub(scrollbar_offset),
+            chunks[0].y,
+            right_width,
+            1,
+        );
+        if right_rect.width > 0 {
+            f.render_widget(
+                Paragraph::new(header_right_line).alignment(Alignment::Right),
+                right_rect,
+            );
+        }
+    }
     if app.mode == AppMode::PathEditing {
         let sep_len = UnicodeWidthStr::width(header_sep) as u16;
         app.clamp_input_cursor();
-        let left_end_x = chunks[0]
-            .x
-            .saturating_add(left_width.saturating_sub(1));
+        let left_end_x = chunks[0].x.saturating_add(left_width.saturating_sub(1));
         let left_x = chunks[0].x;
-        let cursor_x = (left_x + sep_len + app.input_cursor as u16)
-            .min(left_end_x);
+        let cursor_x = (left_x + sep_len + app.input_cursor as u16).min(left_end_x);
         let cursor_y = chunks[0].y;
-        f.set_cursor(cursor_x, cursor_y);
+        f.set_cursor_position((cursor_x, cursor_y));
     }
     f.render_widget(
         Block::default()
@@ -362,7 +412,6 @@ pub(crate) fn render_header(f: &mut Frame, app: &mut App, ctx: &RenderCtx, user:
             .border_style(Style::default().fg(active_theme.border)),
         Rect::new(chunks[0].x, chunks[0].y + 1, chunks[0].width, 1),
     );
-
 }
 
 /// Render the single-line folder-filter input box at the top of a panel's body
@@ -380,7 +429,11 @@ pub(crate) fn render_folder_filter_box(
     }
     let box_area = Rect::new(body_area.x, body_area.y, body_area.width, 1);
     // Nerd Font: magnifying-glass glyph; otherwise a plain "/" to match the key.
-    let prefix = if app.nerd_font_active { " \u{f0349} " } else { " / " };
+    let prefix = if app.nerd_font_active {
+        " \u{f0349} "
+    } else {
+        " / "
+    };
     let prefix_style = Style::default()
         .fg(theme.accent_primary)
         .add_modifier(Modifier::BOLD);
@@ -397,7 +450,7 @@ pub(crate) fn render_folder_filter_box(
         let prefix_w = UnicodeWidthStr::width(prefix) as u16;
         let cursor_x = box_area.x + prefix_w + app.input_cursor as u16;
         let max_x = box_area.x + box_area.width.saturating_sub(1);
-        f.set_cursor(cursor_x.min(max_x), box_area.y);
+        f.set_cursor_position((cursor_x.min(max_x), box_area.y));
     }
     Rect::new(
         body_area.x,
@@ -406,4 +459,3 @@ pub(crate) fn render_folder_filter_box(
         body_area.height - 1,
     )
 }
-

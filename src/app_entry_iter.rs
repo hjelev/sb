@@ -49,9 +49,7 @@ mod tests {
     fn test_filtered_entry_iter_total_size() {
         let iter = FilteredEntryIter::new(vec![0, 1, 2]);
         let sizes = [100, 200, 300, 400];
-        let total = iter.total_size(|idx| {
-            sizes.get(idx).copied().unwrap_or(0)
-        });
+        let total = iter.total_size(|idx| sizes.get(idx).copied().unwrap_or(0));
         assert_eq!(total, 600); // 100 + 200 + 300
     }
 }

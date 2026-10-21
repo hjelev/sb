@@ -1,13 +1,13 @@
-use std::{
-    env, fs,
-    io::{self, Read},
-    path::{Path, PathBuf},
-    process::{Command, Stdio},
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
 use crossterm::{
     event::{self, Event, KeyCode},
     terminal::{disable_raw_mode, enable_raw_mode},
+};
+use std::{
+    fs,
+    io::{self, Read},
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
+    time::Duration,
 };
 
 use crate::util::classify::has_ext;
@@ -16,8 +16,7 @@ use crate::{App, ArchiveKind, ZIP_BASED_EXTENSIONS};
 
 /// Tar-family suffixes (including compressed variants) recognized as archives.
 const TAR_EXTENSIONS: &[&str] = &[
-    ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz", ".tbz2", ".tar.xz", ".txz", ".tar.zst",
-    ".tzst",
+    ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz", ".tbz2", ".tar.xz", ".txz", ".tar.zst", ".tzst",
 ];
 
 /// Returns true if a (lowercased) file name ends with a tar-family suffix.
@@ -48,7 +47,10 @@ impl App {
     }
 
     pub(crate) fn is_archivemount_archive(path: &PathBuf) -> bool {
-        matches!(Self::archive_kind(path), Some(ArchiveKind::Tar) | Some(ArchiveKind::Zip))
+        matches!(
+            Self::archive_kind(path),
+            Some(ArchiveKind::Tar) | Some(ArchiveKind::Zip)
+        )
     }
 
     pub(crate) fn archive_kind(path: &PathBuf) -> Option<ArchiveKind> {
@@ -76,9 +78,12 @@ impl App {
     }
 
     pub(crate) fn is_image_file(path: &Path) -> bool {
-        has_ext(path, &[
-            "png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff", "avif", "heic", "ico",
-        ])
+        has_ext(
+            path,
+            &[
+                "png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff", "avif", "heic", "ico",
+            ],
+        )
     }
 
     pub(crate) fn is_svg_file(path: &Path) -> bool {
@@ -86,15 +91,22 @@ impl App {
     }
 
     pub(crate) fn is_video_file(path: &Path) -> bool {
-        has_ext(path, &[
-            "mp4", "mkv", "webm", "mov", "avi", "m4v", "mpg", "mpeg", "wmv", "flv",
-        ])
+        has_ext(
+            path,
+            &[
+                "mp4", "mkv", "webm", "mov", "avi", "m4v", "mpg", "mpeg", "wmv", "flv",
+            ],
+        )
     }
 
     pub(crate) fn is_audio_file(path: &Path) -> bool {
-        has_ext(path, &[
-            "mp3", "flac", "wav", "ogg", "opus", "m4a", "aac", "wma", "aiff", "aif", "alac", "mid", "midi",
-        ])
+        has_ext(
+            path,
+            &[
+                "mp3", "flac", "wav", "ogg", "opus", "m4a", "aac", "wma", "aiff", "aif", "alac",
+                "mid", "midi",
+            ],
+        )
     }
 
     pub(crate) fn is_json_file(path: &Path) -> bool {
@@ -147,18 +159,12 @@ impl App {
         }
     }
 
-    pub(crate) fn age_temp_decrypt_paths(path: &PathBuf, purpose: &str) -> io::Result<(PathBuf, PathBuf)> {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let tmp_dir = env::temp_dir().join(format!(
-            "sbrs_age_{}_{}_{}",
-            purpose,
-            std::process::id(),
-            stamp
-        ));
-        fs::create_dir_all(&tmp_dir)?;
+    pub(crate) fn age_temp_decrypt_paths(
+        path: &PathBuf,
+        purpose: &str,
+    ) -> io::Result<(PathBuf, PathBuf)> {
+        // Holds decrypted plaintext: must be owner-only and unpredictable.
+        let tmp_dir = crate::util::tmp::private_dir(&format!("sbrs_age_{purpose}_"))?;
 
         let plain_name = Self::age_plain_output_path(path)
             .file_name()
@@ -206,7 +212,10 @@ impl App {
 }
 
 impl App {
-    pub(crate) fn age_encrypt_file_interactive(input: &PathBuf, output: &PathBuf) -> Result<(), String> {
+    pub(crate) fn age_encrypt_file_interactive(
+        input: &PathBuf,
+        output: &PathBuf,
+    ) -> Result<(), String> {
         let status = Command::new("age")
             .args(["-p", "-o"])
             .arg(output)
@@ -221,7 +230,10 @@ impl App {
         }
     }
 
-    pub(crate) fn age_decrypt_file_interactive(input: &PathBuf, output: &PathBuf) -> Result<(), String> {
+    pub(crate) fn age_decrypt_file_interactive(
+        input: &PathBuf,
+        output: &PathBuf,
+    ) -> Result<(), String> {
         let status = Command::new("age")
             .args(["-d", "-o"])
             .arg(output)
@@ -241,7 +253,10 @@ impl App {
         if protected_path.exists() {
             self.set_status(format!(
                 "protected target exists: {}",
-                protected_path.file_name().and_then(|n| n.to_str()).unwrap_or("target")
+                protected_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("target")
             ));
             return Ok(());
         }
@@ -271,7 +286,10 @@ impl App {
         if plain_path.exists() {
             self.set_status(format!(
                 "unprotect target exists: {}",
-                plain_path.file_name().and_then(|n| n.to_str()).unwrap_or("target")
+                plain_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("target")
             ));
             return Ok(());
         }
@@ -333,7 +351,8 @@ impl App {
                     .unwrap_or(false);
             } else if Self::is_json_file(&tmp_path) && self.integration_active("jnv") {
                 shown = Self::preview_json_with_jnv(&tmp_path)?;
-            } else if Self::is_delimited_text_file(&tmp_path) && self.integration_active("csvlens") {
+            } else if Self::is_delimited_text_file(&tmp_path) && self.integration_active("csvlens")
+            {
                 shown = Command::new("csvlens")
                     .arg(&tmp_path)
                     .status()
@@ -367,11 +386,12 @@ impl App {
                         }
                         if event::poll(Duration::from_millis(120))?
                             && let Event::Key(k) = event::read()?
-                                && matches!(k.code, KeyCode::Char('q') | KeyCode::Esc | KeyCode::Left) {
-                                    let _ = proc.kill();
-                                    let _ = proc.wait();
-                                    break;
-                                }
+                            && matches!(k.code, KeyCode::Char('q') | KeyCode::Esc | KeyCode::Left)
+                        {
+                            let _ = proc.kill();
+                            let _ = proc.wait();
+                            break;
+                        }
                     }
                     disable_raw_mode()?;
                     shown = true;
@@ -441,14 +461,15 @@ impl App {
             drop(_tui);
             let _ = fs::remove_file(&tmp_path);
             let _ = fs::remove_dir_all(&tmp_dir);
-            self.set_status(format!("decrypt failed: {}", decrypted.err().unwrap_or_default()));
+            self.set_status(format!(
+                "decrypt failed: {}",
+                decrypted.err().unwrap_or_default()
+            ));
             return Ok(false);
         }
 
         let editor = crate::util::command::editor_command();
-        let _ = Command::new(editor)
-            .arg(&tmp_path)
-            .status();
+        let _ = Command::new(editor).arg(&tmp_path).status();
 
         let result = Self::age_encrypt_file_interactive(&tmp_path, input);
         drop(_tui);

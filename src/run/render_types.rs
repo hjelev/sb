@@ -15,5 +15,3 @@ pub(crate) struct TableLayout {
     pub(crate) can_draw_scrollbar: bool,
     pub(crate) list_area: Rect,
 }
-
-

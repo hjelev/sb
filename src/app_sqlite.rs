@@ -43,7 +43,11 @@ impl App {
         let rows = stdout
             .lines()
             .filter(|line| !line.trim().is_empty())
-            .map(|line| line.split('\x1f').map(|s| s.to_string()).collect::<Vec<String>>())
+            .map(|line| {
+                line.split('\x1f')
+                    .map(|s| s.to_string())
+                    .collect::<Vec<String>>()
+            })
             .collect::<Vec<Vec<String>>>();
         Ok(rows)
     }
@@ -103,7 +107,10 @@ impl App {
             lines.push(format!("  … and {} more", tables.len() - 50));
         }
         if let Some(first) = tables.first() {
-            let sql = format!("SELECT * FROM {} LIMIT 20;", Self::sqlite_quote_ident(first));
+            let sql = format!(
+                "SELECT * FROM {} LIMIT 20;",
+                Self::sqlite_quote_ident(first)
+            );
             if let Ok(rows) = Self::sqlite_query_box_lines(path, &sql) {
                 lines.push(String::new());
                 lines.push(format!("{} — first rows:", first));
@@ -120,12 +127,20 @@ impl App {
         let Some(path) = self.db_preview.path.clone() else {
             return;
         };
-        let Some(table_name) = self.db_preview.tables.get(self.db_preview.selected).cloned() else {
+        let Some(table_name) = self
+            .db_preview
+            .tables
+            .get(self.db_preview.selected)
+            .cloned()
+        else {
             return;
         };
 
         let quoted_table = Self::sqlite_quote_ident(&table_name);
-        let sql = format!("SELECT * FROM {} LIMIT {};", quoted_table, self.db_preview.row_limit);
+        let sql = format!(
+            "SELECT * FROM {} LIMIT {};",
+            quoted_table, self.db_preview.row_limit
+        );
         match Self::sqlite_query_box_lines(&path, &sql) {
             Ok(lines) => {
                 self.db_preview.output_lines = lines;
@@ -147,7 +162,8 @@ impl App {
             Ok(tables) => {
                 self.db_preview.tables = tables;
                 if self.db_preview.tables.is_empty() {
-                    self.db_preview.error = Some("No tables/views found in this database".to_string());
+                    self.db_preview.error =
+                        Some("No tables/views found in this database".to_string());
                 } else {
                     self.refresh_sqlite_preview_rows();
                 }

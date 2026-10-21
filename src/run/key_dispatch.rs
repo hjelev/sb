@@ -10,7 +10,7 @@ use crossterm::{
     cursor::MoveTo,
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType},
+    terminal::{Clear as TermClear, ClearType, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::prelude::*;
 

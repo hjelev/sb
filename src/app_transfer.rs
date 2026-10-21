@@ -9,12 +9,12 @@ use std::{
 
 use crate::util::background::{drain_channel, pump_once, spawn_worker};
 use crate::util::tui::{self, ResumeMode};
-use crate::{util, App, AppMode, CopyProgressMsg, DualPanelSide};
+use crate::{App, AppMode, CopyProgressMsg, DualPanelSide, util};
 
 impl App {
-
     pub(crate) fn is_path_inside_remote_mount(&self, path: &PathBuf) -> bool {
-        self.remote.ssh_mounts
+        self.remote
+            .ssh_mounts
             .iter()
             .any(|m| path == &m.mount_path || path.starts_with(&m.mount_path))
     }
@@ -77,14 +77,16 @@ impl App {
         let (sources, target_dir) = match self.active_panel {
             DualPanelSide::Left => {
                 let sources = if !self.left.marked_indices.is_empty() {
-                    self.left.entries
+                    self.left
+                        .entries
                         .iter()
                         .enumerate()
                         .filter(|(i, _)| self.left.marked_indices.contains(i))
                         .map(|(_, e)| e.path())
                         .collect()
                 } else {
-                    self.left.entries
+                    self.left
+                        .entries
                         .get(self.left.selected_index)
                         .map(|e| vec![e.path()])
                         .unwrap_or_default()
@@ -93,14 +95,16 @@ impl App {
             }
             DualPanelSide::Right => {
                 let sources = if !self.right.marked_indices.is_empty() {
-                    self.right.entries
+                    self.right
+                        .entries
                         .iter()
                         .enumerate()
                         .filter(|(i, _)| self.right.marked_indices.contains(i))
                         .map(|(_, e)| e.path())
                         .collect()
                 } else {
-                    self.right.entries
+                    self.right
+                        .entries
                         .get(self.right.selected_index)
                         .map(|e| vec![e.path()])
                         .unwrap_or_default()
@@ -145,9 +149,7 @@ impl App {
                 targets.len(),
                 backend
             )),
-            None => {
-                self.set_status("no clipboard backend available (wl-copy/xclip/xsel/pbcopy)")
-            }
+            None => self.set_status("no clipboard backend available (wl-copy/xclip/xsel/pbcopy)"),
         }
     }
 
@@ -190,9 +192,10 @@ impl App {
             };
 
             if let Ok(out) = output
-                && out.status.success() {
-                    return Some((String::from_utf8_lossy(&out.stdout).into_owned(), backend));
-                }
+                && out.status.success()
+            {
+                return Some((String::from_utf8_lossy(&out.stdout).into_owned(), backend));
+            }
         }
 
         None
@@ -255,8 +258,12 @@ impl App {
             return Ok(());
         };
 
-        let tmp = Self::create_temp_selection_path("sbrs_clipboard_edit");
+        let Ok(tmp) = Self::create_temp_selection_path("sbrs_clipboard_edit") else {
+            self.set_status("failed to create temporary clipboard file");
+            return Ok(());
+        };
         if fs::write(&tmp, clipboard_text.as_bytes()).is_err() {
+            let _ = fs::remove_file(&tmp);
             self.set_status("failed to create temporary clipboard file");
             return Ok(());
         }
@@ -337,24 +344,31 @@ impl App {
             self.copy.done_bytes.min(total)
         };
         let effective_total = if total == 0 {
-            done
-                .saturating_add(self.copy.job_total_bytes)
-                .max(1)
+            done.saturating_add(self.copy.job_total_bytes).max(1)
         } else {
             total.max(1)
         };
         let percent = if total == 0 {
-            if self.copy.total_rx.is_some() { 0.0 } else { 100.0 }
+            if self.copy.total_rx.is_some() {
+                0.0
+            } else {
+                100.0
+            }
         } else {
             (done as f64 * 100.0) / effective_total as f64
         };
         let elapsed_secs = self
-            .copy.started_at
+            .copy
+            .started_at
             .map(|t| t.elapsed().as_secs_f64())
             .unwrap_or(0.0)
             .max(0.001);
         let bytes_per_sec = done as f64 / elapsed_secs;
-        let remaining = if total == 0 { 0 } else { total.saturating_sub(done) };
+        let remaining = if total == 0 {
+            0
+        } else {
+            total.saturating_sub(done)
+        };
         let eta_secs = if bytes_per_sec > 0.0 {
             (remaining as f64 / bytes_per_sec) as u64
         } else {
@@ -366,9 +380,14 @@ impl App {
         } else {
             Self::format_size(effective_total)
         };
-        let eta_label = if total == 0 { "-".to_string() } else { Self::format_eta(eta_secs) };
+        let eta_label = if total == 0 {
+            "-".to_string()
+        } else {
+            Self::format_eta(eta_secs)
+        };
         let scan_suffix = if scanning { " scanning size..." } else { "" };
-        let current_idx = (self.transfer.paste_ok_items + self.transfer.paste_failed_items + 1).min(self.transfer.paste_total_items.max(1));
+        let current_idx = (self.transfer.paste_ok_items + self.transfer.paste_failed_items + 1)
+            .min(self.transfer.paste_total_items.max(1));
         let scope = if self.copy.from_remote { "remote " } else { "" };
         self.set_status(format!(
             "{}copy [{}] {:>3.0}% {}/{} {}/s eta {} ({}/{}) {}{}",
@@ -433,30 +452,35 @@ impl App {
             match result {
                 Ok(()) => {
                     if self.transfer.paste_move_mode
-                        && let Some(src) = self.copy.current_src.take() {
-                            let delete_res = if src.is_dir() {
-                                fs::remove_dir_all(&src)
-                            } else {
-                                fs::remove_file(&src)
-                            };
-                            if let Err(e) = delete_res {
-                                self.transfer.paste_failed_items += 1;
-                                self.set_status(format!("move cleanup failed for {}: {}", self.copy.item_name, e));
-                                self.copy.job_total_bytes = 0;
-                                self.copy.done_before_job = self.copy.done_bytes;
-                                self.copy.item_name.clear();
-                                self.copy.from_remote = false;
-                                let _ = self.refresh_entries();
-                                if self.is_dual_panel_mode() {
-                                    let _ = self.refresh_right_panel_entries();
-                                }
-                                self.advance_paste_queue();
-                                return;
+                        && let Some(src) = self.copy.current_src.take()
+                    {
+                        let delete_res = if src.is_dir() {
+                            fs::remove_dir_all(&src)
+                        } else {
+                            fs::remove_file(&src)
+                        };
+                        if let Err(e) = delete_res {
+                            self.transfer.paste_failed_items += 1;
+                            self.set_status(format!(
+                                "move cleanup failed for {}: {}",
+                                self.copy.item_name, e
+                            ));
+                            self.copy.job_total_bytes = 0;
+                            self.copy.done_before_job = self.copy.done_bytes;
+                            self.copy.item_name.clear();
+                            self.copy.from_remote = false;
+                            let _ = self.refresh_entries();
+                            if self.is_dual_panel_mode() {
+                                let _ = self.refresh_right_panel_entries();
                             }
+                            self.advance_paste_queue();
+                            return;
                         }
+                    }
                     self.transfer.paste_ok_items += 1;
                     self.copy.done_bytes = self
-                        .copy.done_before_job
+                        .copy
+                        .done_before_job
                         .saturating_add(self.copy.job_total_bytes);
                 }
                 Err(e) => {
@@ -493,7 +517,8 @@ impl App {
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "pasted_item".to_string());
             let target_dir = self
-                .transfer.paste_target_dir
+                .transfer
+                .paste_target_dir
                 .as_ref()
                 .cloned()
                 .unwrap_or_else(|| self.left.dir.clone());
@@ -505,15 +530,14 @@ impl App {
                 return;
             }
 
-            if self.transfer.paste_move_mode
-                && fs::rename(&src, &dest).is_ok() {
-                    self.transfer.paste_ok_items += 1;
-                    let _ = self.refresh_entries();
-                    if self.is_dual_panel_mode() {
-                        let _ = self.refresh_right_panel_entries();
-                    }
-                    continue;
+            if self.transfer.paste_move_mode && fs::rename(&src, &dest).is_ok() {
+                self.transfer.paste_ok_items += 1;
+                let _ = self.refresh_entries();
+                if self.is_dual_panel_mode() {
+                    let _ = self.refresh_right_panel_entries();
                 }
+                continue;
+            }
 
             self.start_copy_job(src, dest, name);
             return;
@@ -532,13 +556,18 @@ impl App {
             let _ = self.refresh_right_panel_entries();
         }
         if self.transfer.paste_failed_items == 0 && self.transfer.paste_ok_items > 0 {
-            self.set_status(format!("transfer complete: {} item", self.transfer.paste_ok_items));
+            self.set_status(format!(
+                "transfer complete: {} item",
+                self.transfer.paste_ok_items
+            ));
         } else if self.transfer.paste_failed_items == 0 {
             self.set_status("nothing to transfer");
         } else {
             self.set_status(format!(
                 "transfer finished: {} ok, {} failed ({} total)",
-                self.transfer.paste_ok_items, self.transfer.paste_failed_items, self.transfer.paste_total_items
+                self.transfer.paste_ok_items,
+                self.transfer.paste_failed_items,
+                self.transfer.paste_total_items
             ));
         }
     }

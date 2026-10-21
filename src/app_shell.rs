@@ -134,17 +134,37 @@ impl App {
         let target_left = format!("{}:0.0", session_name);
 
         let create_status = Command::new("tmux")
-            .args(["new-session", "-d", "-s", session_name, "-c", current_dir, &left_cmd])
+            .args([
+                "new-session",
+                "-d",
+                "-s",
+                session_name,
+                "-c",
+                current_dir,
+                &left_cmd,
+            ])
             .status()?;
         if !create_status.success() {
             return Err(io::Error::other("tmux new-session failed"));
         }
 
         let split_status = Command::new("tmux")
-            .args(["split-window", "-h", "-p", "30", "-t", &target_window, "-c", current_dir, right_cmd])
+            .args([
+                "split-window",
+                "-h",
+                "-p",
+                "30",
+                "-t",
+                &target_window,
+                "-c",
+                current_dir,
+                right_cmd,
+            ])
             .status()?;
         if !split_status.success() {
-            let _ = Command::new("tmux").args(["kill-session", "-t", session_name]).status();
+            let _ = Command::new("tmux")
+                .args(["kill-session", "-t", session_name])
+                .status();
             return Err(io::Error::other("tmux split-window failed"));
         }
 
@@ -196,7 +216,7 @@ impl App {
             right = Self::kdl_escape(right_cmd),
         );
 
-        let layout_path = env::temp_dir().join(format!("{}.kdl", session_name));
+        let layout_path = crate::util::tmp::private_file(&format!("{session_name}_"), ".kdl")?;
         std::fs::write(&layout_path, layout)?;
 
         // `--session NAME --layout FILE` would try to add a tab to an existing
@@ -271,9 +291,7 @@ impl App {
         let shell = Self::login_shell();
         {
             let _tui = tui::suspend_showing_cursor(ResumeMode::Cleared)?;
-            let _ = Command::new(&shell)
-                .current_dir(&self.left.dir)
-                .status();
+            let _ = Command::new(&shell).current_dir(&self.left.dir).status();
         }
         self.set_status("returned from shell");
         self.refresh_entries_or_status();
@@ -283,9 +301,13 @@ impl App {
 
     pub(crate) fn open_path_in_view_mode(path: &PathBuf, use_pager: bool) -> io::Result<()> {
         if (Self::is_image_file(path) || Self::is_video_file(path))
-            && Self::integration_probe("timg").0 {
+            && Self::integration_probe("timg").0
+        {
             // --loops=1: a lone animated gif would otherwise loop forever.
-            let _ = Command::new("timg").args(["-C", "--loops=1"]).arg(path).status();
+            let _ = Command::new("timg")
+                .args(["-C", "--loops=1"])
+                .arg(path)
+                .status();
             return Ok(());
         }
 
@@ -318,7 +340,10 @@ impl App {
                 cmd.args(["--color", "always"]).arg(path);
                 let _ = crate::util::command::pipe_to_pager(cmd);
             } else {
-                let _ = Command::new("mmdflux").args(["--color", "always"]).arg(path).status();
+                let _ = Command::new("mmdflux")
+                    .args(["--color", "always"])
+                    .arg(path)
+                    .status();
             }
             return Ok(());
         }
@@ -389,7 +414,10 @@ impl App {
         }
 
         if Self::is_cast_file(path) && Self::integration_probe("asciinema").0 {
-            let _ = Command::new("asciinema").args(["play", "-i"]).arg(path).status();
+            let _ = Command::new("asciinema")
+                .args(["play", "-i"])
+                .arg(path)
+                .status();
             return Ok(());
         }
 
@@ -401,10 +429,7 @@ impl App {
                     .spawn()
                 {
                     if let Some(out) = child.stdout {
-                        let _ = Command::new("less")
-                            .args(["-R"])
-                            .stdin(out)
-                            .status();
+                        let _ = Command::new("less").args(["-R"]).stdin(out).status();
                     }
                     return Ok(());
                 }
@@ -418,7 +443,11 @@ impl App {
             let bat_cmd = Self::bat_tool().unwrap_or_else(|| "bat".to_string());
             let paging = if use_pager { "always" } else { "never" };
             let _ = Command::new(bat_cmd)
-                .args([&format!("--paging={}", paging), "--style=full", "--color=always"])
+                .args([
+                    &format!("--paging={}", paging),
+                    "--style=full",
+                    "--color=always",
+                ])
                 .arg(path)
                 .status();
             return Ok(());
@@ -429,9 +458,7 @@ impl App {
                 .args(["-R", path.to_str().unwrap_or_default()])
                 .status();
         } else {
-            let _ = Command::new("cat")
-                .arg(path)
-                .status();
+            let _ = Command::new("cat").arg(path).status();
         }
         Ok(())
     }
@@ -447,7 +474,12 @@ impl App {
             return Ok(());
         }
 
-        let marked_idx = *self.left.marked_indices.iter().next().unwrap_or(&self.left.selected_index);
+        let marked_idx = *self
+            .left
+            .marked_indices
+            .iter()
+            .next()
+            .unwrap_or(&self.left.selected_index);
         let Some(marked_entry) = self.left.entries.get(marked_idx) else {
             self.set_status("marked file not found");
             return Ok(());

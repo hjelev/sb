@@ -6,8 +6,8 @@ mod render_header;
 mod render_overlays;
 mod render_overlays_secondary;
 use render_overlays_secondary::*;
-mod render_table;
 mod render_scrollbar;
+mod render_table;
 use render_scrollbar::*;
 mod render_types;
 mod render_util;
@@ -35,9 +35,7 @@ use crossterm::{
 use ratatui::{prelude::*, widgets::*};
 use unicode_width::UnicodeWidthStr;
 
-use crate::{
-    ui, App, AppMode, InternalSearchResult, InternalSearchScope, RemoteEntry,
-};
+use crate::{App, AppMode, InternalSearchResult, InternalSearchScope, RemoteEntry, ui};
 
 pub(crate) fn run_tui(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,

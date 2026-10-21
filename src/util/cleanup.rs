@@ -1,6 +1,6 @@
 use std::fs;
-use std::path::Path;
 use std::io;
+use std::path::Path;
 
 /// Remove a path (file or directory) ignoring NotFound; propagate all other errors.
 pub fn safe_cleanup_path<P: AsRef<Path>>(path: P) -> io::Result<()> {

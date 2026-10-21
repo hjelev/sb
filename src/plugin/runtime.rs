@@ -16,6 +16,10 @@ use super::{
     LoadedPlugin, PluginCtx, PluginEffect, PluginHooks, PluginMsg, PluginSource, PreviewerReg,
 };
 
+/// Upper bound for one `sb.spawn` job. A hung command would otherwise hold
+/// its worker thread (and the plugin's pending callback) forever.
+const SPAWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
 /// Which event hook to fire (see [`PluginRuntime::run_hook`]).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Hook {
@@ -185,7 +189,9 @@ impl PluginRuntime {
             if p.has_entry
                 && let Some(combo) = p.bound_key
             {
-                self.keymap.entry(combo).or_insert_with(|| p.source.name.clone());
+                self.keymap
+                    .entry(combo)
+                    .or_insert_with(|| p.source.name.clone());
             }
             if !p.preview_exts.is_empty() {
                 self.previewer_cache.push(PreviewerReg {
@@ -226,11 +232,7 @@ impl PluginRuntime {
 
     /// Run `entry()` of the named plugin. Returns the queued effects, or the
     /// error message (also recorded on the plugin).
-    pub fn run_entry(
-        &mut self,
-        name: &str,
-        ctx: &PluginCtx,
-    ) -> Result<Vec<PluginEffect>, String> {
+    pub fn run_entry(&mut self, name: &str, ctx: &PluginCtx) -> Result<Vec<PluginEffect>, String> {
         let idx = self
             .plugins
             .iter()
@@ -354,7 +356,9 @@ impl PluginRuntime {
         let plugin = plugin_name.to_string();
         let cmd = req.cmd;
         std::thread::spawn(move || {
-            let output = std::process::Command::new("sh").arg("-c").arg(&cmd).output();
+            let mut command = std::process::Command::new("sh");
+            command.arg("-c").arg(&cmd);
+            let output = crate::util::command::output_with_timeout(command, SPAWN_TIMEOUT);
             let msg = match output {
                 Ok(out) => PluginMsg::SpawnDone {
                     token,
@@ -508,7 +512,13 @@ mod tests {
         let mut rt = PluginRuntime::init(vec![src], &[], &HashMap::new());
         let err = rt.run_entry("boom", &ctx()).unwrap_err();
         assert!(err.contains("kaboom"), "got: {err}");
-        assert!(rt.plugins[0].last_error.as_deref().unwrap().contains("kaboom"));
+        assert!(
+            rt.plugins[0]
+                .last_error
+                .as_deref()
+                .unwrap()
+                .contains("kaboom")
+        );
     }
 
     #[test]
@@ -632,7 +642,13 @@ mod tests {
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
         };
-        let PluginMsg::SpawnDone { token, plugin, status, stdout, stderr } = msg;
+        let PluginMsg::SpawnDone {
+            token,
+            plugin,
+            status,
+            stdout,
+            stderr,
+        } = msg;
         assert_eq!(status, 0);
         let effects = rt
             .run_spawn_callback(token, &plugin, status, &stdout, &stderr)
@@ -658,7 +674,10 @@ mod tests {
         // propagating them, so drive it through and check the recorded error.
         let _ = rt.run_hook(Hook::Cd, &ctx());
         let err = rt.plugins[0].last_error.as_deref().unwrap();
-        assert!(err.contains("sb.confirm is not available here"), "got: {err}");
+        assert!(
+            err.contains("sb.confirm is not available here"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -700,6 +719,9 @@ mod tests {
         assert_eq!(effects, vec![PluginEffect::Status("two:4".to_string())]);
         assert!(rt.wants_hook(Hook::Start));
         let effects = rt.run_hook(Hook::Start, &ctx());
-        assert_eq!(effects, vec![PluginEffect::Status("{\"ok\":true}".to_string())]);
+        assert_eq!(
+            effects,
+            vec![PluginEffect::Status("{\"ok\":true}".to_string())]
+        );
     }
 }

@@ -1,12 +1,12 @@
 use std::{collections::HashMap, fs, path::Path, str::FromStr, time::UNIX_EPOCH};
 
-use crate::util::format::format_mtime;
-use crate::ui::palette::Palette;
-use crate::ui::theme::{theme_spec, IconThemeMode, ThemeId};
-use devicons::{icon_for_file, File as DevFile, Theme};
-use ratatui::prelude::*;
 use crate::ui::icons::named_file_icon;
-use crate::{ui, App, FilenameColorMode};
+use crate::ui::palette::Palette;
+use crate::ui::theme::{IconThemeMode, ThemeId, theme_spec};
+use crate::util::format::format_mtime;
+use crate::{App, FilenameColorMode, ui};
+use devicons::{File as DevFile, Theme, icon_for_file};
+use ratatui::prelude::*;
 
 #[derive(Clone)]
 pub(crate) struct EntryRenderCache {
@@ -91,14 +91,24 @@ impl App {
         }
     }
 
-    pub(crate) fn icon_for_name(name: &str, is_dir: bool, show_icons: bool, nerd_font_active: bool, is_symlink: bool, theme_id: ThemeId) -> (String, Style) {
+    pub(crate) fn icon_for_name(
+        name: &str,
+        is_dir: bool,
+        show_icons: bool,
+        nerd_font_active: bool,
+        is_symlink: bool,
+        theme_id: ThemeId,
+    ) -> (String, Style) {
         let theme = theme_spec(theme_id);
         if !show_icons {
             return (String::new(), Style::default());
         }
 
         if is_symlink {
-            return ("\u{f1177}".to_string(), Style::default().fg(theme.text_symlink));
+            return (
+                "\u{f1177}".to_string(),
+                Style::default().fg(theme.text_symlink),
+            );
         }
 
         if nerd_font_active {
@@ -120,11 +130,20 @@ impl App {
             {
                 // Draft/partial names in interactive prompts (e.g. empty line, '/')
                 // can lack a valid filename component; avoid calling devicons in that case.
-                ("\u{f15b}".to_string(), Style::default().fg(theme.text_normal))
+                (
+                    "\u{f15b}".to_string(),
+                    Style::default().fg(theme.text_normal),
+                )
             } else if crate::util::classify::has_ext(Path::new(name), &["age"]) {
-                ("\u{f023}".to_string(), Style::default().fg(Palette::WARNING_ALT))
+                (
+                    "\u{f023}".to_string(),
+                    Style::default().fg(Palette::WARNING_ALT),
+                )
             } else if let Some((custom_icon, _)) = named_file_icon(name) {
-                (custom_icon.to_string(), Style::default().fg(theme.icon_default_file))
+                (
+                    custom_icon.to_string(),
+                    Style::default().fg(theme.icon_default_file),
+                )
             } else {
                 let icon_theme = Self::icon_theme_for(theme_id);
                 let data = icon_for_file(&DevFile::new(Path::new(name)), Some(icon_theme));
@@ -139,13 +158,29 @@ impl App {
                     .add_modifier(Modifier::BOLD),
             )
         } else {
-            ("📄".to_string(), Style::default().fg(theme.icon_default_file))
+            (
+                "📄".to_string(),
+                Style::default().fg(theme.icon_default_file),
+            )
         }
     }
 
-    pub(crate) fn icon_for_path(path: &Path, show_icons: bool, nerd_font_active: bool, is_symlink: bool, theme_id: ThemeId) -> (String, Style) {
+    pub(crate) fn icon_for_path(
+        path: &Path,
+        show_icons: bool,
+        nerd_font_active: bool,
+        is_symlink: bool,
+        theme_id: ThemeId,
+    ) -> (String, Style) {
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        Self::icon_for_name(name, path.is_dir(), show_icons, nerd_font_active, is_symlink, theme_id)
+        Self::icon_for_name(
+            name,
+            path.is_dir(),
+            show_icons,
+            nerd_font_active,
+            is_symlink,
+            theme_id,
+        )
     }
 
     /// Lightweight, extension-only archive check used for filename coloring.
@@ -303,9 +338,13 @@ impl App {
             })
             .unwrap_or_else(|| "-".to_string());
         let perms_col = format!("{:<width$}", perms, width = perms_width);
-        let size_bytes = meta
-            .as_ref()
-            .and_then(|m| if m.is_dir() { None } else { Some(Self::display_leaf_size(m)) });
+        let size_bytes = meta.as_ref().and_then(|m| {
+            if m.is_dir() {
+                None
+            } else {
+                Some(Self::display_leaf_size(m))
+            }
+        });
         let size = size_bytes
             .map(App::format_size)
             .unwrap_or_else(|| "-".to_string());

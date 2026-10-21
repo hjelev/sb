@@ -100,10 +100,7 @@ fn walk_tree_rows(
         let path = entry.path();
         let prefix = tree_prefix_compact(ancestor_last, is_last);
         let is_dir = path.is_dir();
-        out.push(TreeRow {
-            entry,
-            prefix,
-        });
+        out.push(TreeRow { entry, prefix });
 
         let should_descend = is_dir && max_depth.map(|limit| depth < limit).unwrap_or(true);
         if should_descend {

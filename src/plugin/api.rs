@@ -79,8 +79,12 @@ pub(crate) fn build_sb_table(
     effect_fn!("clipboard_set", |paths: Vec<String>| {
         PluginEffect::ClipboardSet(paths.into_iter().map(PathBuf::from).collect())
     });
-    effect_fn!("edit", |path: String| PluginEffect::EditPath(PathBuf::from(path)));
-    effect_fn!("view", |path: String| PluginEffect::ViewPath(PathBuf::from(path)));
+    effect_fn!("edit", |path: String| PluginEffect::EditPath(
+        PathBuf::from(path)
+    ));
+    effect_fn!("view", |path: String| PluginEffect::ViewPath(
+        PathBuf::from(path)
+    ));
     effect_fn!("run", |cmd: String| PluginEffect::RunShellWait(cmd));
     // Zero-argument effect functions (the macro's arg list can't match `||`).
     for (name, effect) in [
@@ -134,7 +138,9 @@ pub(crate) fn build_sb_table(
             t.set(
                 "input",
                 lua.create_function(
-                    move |_, (prompt, prefill): (String, Option<String>)| -> mlua::Result<Option<String>> {
+                    move |_,
+                          (prompt, prefill): (String, Option<String>)|
+                          -> mlua::Result<Option<String>> {
                         let r = super::prompt::input(&prompt, prefill.as_deref())
                             .map_err(mlua::Error::runtime)?;
                         d.set(true);
@@ -159,7 +165,10 @@ pub(crate) fn build_sb_table(
                 t.set(
                     name,
                     lua.create_function(move |_, _: mlua::MultiValue| -> mlua::Result<()> {
-                        Err(mlua::Error::runtime(format!("sb.{} is not available here", name)))
+                        Err(mlua::Error::runtime(format!(
+                            "sb.{} is not available here",
+                            name
+                        )))
                     })?,
                 )?;
             }
@@ -179,8 +188,20 @@ pub(crate) fn build_sb_preview_table(
 ) -> mlua::Result<Table> {
     let t = build_pure_helpers(lua, plugin_name, plugin_dir)?;
     for name in [
-        "notify", "cd", "refresh", "select", "mark", "clear_marks",
-        "clipboard_set", "edit", "view", "run", "spawn", "confirm", "input", "confirm_shell",
+        "notify",
+        "cd",
+        "refresh",
+        "select",
+        "mark",
+        "clear_marks",
+        "clipboard_set",
+        "edit",
+        "view",
+        "run",
+        "spawn",
+        "confirm",
+        "input",
+        "confirm_shell",
     ] {
         t.set(
             name,
@@ -196,11 +217,7 @@ pub(crate) fn build_sb_preview_table(
 }
 
 /// Helpers that answer immediately from captured data (safe everywhere).
-fn build_pure_helpers(
-    lua: &Lua,
-    plugin_name: &str,
-    plugin_dir: PathBuf,
-) -> mlua::Result<Table> {
+fn build_pure_helpers(lua: &Lua, plugin_name: &str, plugin_dir: PathBuf) -> mlua::Result<Table> {
     let t = lua.create_table()?;
     t.set(
         "version",

@@ -26,7 +26,9 @@ pub(crate) fn os_nerd_icon() -> Option<(&'static str, (u8, u8, u8))> {
 
 /// Detect OS icon from a remote SSHFS/rclone mount by reading its `/etc/os-release`.
 /// Falls back to a generic server icon if the file is absent (e.g. cloud storage).
-pub(crate) fn remote_os_nerd_icon(mount_path: &std::path::Path) -> Option<(&'static str, (u8, u8, u8))> {
+pub(crate) fn remote_os_nerd_icon(
+    mount_path: &std::path::Path,
+) -> Option<(&'static str, (u8, u8, u8))> {
     let content = std::fs::read_to_string(mount_path.join("etc/os-release"))
         .or_else(|_| std::fs::read_to_string(mount_path.join("usr/lib/os-release")))
         .unwrap_or_default();
@@ -36,13 +38,14 @@ pub(crate) fn remote_os_nerd_icon(mount_path: &std::path::Path) -> Option<(&'sta
     parse_os_release_content(&content)
 }
 
-pub(crate) fn os_nerd_icon_from_os_release_content(content: &str) -> Option<(&'static str, (u8, u8, u8))> {
+pub(crate) fn os_nerd_icon_from_os_release_content(
+    content: &str,
+) -> Option<(&'static str, (u8, u8, u8))> {
     parse_os_release_content(content)
 }
 
 /// Parse `/etc/os-release` content (as a string) and return the matching distro icon.
 fn parse_os_release_content(content: &str) -> Option<(&'static str, (u8, u8, u8))> {
-
     let mut id = String::new();
     let mut id_like = String::new();
     let mut name = String::new();
@@ -82,49 +85,72 @@ fn parse_os_release_content(content: &str) -> Option<(&'static str, (u8, u8, u8)
 /// Exact ID → (glyph, rgb). Covers the most common distros.
 fn distro_icon_for_id(id: &str) -> Option<(&'static str, (u8, u8, u8))> {
     match id {
-        "arch" | "archarm" | "artix"       => Some(("\u{f303}", (23, 147, 209))),
-        "debian"                            => Some(("\u{f306}", (215, 10, 83))),
-        "ubuntu" | "ubuntu-server"          => Some(("\u{f31b}", (233, 84, 32))),
-        "fedora" | "fedora-asahi-remix"     => Some(("\u{f30a}", (41, 162, 228))),
-        "opensuse" | "opensuse-leap"
-            | "opensuse-tumbleweed" | "suse"=> Some(("\u{f314}", (115, 186, 37))),
-        "rhel" | "centos" | "almalinux"
-            | "rocky" | "ol" | "scientific" => Some(("\u{f316}", (190, 30, 45))),
-        "nixos"                             => Some(("\u{f313}", (126, 186, 228))),
-        "linuxmint" | "mint"               => Some(("\u{f30e}", (134, 194, 50))),
-        "manjaro"                           => Some(("\u{f312}", (52, 190, 91))),
-        "pop" | "pop-os"                   => Some(("\u{f32a}", (72, 185, 199))),
-        "kali"                              => Some(("\u{f327}", (38, 139, 210))),
-        "alpine"                            => Some(("\u{f300}", (14, 87, 123))),
-        "void"                              => Some(("\u{f32e}", (73, 173, 80))),
-        "gentoo"                            => Some(("\u{f30d}", (148, 137, 217))),
+        "arch" | "archarm" | "artix" => Some(("\u{f303}", (23, 147, 209))),
+        "debian" => Some(("\u{f306}", (215, 10, 83))),
+        "ubuntu" | "ubuntu-server" => Some(("\u{f31b}", (233, 84, 32))),
+        "fedora" | "fedora-asahi-remix" => Some(("\u{f30a}", (41, 162, 228))),
+        "opensuse" | "opensuse-leap" | "opensuse-tumbleweed" | "suse" => {
+            Some(("\u{f314}", (115, 186, 37)))
+        }
+        "rhel" | "centos" | "almalinux" | "rocky" | "ol" | "scientific" => {
+            Some(("\u{f316}", (190, 30, 45)))
+        }
+        "nixos" => Some(("\u{f313}", (126, 186, 228))),
+        "linuxmint" | "mint" => Some(("\u{f30e}", (134, 194, 50))),
+        "manjaro" => Some(("\u{f312}", (52, 190, 91))),
+        "pop" | "pop-os" => Some(("\u{f32a}", (72, 185, 199))),
+        "kali" => Some(("\u{f327}", (38, 139, 210))),
+        "alpine" => Some(("\u{f300}", (14, 87, 123))),
+        "void" => Some(("\u{f32e}", (73, 173, 80))),
+        "gentoo" => Some(("\u{f30d}", (148, 137, 217))),
         // Raspberry Pi OS is Debian-based; use Debian glyph for better Nerd Font compatibility.
-        "raspbian" | "raspios"             => Some(("\u{f306}", (196, 0, 40))),
-        "slackware"                         => Some(("\u{f30f}", (80, 80, 200))),
-        "mageia"                            => Some(("\u{f310}", (40, 120, 220))),
-        "elementary" | "elementaryos"      => Some(("\u{f309}", ICON_BLUE)),
-        "zorin"                             => Some(("\u{f33e}", (21, 114, 161))),
-        "parrot" | "parrotos"              => Some(("\u{f330}", (0, 186, 200))),
-        "mx" | "mxlinux"                   => Some(("\u{f11b}", (80, 80, 80))),
-        "deepin"                            => Some(("\u{f324}", (0, 142, 207))),
-        "guix"                              => Some(("\u{f323}", (255, 200, 0))),
-        _                                   => None,
+        "raspbian" | "raspios" => Some(("\u{f306}", (196, 0, 40))),
+        "slackware" => Some(("\u{f30f}", (80, 80, 200))),
+        "mageia" => Some(("\u{f310}", (40, 120, 220))),
+        "elementary" | "elementaryos" => Some(("\u{f309}", ICON_BLUE)),
+        "zorin" => Some(("\u{f33e}", (21, 114, 161))),
+        "parrot" | "parrotos" => Some(("\u{f330}", (0, 186, 200))),
+        "mx" | "mxlinux" => Some(("\u{f11b}", (80, 80, 80))),
+        "deepin" => Some(("\u{f324}", (0, 142, 207))),
+        "guix" => Some(("\u{f323}", (255, 200, 0))),
+        _ => None,
     }
 }
 
 /// Substring family fallback for derivatives not listed above.
 fn distro_icon_by_family(combined: &str) -> Option<(&'static str, (u8, u8, u8))> {
-    if combined.contains("ubuntu")                                      { return Some(("\u{f31b}", (233, 84, 32))); }
-    if combined.contains("debian")                                      { return Some(("\u{f306}", (215, 10, 83))); }
-    if combined.contains("arch")                                        { return Some(("\u{f303}", (23, 147, 209))); }
-    if combined.contains("fedora")                                      { return Some(("\u{f30a}", (41, 162, 228))); }
-    if combined.contains("suse")                                        { return Some(("\u{f314}", (115, 186, 37))); }
-    if combined.contains("centos") || combined.contains("rhel")
-        || combined.contains("redhat") || combined.contains("alma")
-        || combined.contains("rocky")                                   { return Some(("\u{f316}", (190, 30, 45))); }
-    if combined.contains("gentoo")                                      { return Some(("\u{f30d}", (148, 137, 217))); }
-    if combined.contains("mint")                                        { return Some(("\u{f30e}", (134, 194, 50))); }
-    if combined.contains("manjaro")                                     { return Some(("\u{f312}", (52, 190, 91))); }
+    if combined.contains("ubuntu") {
+        return Some(("\u{f31b}", (233, 84, 32)));
+    }
+    if combined.contains("debian") {
+        return Some(("\u{f306}", (215, 10, 83)));
+    }
+    if combined.contains("arch") {
+        return Some(("\u{f303}", (23, 147, 209)));
+    }
+    if combined.contains("fedora") {
+        return Some(("\u{f30a}", (41, 162, 228)));
+    }
+    if combined.contains("suse") {
+        return Some(("\u{f314}", (115, 186, 37)));
+    }
+    if combined.contains("centos")
+        || combined.contains("rhel")
+        || combined.contains("redhat")
+        || combined.contains("alma")
+        || combined.contains("rocky")
+    {
+        return Some(("\u{f316}", (190, 30, 45)));
+    }
+    if combined.contains("gentoo") {
+        return Some(("\u{f30d}", (148, 137, 217)));
+    }
+    if combined.contains("mint") {
+        return Some(("\u{f30e}", (134, 194, 50)));
+    }
+    if combined.contains("manjaro") {
+        return Some(("\u{f312}", (52, 190, 91)));
+    }
     None
 }
 
@@ -143,9 +169,7 @@ pub fn named_dir_icon(name: &str) -> Option<(&'static str, (u8, u8, u8))> {
         "trash" | ".trash" => Some(("\u{f1f8}", (140, 140, 140))),
 
         // --- Legal & Licensing ---
-        "license" | "licenses" | "copying" => {
-            Some(("\u{f0fc3}", (240, 190, 40)))
-        }
+        "license" | "licenses" | "copying" => Some(("\u{f0fc3}", (240, 190, 40))),
         "copyright" => Some(("\u{f1f9}", ICON_BLUE)),
         "legal" => Some(("\u{f0e3}", ICON_BLUE)),
 
@@ -169,13 +193,14 @@ pub fn named_dir_icon(name: &str) -> Option<(&'static str, (u8, u8, u8))> {
         "java" | "maven" | "gradle" => Some(("\u{f0176}", (200, 130, 60))),
         "ruby" | "gems" => Some(("\u{f0acf}", (170, 20, 1))),
 
-
         // --- Project Structure ---
-        "plugins" | "extensions" | "addons"  => Some(("\u{f0257}", (255, 153, 0))),
-        "local" | "locale" | "i18n" | "l10n" |"translations" => Some(("\u{f024c}", (255, 153, 0))),
+        "plugins" | "extensions" | "addons" => Some(("\u{f0257}", (255, 153, 0))),
+        "local" | "locale" | "i18n" | "l10n" | "translations" => Some(("\u{f024c}", (255, 153, 0))),
         "client" | "server" | "backend" | "frontend" => Some(("\u{f233}", (100, 160, 220))),
         "styles" | "css" | "themes" | "scss" => Some(("\u{e6b8}", (230, 70, 70))),
-        "js" | "javascript" | "ts" | "typescript" | "jsx" | "tsx" => Some(("\u{f2ee}", (230, 70, 70))),
+        "js" | "javascript" | "ts" | "typescript" | "jsx" | "tsx" => {
+            Some(("\u{f2ee}", (230, 70, 70)))
+        }
         "db" | "data" | "dataset" | "databases" | "sql" => Some(("\u{f12e3}", ICON_BLUE)),
         "api" => Some(("\u{f19ec}", ICON_BLUE)),
         "npm" => Some(("\u{e5fa}", ICON_BLUE)),
@@ -214,8 +239,8 @@ pub fn named_dir_icon(name: &str) -> Option<(&'static str, (u8, u8, u8))> {
         ".vim" | "nvim" | "lua" => Some(("\u{E62B}", (87, 158, 58))),
 
         "backup" | "backups" | "archive" => Some(("\u{f06eb}", (180, 140, 100))), // nf-md-folder_zip
-        "private" | "secrets" | "hidden" => Some(("\u{f0250}", (220, 50, 50))),   // nf-md-folder_lock
-        "mail" | "emails" => Some(("\u{f01ee}", (200, 200, 100))),               // nf-md-folder_envelope
+        "private" | "secrets" | "hidden" => Some(("\u{f0250}", (220, 50, 50))), // nf-md-folder_lock
+        "mail" | "emails" => Some(("\u{f01ee}", (200, 200, 100))), // nf-md-folder_envelope
 
         // --- Storage & Web ---
         "dropbox" => Some(("\u{F16B}", (0, 97, 255))),
@@ -239,7 +264,7 @@ pub fn named_dir_icon(name: &str) -> Option<(&'static str, (u8, u8, u8))> {
 
 pub fn named_file_icon(name: &str) -> Option<(&'static str, (u8, u8, u8))> {
     let name_low = name.to_lowercase();
-    
+
     match name_low.as_str() {
         "desktop" => Some(("\u{f10b5}", ICON_BLUE)),
         "documents" | "docs" => Some(("\u{f0c82}", ICON_BLUE)),
@@ -248,9 +273,16 @@ pub fn named_file_icon(name: &str) -> Option<(&'static str, (u8, u8, u8))> {
         "legal" => Some(("\u{f08ea}", ICON_AMBER)),
         "makefile" => Some(("\u{f1323}", (158, 158, 158))),
         _ if name_low.contains("lib") => Some(("\u{f0770}", (100, 181, 246))),
-        
-        _ if name_low.contains("masoko") || name_low.contains("star") => Some(("\u{f04ce}", ICON_AMBER)),
-        _ if name_low.contains("love") || name_low.contains("heart") || name_low.contains("adult") => Some(("\u{f02d1}", (244, 67, 54))),
+
+        _ if name_low.contains("masoko") || name_low.contains("star") => {
+            Some(("\u{f04ce}", ICON_AMBER))
+        }
+        _ if name_low.contains("love")
+            || name_low.contains("heart")
+            || name_low.contains("adult") =>
+        {
+            Some(("\u{f02d1}", (244, 67, 54)))
+        }
 
         _ if name_low.starts_with('.') => Some(("\u{f0613}", ICON_DIM)),
         _ if name_low.starts_with("license") => Some(("\u{f0fc3}", ICON_DIM)),

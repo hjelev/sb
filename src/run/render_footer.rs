@@ -9,17 +9,24 @@ pub(crate) fn render_footer(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
     let nf = app.nerd_font_active;
 
     // --- Footer ---
-    let (total_entries, selected_ordinal) = if app.is_dual_panel_mode()
-        && app.active_panel == crate::DualPanelSide::Right
-    {
-        let total = app.right.entries.len();
-        let ord = if total == 0 { 0 } else { app.right.selected_index.min(total - 1) + 1 };
-        (total, ord)
-    } else {
-        let total = app.left.entries.len();
-        let ord = if total == 0 { 0 } else { app.left.selected_index.min(total - 1) + 1 };
-        (total, ord)
-    };
+    let (total_entries, selected_ordinal) =
+        if app.is_dual_panel_mode() && app.active_panel == crate::DualPanelSide::Right {
+            let total = app.right.entries.len();
+            let ord = if total == 0 {
+                0
+            } else {
+                app.right.selected_index.min(total - 1) + 1
+            };
+            (total, ord)
+        } else {
+            let total = app.left.entries.len();
+            let ord = if total == 0 {
+                0
+            } else {
+                app.left.selected_index.min(total - 1) + 1
+            };
+            (total, ord)
+        };
     let ordinal_str = selected_ordinal.to_string();
     let total_str = total_entries.to_string();
 
@@ -31,11 +38,25 @@ pub(crate) fn render_footer(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
     let mut left_spans: Vec<Span> = ui::panels::shortcut_spans(&ordinal_str, &total_str, nf, spec);
     let mut left_len = ui::panels::shortcut_width(&ordinal_str, &total_str, nf);
     if !app.clipboard.is_empty() {
-        left_len += format!(" │ Clipboard:{}", app.clipboard.len()).chars().count();
-        left_spans.push(Span::styled(" │ ", Style::default().fg(active_theme.text_dim)));
-        left_spans.push(Span::styled("Clipboard", Style::default().fg(active_theme.text_dim)));
-        left_spans.push(Span::styled(":", Style::default().fg(active_theme.text_dim)));
-        left_spans.push(Span::styled(app.clipboard.len().to_string(), Style::default().fg(active_theme.text_normal)));
+        left_len += format!(" │ Clipboard:{}", app.clipboard.len())
+            .chars()
+            .count();
+        left_spans.push(Span::styled(
+            " │ ",
+            Style::default().fg(active_theme.text_dim),
+        ));
+        left_spans.push(Span::styled(
+            "Clipboard",
+            Style::default().fg(active_theme.text_dim),
+        ));
+        left_spans.push(Span::styled(
+            ":",
+            Style::default().fg(active_theme.text_dim),
+        ));
+        left_spans.push(Span::styled(
+            app.clipboard.len().to_string(),
+            Style::default().fg(active_theme.text_normal),
+        ));
     }
 
     // Footer shortcuts: pill-styled keys (nerd font) or plain keys, each
@@ -73,7 +94,11 @@ pub(crate) fn render_footer(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
     for i in (0..footer_shortcuts.len()).rev() {
         let (_, k, d) = &footer_shortcuts[i];
         let w = ui::panels::shortcut_width(k, d, nf)
-            + if start == footer_shortcuts.len() { 0 } else { sep_w };
+            + if start == footer_shortcuts.len() {
+                0
+            } else {
+                sep_w
+            };
         if right_len + w <= avail_right {
             right_len += w;
             start = i;
@@ -106,7 +131,8 @@ pub(crate) fn render_footer(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
         let pill_w = ui::panels::shortcut_width(k, d, nf) as u16;
         if zones_enabled {
             let event = KeyEvent::new(combo.code, combo.mods);
-            app.footer_shortcut_zones.push((event, zone_x, zone_x + pill_w, zone_y));
+            app.footer_shortcut_zones
+                .push((event, zone_x, zone_x + pill_w, zone_y));
         }
         zone_x = zone_x.saturating_add(pill_w);
         right_spans.extend(ui::panels::shortcut_spans(k, d, nf, spec));
@@ -166,10 +192,7 @@ pub(crate) fn render_footer(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
                 let remaining = width - core_len;
                 format!("{}{}", core, "─".repeat(remaining))
             };
-            f.render_widget(
-                Paragraph::new(line_msg).style(msg_style),
-                msg_area,
-            );
+            f.render_widget(Paragraph::new(line_msg).style(msg_style), msg_area);
         }
     }
 
@@ -185,9 +208,14 @@ pub(crate) fn render_footer(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             // In split preview mode, extra corner overlays can clash with the
             // rounded pane border; skip the synthetic scrollbar corners.
         } else {
-            let can_draw_scrollbar = table_area.width > 2 && app.left.entries.len() > table_area.height as usize;
-            ui::scrollbar::render_scrollbar_corners(f, table_area, can_draw_scrollbar, active_theme.border);
+            let can_draw_scrollbar =
+                table_area.width > 2 && app.left.entries.len() > table_area.height as usize;
+            ui::scrollbar::render_scrollbar_corners(
+                f,
+                table_area,
+                can_draw_scrollbar,
+                active_theme.border,
+            );
         }
     }
 }
-

@@ -2,7 +2,12 @@
 use super::*;
 use crate::ui::list_metrics::*;
 
-pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &RenderCtx, tl: &TableLayout) {
+pub(crate) fn render_scrollbar_and_preview(
+    f: &mut Frame,
+    app: &mut App,
+    ctx: &RenderCtx,
+    tl: &TableLayout,
+) {
     let active_theme = ctx.theme;
     let chunks = [ctx.main, ctx.footer];
     let list_frame_area = tl.list_frame_area;
@@ -23,9 +28,18 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
 
     // --- Bottom divider border ---
     let bottom_border_y = table_area.y + table_area.height;
-    if !app.is_preview_mode() && !app.is_dual_panel_mode() && app.mode_shows_main_scrollbar() && bottom_border_y < chunks[0].y + chunks[0].height {
-        f.render_widget(Block::default().borders(Borders::TOP).border_type(BorderType::Rounded).border_style(Style::default().fg(active_theme.border)), 
-            Rect::new(chunks[0].x, bottom_border_y, chunks[0].width, 1));
+    if !app.is_preview_mode()
+        && !app.is_dual_panel_mode()
+        && app.mode_shows_main_scrollbar()
+        && bottom_border_y < chunks[0].y + chunks[0].height
+    {
+        f.render_widget(
+            Block::default()
+                .borders(Borders::TOP)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(active_theme.border)),
+            Rect::new(chunks[0].x, bottom_border_y, chunks[0].width, 1),
+        );
     }
 
     if can_draw_scrollbar {
@@ -54,154 +68,172 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
     app.preview.native_area = None;
     if let Some(preview_area) = preview_frame_area {
         if app.is_preview_mode() {
-        let title_path = app
-            .preview.target_path
-            .clone()
-            .or_else(|| app.left.entries.get(app.left.selected_index).map(|e| e.path()));
-        let preview_title = if let Some(path) = title_path {
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .filter(|n| !n.is_empty())
-                .unwrap_or("Preview")
-                .to_string();
-            let is_symlink = crate::util::classify::is_symlink(&path);
-            let (icon_glyph, icon_style) = App::icon_for_path(
-                &path,
-                app.show_icons,
-                app.nerd_font_active,
-                is_symlink,
-                app.active_theme,
-            );
-            let title_width = preview_area.width.saturating_sub(2) as usize;
-            let icon_width = if icon_glyph.is_empty() {
-                0
+            let title_path = app.preview.target_path.clone().or_else(|| {
+                app.left
+                    .entries
+                    .get(app.left.selected_index)
+                    .map(|e| e.path())
+            });
+            let preview_title = if let Some(path) = title_path {
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or("Preview")
+                    .to_string();
+                let is_symlink = crate::util::classify::is_symlink(&path);
+                let (icon_glyph, icon_style) = App::icon_for_path(
+                    &path,
+                    app.show_icons,
+                    app.nerd_font_active,
+                    is_symlink,
+                    app.active_theme,
+                );
+                let title_width = preview_area.width.saturating_sub(2) as usize;
+                let icon_width = if icon_glyph.is_empty() {
+                    0
+                } else {
+                    UnicodeWidthStr::width(icon_glyph.as_str()) + 1
+                };
+                let prefix_width = 1 + icon_width;
+                let name_max_width = title_width.saturating_sub(prefix_width).max(1);
+                let display_name = truncate_display_width(&name, name_max_width);
+
+                let mut spans = Vec::new();
+                spans.push(Span::raw(" "));
+                if !icon_glyph.is_empty() {
+                    spans.push(Span::styled(icon_glyph, icon_style));
+                    spans.push(Span::raw(" "));
+                }
+                spans.push(Span::styled(
+                    display_name.clone(),
+                    Style::default().fg(active_theme.text_normal),
+                ));
+
+                let used_width = prefix_width + UnicodeWidthStr::width(display_name.as_str());
+                if used_width < title_width {
+                    spans.push(Span::raw(" "));
+                }
+                Line::from(spans)
             } else {
-                UnicodeWidthStr::width(icon_glyph.as_str()) + 1
+                Line::from(Span::raw(" Preview "))
             };
-            let prefix_width = 1 + icon_width;
-            let name_max_width = title_width.saturating_sub(prefix_width).max(1);
-            let display_name = truncate_display_width(&name, name_max_width);
 
-            let mut spans = Vec::new();
-            spans.push(Span::raw(" "));
-            if !icon_glyph.is_empty() {
-                spans.push(Span::styled(icon_glyph, icon_style));
-                spans.push(Span::raw(" "));
-            }
-            spans.push(Span::styled(
-                display_name.clone(),
-                Style::default().fg(active_theme.text_normal),
-            ));
+            let preview_block = Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .title(preview_title)
+                .border_style(Style::default().fg(if app.preview_focus_is_preview() {
+                    active_theme.text_normal
+                } else {
+                    active_theme.border
+                }))
+                .style(
+                    Style::default()
+                        .bg(active_theme.bg_panel)
+                        .fg(active_theme.text_normal),
+                );
+            let preview_inner = preview_block.inner(preview_area);
+            f.render_widget(preview_block, preview_area);
 
-            let used_width = prefix_width + UnicodeWidthStr::width(display_name.as_str());
-            if used_width < title_width {
-                spans.push(Span::raw(" "));
-            }
-            Line::from(spans)
-        } else {
-            Line::from(Span::raw(" Preview "))
-        };
-
-        let preview_block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .title(preview_title)
-            .border_style(Style::default().fg(if app.preview_focus_is_preview() {
-                active_theme.text_normal
+            let preview_chunks = if app.preview.footer.is_some() && preview_inner.height > 1 {
+                Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Min(1), Constraint::Length(1)])
+                    .split(preview_inner)
             } else {
-                active_theme.border
-            }))
-            .style(Style::default().bg(active_theme.bg_panel).fg(active_theme.text_normal));
-        let preview_inner = preview_block.inner(preview_area);
-        f.render_widget(preview_block, preview_area);
+                Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Min(1), Constraint::Length(0)])
+                    .split(preview_inner)
+            };
+            let preview_body = preview_chunks[0];
+            let preview_footer_area = preview_chunks[1];
 
-        let preview_chunks = if app.preview.footer.is_some() && preview_inner.height > 1 {
-            Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Min(1), Constraint::Length(1)])
-                .split(preview_inner)
-        } else {
-            Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Min(1), Constraint::Length(0)])
-                .split(preview_inner)
-        };
-        let preview_body = preview_chunks[0];
-        let preview_footer_area = preview_chunks[1];
-
-        let preview_needs_scroll = app.preview.lines.len() > preview_body.height as usize;
-        let preview_can_draw_scrollbar = preview_body.width > 2 && preview_needs_scroll;
-        let preview_text_area = if preview_can_draw_scrollbar {
-            Rect::new(
-                preview_body.x,
-                preview_body.y,
-                preview_body.width.saturating_sub(1),
-                preview_body.height,
-            )
-        } else {
-            preview_body
-        };
-
-        app.preview.native_area = Some(preview_text_area);
-
-        let visible_rows = preview_text_area.height.max(1) as usize;
-        let max_scroll = app.preview.lines.len().saturating_sub(visible_rows);
-        let offset = app.preview.scroll_offset.min(max_scroll);
-        app.preview.scroll_offset = offset;
-
-        let preview_protocol = App::terminal_image_protocol().0;
-        let native_pane_image = app.is_preview_mode()
-            && matches!(
-                preview_protocol,
-                crate::integration::probe::TerminalImageProtocol::Kitty
-                    | crate::integration::probe::TerminalImageProtocol::Iterm2Inline
-                    | crate::integration::probe::TerminalImageProtocol::Sixel
-            )
-            && app.preview.image_rgb.is_some();
-
-        let rendered_lines: Vec<Line> = if let Some((ref rgb, iw, ih)) = app.preview.image_rgb {
-            if native_pane_image {
-                vec![Line::from(Span::raw(" ".repeat(preview_text_area.width as usize))); preview_text_area.height as usize]
+            let preview_needs_scroll = app.preview.lines.len() > preview_body.height as usize;
+            let preview_can_draw_scrollbar = preview_body.width > 2 && preview_needs_scroll;
+            let preview_text_area = if preview_can_draw_scrollbar {
+                Rect::new(
+                    preview_body.x,
+                    preview_body.y,
+                    preview_body.width.saturating_sub(1),
+                    preview_body.height,
+                )
             } else {
-                App::halfblock_lines(rgb, iw, ih, preview_text_area.width, preview_text_area.height)
-            }
-        } else {
-            let is_directory_preview = app
-                .preview.target_path
-                .as_ref()
-                .map(|path| path.is_dir())
-                .unwrap_or(false);
-            let mut tlines: Vec<Line> = app
-                .preview.lines
-                .iter()
-                .skip(offset)
-                .take(visible_rows)
-                .enumerate()
-                .map(|(idx, line)| {
-                    if is_directory_preview {
-                        ui::preview::render_directory_preview_line(
-                            line,
-                            app.preview.line_kinds.get(offset + idx).copied(),
-                        )
-                    } else {
-                        let spans = ui::ansi::parse_ansi_line(line);
-                        Line::from(spans)
-                    }
-                })
-                .collect();
-            if tlines.is_empty() {
-                tlines.push(Line::from(Span::styled(
-                    "No preview",
-                    Style::default().fg(active_theme.text_dim),
-                )));
-            }
-            tlines
-        };
-        f.render_widget(Paragraph::new(rendered_lines), preview_text_area);
+                preview_body
+            };
 
-        if let Some(footer_text) = app.preview.footer.as_ref()
-            && preview_footer_area.height > 0 {
+            app.preview.native_area = Some(preview_text_area);
+
+            let visible_rows = preview_text_area.height.max(1) as usize;
+            let max_scroll = app.preview.lines.len().saturating_sub(visible_rows);
+            let offset = app.preview.scroll_offset.min(max_scroll);
+            app.preview.scroll_offset = offset;
+
+            let preview_protocol = App::terminal_image_protocol().0;
+            let native_pane_image = app.is_preview_mode()
+                && matches!(
+                    preview_protocol,
+                    crate::integration::probe::TerminalImageProtocol::Kitty
+                        | crate::integration::probe::TerminalImageProtocol::Iterm2Inline
+                        | crate::integration::probe::TerminalImageProtocol::Sixel
+                )
+                && app.preview.image_rgb.is_some();
+
+            let rendered_lines: Vec<Line> = if let Some((ref rgb, iw, ih)) = app.preview.image_rgb {
+                if native_pane_image {
+                    vec![
+                        Line::from(Span::raw(" ".repeat(preview_text_area.width as usize)));
+                        preview_text_area.height as usize
+                    ]
+                } else {
+                    App::halfblock_lines(
+                        rgb,
+                        iw,
+                        ih,
+                        preview_text_area.width,
+                        preview_text_area.height,
+                    )
+                }
+            } else {
+                let is_directory_preview = app
+                    .preview
+                    .target_path
+                    .as_ref()
+                    .map(|path| path.is_dir())
+                    .unwrap_or(false);
+                let mut tlines: Vec<Line> = app
+                    .preview
+                    .lines
+                    .iter()
+                    .skip(offset)
+                    .take(visible_rows)
+                    .enumerate()
+                    .map(|(idx, line)| {
+                        if is_directory_preview {
+                            ui::preview::render_directory_preview_line(
+                                line,
+                                app.preview.line_kinds.get(offset + idx).copied(),
+                            )
+                        } else {
+                            let spans = ui::ansi::parse_ansi_line(line);
+                            Line::from(spans)
+                        }
+                    })
+                    .collect();
+                if tlines.is_empty() {
+                    tlines.push(Line::from(Span::styled(
+                        "No preview",
+                        Style::default().fg(active_theme.text_dim),
+                    )));
+                }
+                tlines
+            };
+            f.render_widget(Paragraph::new(rendered_lines), preview_text_area);
+
+            if let Some(footer_text) = app.preview.footer.as_ref()
+                && preview_footer_area.height > 0
+            {
                 f.render_widget(
                     Paragraph::new(Line::from(Span::styled(
                         footer_text.as_str(),
@@ -212,23 +244,23 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
                 );
             }
 
-        if preview_can_draw_scrollbar {
-            let sb_area = Rect::new(
-                preview_area.x + preview_area.width.saturating_sub(1),
-                preview_body.y,
-                1,
-                preview_body.height,
-            );
-            ui::scrollbar::render_scrollbar_track(
-                f,
-                sb_area,
-                app.preview.lines.len(),
-                visible_rows,
-                offset,
-                active_theme.divider,
-                active_theme.border,
-            );
-        }
+            if preview_can_draw_scrollbar {
+                let sb_area = Rect::new(
+                    preview_area.x + preview_area.width.saturating_sub(1),
+                    preview_body.y,
+                    1,
+                    preview_body.height,
+                );
+                ui::scrollbar::render_scrollbar_track(
+                    f,
+                    sb_area,
+                    app.preview.lines.len(),
+                    visible_rows,
+                    offset,
+                    active_theme.divider,
+                    active_theme.border,
+                );
+            }
         } else if app.is_dual_panel_mode() {
             let right_path: &std::path::PathBuf = if app.right.dir.as_os_str().is_empty() {
                 &app.left.dir
@@ -247,12 +279,18 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
                 .title(right_title)
-                .border_style(Style::default().fg(if app.active_panel == crate::DualPanelSide::Right {
-                    active_theme.text_normal
-                } else {
-                    active_theme.border
-                }))
-                .style(Style::default().bg(active_theme.bg_panel).fg(active_theme.text_normal));
+                .border_style(Style::default().fg(
+                    if app.active_panel == crate::DualPanelSide::Right {
+                        active_theme.text_normal
+                    } else {
+                        active_theme.border
+                    },
+                ))
+                .style(
+                    Style::default()
+                        .bg(active_theme.bg_panel)
+                        .fg(active_theme.text_normal),
+                );
             f.render_widget(right_block, preview_area);
             let right_body_area = Rect::new(
                 preview_area.x + 1,
@@ -276,12 +314,24 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
             let right_show_date = right_term_w >= 50;
             let right_show_size = right_term_w >= 70;
             let right_show_pct = app.size.folder_size_enabled && right_show_size;
-            let right_size_min_max = if right_show_size { app.right.list_aggregates.size_min_max } else { None };
+            let right_size_min_max = if right_show_size {
+                app.right.list_aggregates.size_min_max
+            } else {
+                None
+            };
             let right_date_rank_by_ts = &app.right.list_aggregates.date_rank_by_ts;
-            let right_size_width = if right_show_size { app.right.list_aggregates.max_size_width } else { 1 };
+            let right_size_width = if right_show_size {
+                app.right.list_aggregates.max_size_width
+            } else {
+                1
+            };
             let right_pct_width = 4usize;
             let right_date_width = 16usize;
-            let right_total_for_pct = if right_show_pct { app.right.list_aggregates.percent_total } else { None };
+            let right_total_for_pct = if right_show_pct {
+                app.right.list_aggregates.percent_total
+            } else {
+                None
+            };
             let right_name_width = panel_name_width(
                 right_term_w,
                 right_show_size,
@@ -293,7 +343,9 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
             );
 
             let right_pill_edge_width = 2usize;
-            let right_effective_name_width = right_name_width.saturating_sub(right_pill_edge_width).max(1);
+            let right_effective_name_width = right_name_width
+                .saturating_sub(right_pill_edge_width)
+                .max(1);
             let right_table_render_area = Rect::new(
                 right_body_area.x,
                 right_body_area.y,
@@ -307,28 +359,32 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
             };
 
             let right_rows: Vec<Row> = app
-                .right.entry_render_cache
+                .right
+                .entry_render_cache
                 .iter()
                 .enumerate()
                 .map(|(idx, entry_cache)| {
                     let right_is_marked = app.right.marked_indices.contains(&idx);
                     let right_is_selected = idx == app.right.selected_index;
                     // Dark foreground for selected rows on a light selection bg.
-                    let right_sel_override = if right_is_selected && ui::palette::is_light_bg(right_pill_color) {
-                        Some(Color::Black)
-                    } else {
-                        None
-                    };
+                    let right_sel_override =
+                        if right_is_selected && ui::palette::is_light_bg(right_pill_color) {
+                            Some(Color::Black)
+                        } else {
+                            None
+                        };
                     let right_apply_sel = |style: Style| match right_sel_override {
                         Some(fg) => style.fg(fg),
                         None => style,
                     };
                     let tree_prefix = app
-                        .right.tree_row_prefixes
+                        .right
+                        .tree_row_prefixes
                         .get(idx)
                         .map(|s| s.as_str())
                         .unwrap_or("");
-                    let icon_prefix_width = if app.show_icons && !entry_cache.icon_glyph.is_empty() {
+                    let icon_prefix_width = if app.show_icons && !entry_cache.icon_glyph.is_empty()
+                    {
                         2usize
                     } else {
                         0usize
@@ -338,7 +394,8 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
                         .saturating_sub(prefix_width + icon_prefix_width)
                         .max(1);
                     let right_note_text = app
-                        .notes.right_by_name
+                        .notes
+                        .right_by_name
                         .get(&entry_cache.raw_name)
                         .map(|s| s.as_str())
                         .unwrap_or("");
@@ -349,7 +406,9 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
                         if app.nerd_font_active {
                             spans.push(Span::styled(
                                 "",
-                                Style::default().fg(right_pill_color).bg(active_theme.bg_panel),
+                                Style::default()
+                                    .fg(right_pill_color)
+                                    .bg(active_theme.bg_panel),
                             ));
                         } else {
                             spans.push(Span::styled(" ", Style::default().bg(right_pill_color)));
@@ -358,7 +417,11 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
                         spans.push(Span::raw(" "));
                     }
                     if !tree_prefix.is_empty() {
-                        let style = if right_is_selected { tree_style.patch(right_row_fill) } else { tree_style };
+                        let style = if right_is_selected {
+                            tree_style.patch(right_row_fill)
+                        } else {
+                            tree_style
+                        };
                         spans.push(Span::styled(tree_prefix.to_string(), style));
                     }
                     if app.show_icons && !entry_cache.icon_glyph.is_empty() {
@@ -404,14 +467,20 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
                     if right_effective_name_width > used_inner {
                         spans.push(Span::styled(
                             " ".repeat(right_effective_name_width - used_inner),
-                            if right_is_selected { right_row_fill } else { Style::default() },
+                            if right_is_selected {
+                                right_row_fill
+                            } else {
+                                Style::default()
+                            },
                         ));
                     }
                     if right_is_selected {
                         if app.nerd_font_active {
                             spans.push(Span::styled(
                                 "",
-                                Style::default().fg(right_pill_color).bg(active_theme.bg_panel),
+                                Style::default()
+                                    .fg(right_pill_color)
+                                    .bg(active_theme.bg_panel),
                             ));
                         } else {
                             spans.push(Span::styled(" ", Style::default().bg(right_pill_color)));
@@ -421,14 +490,16 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
                     }
                     let name_cell = Cell::from(Line::from(spans));
                     let mut cells = vec![name_cell];
-                    let right_size_style = right_apply_sel(Style::default().fg(ui::list_temperature::size_color_for(
-                        entry_cache.size_bytes,
-                        right_size_min_max,
-                    )));
-                    let right_date_style = right_apply_sel(Style::default().fg(ui::list_temperature::date_color_for(
-                        entry_cache.modified_unix,
-                        right_date_rank_by_ts,
-                    )));
+                    let right_size_style =
+                        right_apply_sel(Style::default().fg(ui::list_temperature::size_color_for(
+                            entry_cache.size_bytes,
+                            right_size_min_max,
+                        )));
+                    let right_date_style =
+                        right_apply_sel(Style::default().fg(ui::list_temperature::date_color_for(
+                            entry_cache.modified_unix,
+                            right_date_rank_by_ts,
+                        )));
                     push_metric_cells(
                         &mut cells,
                         entry_cache,
@@ -459,10 +530,14 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
                 right_date_width,
             );
             let right_table = Table::new(right_rows, right_constraints)
-                .highlight_style(Style::default())
+                .row_highlight_style(Style::default())
                 .highlight_symbol("");
             app.right.table_state.select(Some(app.right.selected_index));
-            f.render_stateful_widget(right_table, right_table_render_area, &mut app.right.table_state);
+            f.render_stateful_widget(
+                right_table,
+                right_table_render_area,
+                &mut app.right.table_state,
+            );
 
             if let Some(sel) = app.right.table_state.selected() {
                 let offset = app.right.table_state.offset();
@@ -527,9 +602,14 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
         }
         .or_else(|| app.panel_status_message(active_side).map(|s| s.to_string()));
 
-        let use_preview_frame = (app.is_dual_panel_mode() && active_side == crate::DualPanelSide::Right)
+        let use_preview_frame = (app.is_dual_panel_mode()
+            && active_side == crate::DualPanelSide::Right)
             || (app.is_preview_mode() && app.preview_focus_is_preview());
-        let active_frame_area = if use_preview_frame { preview_frame_area } else { Some(list_frame_area) };
+        let active_frame_area = if use_preview_frame {
+            preview_frame_area
+        } else {
+            Some(list_frame_area)
+        };
 
         if let (Some(status_text), Some(frame_area)) = (active_status, active_frame_area) {
             let lower_msg = status_text.to_ascii_lowercase();
@@ -564,6 +644,4 @@ pub(crate) fn render_scrollbar_and_preview(f: &mut Frame, app: &mut App, ctx: &R
             }
         }
     }
-
 }
-

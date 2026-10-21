@@ -1,17 +1,13 @@
-use std::{
-    collections::HashSet,
-    env, fs,
-    path::PathBuf,
-};
+use std::{collections::HashSet, env, fs, path::PathBuf};
 
 use regex::{Regex, RegexBuilder};
 
-use crate::{
-    App, AppMode, InternalSearchCandidatesMsg, InternalSearchContentLimits, InternalSearchContentMsg,
-    InternalSearchPattern, InternalSearchResult, InternalSearchScope, PathFilterMode,
-    PathInputFilter,
-};
 use crate::util::background::{pump_once, spawn_worker};
+use crate::{
+    App, AppMode, InternalSearchCandidatesMsg, InternalSearchContentLimits,
+    InternalSearchContentMsg, InternalSearchPattern, InternalSearchResult, InternalSearchScope,
+    PathFilterMode, PathInputFilter,
+};
 
 impl App {
     pub(crate) fn build_path_filter_regex(filter: &PathInputFilter) -> Result<Regex, String> {
@@ -54,14 +50,15 @@ impl App {
                 if path.is_dir() {
                     stack.push(path);
                 } else if path.is_file()
-                    && let Ok(rel) = path.strip_prefix(root) {
-                        // The entry's own type (no follow) is already known from
-                        // readdir; remember symlinks so rendering needn't stat.
-                        if entry.file_type().map(|t| t.is_symlink()).unwrap_or(false) {
-                            symlinks.insert(rel.to_path_buf());
-                        }
-                        out.push(rel.to_path_buf());
+                    && let Ok(rel) = path.strip_prefix(root)
+                {
+                    // The entry's own type (no follow) is already known from
+                    // readdir; remember symlinks so rendering needn't stat.
+                    if entry.file_type().map(|t| t.is_symlink()).unwrap_or(false) {
+                        symlinks.insert(rel.to_path_buf());
                     }
+                    out.push(rel.to_path_buf());
+                }
 
                 if out.len() >= max_items {
                     break;
@@ -77,7 +74,10 @@ impl App {
         (out, symlinks)
     }
 
-    pub(crate) fn fuzzy_score_and_ranges(candidate: &str, query: &str) -> Option<(i64, Vec<(usize, usize)>)> {
+    pub(crate) fn fuzzy_score_and_ranges(
+        candidate: &str,
+        query: &str,
+    ) -> Option<(i64, Vec<(usize, usize)>)> {
         if query.is_empty() {
             return Some((0, Vec::new()));
         }
@@ -100,9 +100,10 @@ impl App {
                     score += 8;
                 }
                 if let Some(prev) = last_match
-                    && c_idx == prev + 1 {
-                        score += 12;
-                    }
+                    && c_idx == prev + 1
+                {
+                    score += 12;
+                }
                 last_match = Some(c_idx);
                 matched_char_indices.push(c_idx);
                 q_idx += 1;
@@ -135,10 +136,11 @@ impl App {
         let mut merged: Vec<(usize, usize)> = Vec::with_capacity(ranges.len());
         for (start, end) in ranges {
             if let Some((_, last_end)) = merged.last_mut()
-                && start <= *last_end {
-                    *last_end = (*last_end).max(end);
-                    continue;
-                }
+                && start <= *last_end
+            {
+                *last_end = (*last_end).max(end);
+                continue;
+            }
             merged.push((start, end));
         }
         merged
@@ -521,9 +523,8 @@ impl App {
                     if self.search.results.is_empty() {
                         self.search.selected = 0;
                     } else {
-                        self.search.selected = self
-                            .search.selected
-                            .min(self.search.results.len() - 1);
+                        self.search.selected =
+                            self.search.selected.min(self.search.results.len() - 1);
                     }
                 }
             }
@@ -580,9 +581,7 @@ impl App {
         if self.search.results.is_empty() {
             self.search.selected = 0;
         } else {
-            self.search.selected = self
-                .search.selected
-                .min(self.search.results.len() - 1);
+            self.search.selected = self.search.selected.min(self.search.results.len() - 1);
         }
     }
 

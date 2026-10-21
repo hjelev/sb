@@ -25,11 +25,9 @@ pub fn scrollbar_thumb(
         .min(track_h);
     let max_scroll = total_rows.saturating_sub(visible_rows);
     let scroll_space = track_h.saturating_sub(thumb_h);
-    let thumb_y = if max_scroll == 0 {
-        0
-    } else {
-        (offset.min(max_scroll) * scroll_space + max_scroll / 2) / max_scroll
-    };
+    let thumb_y = (offset.min(max_scroll) * scroll_space + max_scroll / 2)
+        .checked_div(max_scroll)
+        .unwrap_or(0);
     (thumb_y, thumb_h)
 }
 

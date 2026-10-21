@@ -1,17 +1,19 @@
-use crate::{App, DualPanelSide, EntryRenderConfig, PreviewPaneFocus, ViewMode};
+use crate::ui;
 use crate::util::background::{pump_once, spawn_worker};
+use crate::{App, DualPanelSide, EntryRenderConfig, PreviewPaneFocus, ViewMode};
+use crate::{
+    FilenameColorMode, PreviewBuildOptions, PreviewContentMsg, PreviewIconSpan, PreviewLineKind,
+};
+use crossterm::cursor::MoveTo;
+use crossterm::event::{self, Event, KeyCode};
+use crossterm::execute;
+use crossterm::terminal::{Clear as TermClear, ClearType, disable_raw_mode, enable_raw_mode};
+use ratatui::prelude::*;
 use std::fs;
 use std::io::{self, Read};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
-use crossterm::cursor::MoveTo;
-use crossterm::event::{self, Event, KeyCode};
-use crossterm::execute;
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType};
-use ratatui::prelude::*;
-use crate::ui;
-use crate::{FilenameColorMode, PreviewBuildOptions, PreviewContentMsg, PreviewIconSpan, PreviewLineKind};
 
 impl App {
     pub(crate) fn cycle_view_mode(&mut self) {
@@ -119,11 +121,13 @@ impl App {
         } else {
             let mut direct_entries: Vec<_> = std::fs::read_dir(&self.right.dir)?
                 .filter_map(|res| res.ok())
-                .filter(|e| {
-                    self.right.show_hidden || !crate::util::classify::is_hidden_entry(e)
-                })
+                .filter(|e| self.right.show_hidden || !crate::util::classify::is_hidden_entry(e))
                 .collect();
-            Self::sort_entries_by_mode(&mut direct_entries, self.right.sort_mode, folder_size_cache);
+            Self::sort_entries_by_mode(
+                &mut direct_entries,
+                self.right.sort_mode,
+                folder_size_cache,
+            );
             self.right.tree_row_prefixes = vec![String::new(); direct_entries.len()];
             direct_entries
         };
@@ -177,7 +181,9 @@ impl App {
             self.right.table_state.select(None);
         } else {
             self.right.selected_index = self.right.selected_index.min(self.right.entries.len() - 1);
-            self.right.table_state.select(Some(self.right.selected_index));
+            self.right
+                .table_state
+                .select(Some(self.right.selected_index));
         }
         self.request_notes_for_right_panel_once();
         Ok(())
@@ -215,7 +221,12 @@ impl App {
         if !self.is_preview_mode() {
             return;
         }
-        let Some(path) = self.left.entries.get(self.left.selected_index).map(|e| e.path()) else {
+        let Some(path) = self
+            .left
+            .entries
+            .get(self.left.selected_index)
+            .map(|e| e.path())
+        else {
             self.preview.lines = vec!["No selection".to_string()];
             self.preview.line_kinds = vec![crate::PreviewLineKind::Plain];
             self.preview.footer = None;
@@ -242,15 +253,16 @@ impl App {
         // on the pane size (timg / in-process scaling), not just the path.
         if !Self::is_image_file(&path)
             && !Self::is_video_file(&path)
-            && let Some(cached) = self.preview.cache.get(&path).cloned() {
-                self.preview.target_path = Some(path);
-                self.preview.lines = cached.0;
-                self.preview.line_kinds = cached.1;
-                self.preview.footer = cached.2;
-                self.preview.pending = false;
-                self.preview.scroll_offset = 0;
-                return;
-            }
+            && let Some(cached) = self.preview.cache.get(&path).cloned()
+        {
+            self.preview.target_path = Some(path);
+            self.preview.lines = cached.0;
+            self.preview.line_kinds = cached.1;
+            self.preview.footer = cached.2;
+            self.preview.pending = false;
+            self.preview.scroll_offset = 0;
+            return;
+        }
 
         self.preview.request_id = self.preview.request_id.saturating_add(1);
         let request_id = self.preview.request_id;
@@ -333,8 +345,10 @@ impl App {
                         && !Self::is_image_file(&path)
                         && !Self::is_video_file(&path)
                     {
-                        self.preview.cache
-                            .insert(path.clone(), (lines.clone(), line_kinds.clone(), footer.clone()));
+                        self.preview.cache.insert(
+                            path.clone(),
+                            (lines.clone(), line_kinds.clone(), footer.clone()),
+                        );
                     }
                     self.preview.lines = lines;
                     self.preview.line_kinds = line_kinds;
@@ -359,8 +373,8 @@ impl App {
                     self.preview.lines = vec![message];
                     self.preview.line_kinds = vec![PreviewLineKind::Plain];
                     self.preview.footer = None;
-                self.preview.image_rgb = None;
-                self.preview.image_png = None;
+                    self.preview.image_rgb = None;
+                    self.preview.image_png = None;
                     self.preview.pending = false;
                     self.preview.scroll_offset = 0;
                 }
@@ -578,7 +592,10 @@ impl App {
         // app_video.rs): return placeholder text only; the run loop starts
         // timg playback once this message lands and the selection settles.
         if use_timg
-            && matches!(protocol, crate::integration::probe::TerminalImageProtocol::Kitty)
+            && matches!(
+                protocol,
+                crate::integration::probe::TerminalImageProtocol::Kitty
+            )
             && App::is_video_file(&path)
         {
             let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
@@ -600,19 +617,20 @@ impl App {
         // kitty/iterm2/sixel pane renderer.
         if use_timg
             && (App::is_video_file(&path) || (!native_pane && App::is_image_file(&path)))
-            && let Some(lines) = App::render_preview_with_timg(&path, pane_cols, pane_rows) {
-                let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-                let footer = Some(format!("Size: {}", App::format_size(size)));
-                let line_kinds = vec![PreviewLineKind::Plain; lines.len()];
-                return PreviewContentMsg::Ready {
-                    request_id,
-                    path,
-                    lines,
-                    line_kinds,
-                    footer,
-                    image_rgb: None,
-                };
-            }
+            && let Some(lines) = App::render_preview_with_timg(&path, pane_cols, pane_rows)
+        {
+            let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            let footer = Some(format!("Size: {}", App::format_size(size)));
+            let line_kinds = vec![PreviewLineKind::Plain; lines.len()];
+            return PreviewContentMsg::Ready {
+                request_id,
+                path,
+                lines,
+                line_kinds,
+                footer,
+                image_rgb: None,
+            };
+        }
 
         if App::is_svg_file(&path) && use_resvg {
             let image_rgb = App::decode_svg_to_rgb_scaled(&path);
@@ -640,19 +658,20 @@ impl App {
             // GraphicsMagick backend can still render them as block art.
             if image_rgb.is_none()
                 && use_timg
-                && let Some(lines) = App::render_preview_with_timg(&path, pane_cols, pane_rows) {
-                    let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-                    let footer = Some(format!("Size: {}", App::format_size(size)));
-                    let line_kinds = vec![PreviewLineKind::Plain; lines.len()];
-                    return PreviewContentMsg::Ready {
-                        request_id,
-                        path,
-                        lines,
-                        line_kinds,
-                        footer,
-                        image_rgb: None,
-                    };
-                }
+                && let Some(lines) = App::render_preview_with_timg(&path, pane_cols, pane_rows)
+            {
+                let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                let footer = Some(format!("Size: {}", App::format_size(size)));
+                let line_kinds = vec![PreviewLineKind::Plain; lines.len()];
+                return PreviewContentMsg::Ready {
+                    request_id,
+                    path,
+                    lines,
+                    line_kinds,
+                    footer,
+                    image_rgb: None,
+                };
+            }
             let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             let footer = Some(format!("Size: {}", App::format_size(size)));
             let lines = if image_rgb.is_none() {
@@ -679,7 +698,10 @@ impl App {
         if use_pdftotext
             && App::is_pdf_file(&path)
             && let Some(lines) = App::capture_preview_tool(
-                Command::new("pdftotext").args(["-l", "8", "-layout"]).arg(&path).arg("-"),
+                Command::new("pdftotext")
+                    .args(["-l", "8", "-layout"])
+                    .arg(&path)
+                    .arg("-"),
                 400,
             )
         {
@@ -699,10 +721,8 @@ impl App {
         }
         if use_xleak
             && App::is_excel_file(&path)
-            && let Some(lines) = App::capture_preview_tool(
-                Command::new("xleak").arg(&path).args(["-n", "100"]),
-                400,
-            )
+            && let Some(lines) =
+                App::capture_preview_tool(Command::new("xleak").arg(&path).args(["-n", "100"]), 400)
         {
             return Self::tool_preview_ready(request_id, path, lines, "xleak");
         }
@@ -723,7 +743,9 @@ impl App {
             && let Some(lines) = App::capture_preview_tool(
                 // Explicit --color skips mmdflux's OSC 11 tty query, whose
                 // reply sb's own event loop would swallow, hanging mmdflux.
-                Command::new("mmdflux").args(["-f", "text", "--color", "always"]).arg(&path),
+                Command::new("mmdflux")
+                    .args(["-f", "text", "--color", "always"])
+                    .arg(&path),
                 400,
             )
         {
@@ -731,10 +753,8 @@ impl App {
         }
         if use_links
             && App::is_html_file(&path)
-            && let Some(lines) = App::capture_preview_tool(
-                Command::new("links").arg("-dump").arg(&path),
-                400,
-            )
+            && let Some(lines) =
+                App::capture_preview_tool(Command::new("links").arg("-dump").arg(&path), 400)
         {
             return Self::tool_preview_ready(request_id, path, lines, "links");
         }
@@ -754,18 +774,17 @@ impl App {
         }
         if let Some(kind) = App::archive_kind(&path) {
             let listed = match kind {
-                crate::ArchiveKind::Zip if use_zip_list => App::capture_preview_tool(
-                    Command::new("unzip").arg("-l").arg(&path),
-                    220,
-                ),
-                crate::ArchiveKind::Tar if use_tar_list => App::capture_preview_tool(
-                    Command::new("tar").arg("-tvf").arg(&path),
-                    220,
-                ),
-                crate::ArchiveKind::SevenZip if use_7z_list => Self::seven_zip_tool()
-                    .and_then(|tool| {
+                crate::ArchiveKind::Zip if use_zip_list => {
+                    App::capture_preview_tool(Command::new("unzip").arg("-l").arg(&path), 220)
+                }
+                crate::ArchiveKind::Tar if use_tar_list => {
+                    App::capture_preview_tool(Command::new("tar").arg("-tvf").arg(&path), 220)
+                }
+                crate::ArchiveKind::SevenZip if use_7z_list => {
+                    Self::seven_zip_tool().and_then(|tool| {
                         App::capture_preview_tool(Command::new(tool).arg("l").arg(&path), 220)
-                    }),
+                    })
+                }
                 crate::ArchiveKind::Rar if use_rar_list => Self::rar_tool().and_then(|tool| {
                     App::capture_preview_tool(Command::new(tool).arg("l").arg(&path), 220)
                 }),
@@ -780,16 +799,17 @@ impl App {
 
         if App::is_binary_file(&path) {
             lines.push("[binary file]".to_string());
-            if use_file
-                && let Ok(out) = Command::new("file").arg("-b").arg(&path).output() {
-                    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                    if !text.is_empty() {
-                        lines.push(text);
-                    }
+            if use_file && let Ok(out) = Command::new("file").arg("-b").arg(&path).output() {
+                let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if !text.is_empty() {
+                    lines.push(text);
                 }
+            }
             if use_hexyl
                 && let Some(hex) = App::capture_preview_tool(
-                    Command::new("hexyl").args(["-n", "1024", "--color=always"]).arg(&path),
+                    Command::new("hexyl")
+                        .args(["-n", "1024", "--color=always"])
+                        .arg(&path),
                     80,
                 )
             {
@@ -820,13 +840,20 @@ impl App {
 
         if use_bat
             && let Ok(out) = Command::new("bat")
-                .args(["--paging=never", "--style=numbers", "--color=always", "--line-range", "1:220"])
+                .args([
+                    "--paging=never",
+                    "--style=numbers",
+                    "--color=always",
+                    "--line-range",
+                    "1:220",
+                ])
                 .arg(&path)
                 .output()
-                && out.status.success() {
-                    let text = String::from_utf8_lossy(&out.stdout).into_owned();
-                    lines.extend(text.lines().take(220).map(|s| s.to_string()));
-                }
+            && out.status.success()
+        {
+            let text = String::from_utf8_lossy(&out.stdout).into_owned();
+            lines.extend(text.lines().take(220).map(|s| s.to_string()));
+        }
 
         // Fall back to reading the file directly when bat is unavailable or
         // produced no content, prepending our own line-number gutter.
@@ -873,7 +900,11 @@ impl App {
             return None;
         }
         let text = String::from_utf8_lossy(&out.stdout);
-        let lines: Vec<String> = text.lines().take(max_lines).map(|s| s.to_string()).collect();
+        let lines: Vec<String> = text
+            .lines()
+            .take(max_lines)
+            .map(|s| s.to_string())
+            .collect();
         if lines.iter().all(|l| l.trim().is_empty()) {
             return None;
         }
@@ -936,11 +967,12 @@ impl App {
                 }
                 if event::poll(Duration::from_millis(120))?
                     && let Event::Key(k) = event::read()?
-                        && matches!(k.code, KeyCode::Char('q') | KeyCode::Esc | KeyCode::Left) {
-                            let _ = proc.kill();
-                            let _ = proc.wait();
-                            break;
-                        }
+                    && matches!(k.code, KeyCode::Char('q') | KeyCode::Esc | KeyCode::Left)
+                {
+                    let _ = proc.kill();
+                    let _ = proc.wait();
+                    break;
+                }
             }
             disable_raw_mode()?;
             Ok(true)
@@ -998,11 +1030,12 @@ IFS= read -rsn1 _
             }
             if event::poll(Duration::from_millis(120))?
                 && let Event::Key(k) = event::read()?
-                    && matches!(k.code, KeyCode::Char('q') | KeyCode::Esc) {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        break;
-                    }
+                && matches!(k.code, KeyCode::Char('q') | KeyCode::Esc)
+            {
+                let _ = child.kill();
+                let _ = child.wait();
+                break;
+            }
         }
         disable_raw_mode()?;
         Ok(true)

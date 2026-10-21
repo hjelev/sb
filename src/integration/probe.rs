@@ -24,7 +24,9 @@ impl TerminalImageProtocol {
 
 pub fn terminal_image_protocol() -> (TerminalImageProtocol, String) {
     let term = env::var("TERM").unwrap_or_default().to_ascii_lowercase();
-    let term_program = env::var("TERM_PROGRAM").unwrap_or_default().to_ascii_lowercase();
+    let term_program = env::var("TERM_PROGRAM")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
 
     if env::var_os("KITTY_WINDOW_ID").is_some()
         || env::var_os("KONSOLE_VERSION").is_some()
@@ -33,7 +35,10 @@ pub fn terminal_image_protocol() -> (TerminalImageProtocol, String) {
         || term.contains("konsole")
         || term_program.contains("warp")
     {
-        return (TerminalImageProtocol::Kitty, "env-detected kitty protocol".to_string());
+        return (
+            TerminalImageProtocol::Kitty,
+            "env-detected kitty protocol".to_string(),
+        );
     }
 
     if term_program.contains("iterm") || term_program.contains("wezterm") {
@@ -44,7 +49,10 @@ pub fn terminal_image_protocol() -> (TerminalImageProtocol, String) {
     }
 
     if env::var_os("WT_SESSION").is_some() || term.contains("foot") {
-        return (TerminalImageProtocol::Sixel, "env-detected sixel protocol".to_string());
+        return (
+            TerminalImageProtocol::Sixel,
+            "env-detected sixel protocol".to_string(),
+        );
     }
 
     (
@@ -55,12 +63,13 @@ pub fn terminal_image_protocol() -> (TerminalImageProtocol, String) {
 
 pub fn integration_probe(cmd: &str) -> (bool, String) {
     if let Ok(out) = Command::new("which").arg(cmd).output()
-        && out.status.success() {
-            let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !path.is_empty() {
-                return (true, path);
-            }
+        && out.status.success()
+    {
+        let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !path.is_empty() {
+            return (true, path);
         }
+    }
 
     // Fallback for environments where `which` is unavailable or shell setup differs.
     match Command::new(cmd)
@@ -193,5 +202,3 @@ pub fn integration_support_and_detail(key: &str) -> (bool, bool, String) {
         }
     }
 }
-
-

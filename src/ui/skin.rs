@@ -25,17 +25,38 @@ use std::path::PathBuf;
 
 use ratatui::style::Color;
 
-use crate::ui::theme::{IconThemeMode, ThemeId, ThemeSpec, THEMES};
+use crate::ui::theme::{IconThemeMode, THEMES, ThemeId, ThemeSpec};
 
 /// Skins shipped with the binary and seeded to `~/.config/sb/skins/` on first run.
 const BUNDLED_SKINS: &[(&str, &str)] = &[
-    ("midnight-commander.ini", include_str!("../../assets/skins/midnight-commander.ini")),
-    ("catppuccin.ini",         include_str!("../../assets/skins/catppuccin.ini")),
-    ("tokyo-night.ini",        include_str!("../../assets/skins/tokyo-night.ini")),
-    ("synthwave.ini",          include_str!("../../assets/skins/synthwave.ini")),
-    ("coral-reef.ini",         include_str!("../../assets/skins/coral-reef.ini")),
-    ("cyberpunk-neon.ini",     include_str!("../../assets/skins/cyberpunk-neon.ini")),
-    ("bubblegum-pop.ini",      include_str!("../../assets/skins/bubblegum-pop.ini")),
+    (
+        "midnight-commander.ini",
+        include_str!("../../assets/skins/midnight-commander.ini"),
+    ),
+    (
+        "catppuccin.ini",
+        include_str!("../../assets/skins/catppuccin.ini"),
+    ),
+    (
+        "tokyo-night.ini",
+        include_str!("../../assets/skins/tokyo-night.ini"),
+    ),
+    (
+        "synthwave.ini",
+        include_str!("../../assets/skins/synthwave.ini"),
+    ),
+    (
+        "coral-reef.ini",
+        include_str!("../../assets/skins/coral-reef.ini"),
+    ),
+    (
+        "cyberpunk-neon.ini",
+        include_str!("../../assets/skins/cyberpunk-neon.ini"),
+    ),
+    (
+        "bubblegum-pop.ini",
+        include_str!("../../assets/skins/bubblegum-pop.ini"),
+    ),
 ];
 
 /// Returns the skins directory: `~/.config/sb/skins`.
@@ -59,19 +80,21 @@ fn parse_color(token: &str) -> Option<Color> {
     // #rrggbb hex
     if let Some(hex) = lower.strip_prefix('#') {
         if hex.len() == 6
-            && let Ok(rgb) = u32::from_str_radix(hex, 16) {
-                let r = ((rgb >> 16) & 0xff) as u8;
-                let g = ((rgb >> 8) & 0xff) as u8;
-                let b = (rgb & 0xff) as u8;
-                return Some(Color::Rgb(r, g, b));
-            }
+            && let Ok(rgb) = u32::from_str_radix(hex, 16)
+        {
+            let r = ((rgb >> 16) & 0xff) as u8;
+            let g = ((rgb >> 8) & 0xff) as u8;
+            let b = (rgb & 0xff) as u8;
+            return Some(Color::Rgb(r, g, b));
+        }
         return None;
     }
     // colorN (0..=255) — MC also accepts `colorNN`
     if let Some(n) = lower.strip_prefix("color")
-        && let Ok(idx) = n.parse::<u8>() {
-            return Some(Color::Indexed(idx));
-        }
+        && let Ok(idx) = n.parse::<u8>()
+    {
+        return Some(Color::Indexed(idx));
+    }
     // Bare numeric index
     if let Ok(idx) = lower.parse::<u8>() {
         return Some(Color::Indexed(idx));
@@ -275,7 +298,7 @@ pub(crate) fn load_custom_themes() -> Vec<ThemeSpec> {
             .to_string();
         themes.push(parse_skin(&text, &stem));
     }
-    themes.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
+    themes.sort_by_cached_key(|t| t.name.to_ascii_lowercase());
     themes
 }
 

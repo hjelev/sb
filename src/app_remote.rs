@@ -9,13 +9,12 @@ use std::{
 
 use ratatui::style::Color;
 
-use crate::{App, AppMode, PathFilterMode, RemoteEntry, SshHost, SshMount};
 use crate::ui;
 use crate::util::command::CommandBuilder;
 use crate::util::tui::{self, ResumeMode};
+use crate::{App, AppMode, PathFilterMode, RemoteEntry, SshHost, SshMount};
 
 impl App {
-
     pub(crate) fn parse_ssh_config() -> Vec<SshHost> {
         let config_path = match env::var("HOME") {
             Ok(h) => PathBuf::from(h).join(".ssh/config"),
@@ -34,20 +33,36 @@ impl App {
             }
             let sep = trimmed.find(|c: char| c.is_ascii_whitespace() || c == '=');
             let (raw_key, raw_val) = match sep {
-                Some(pos) => (&trimmed[..pos], trimmed[pos + 1..].trim_start_matches(|c: char| c == '=' || c.is_ascii_whitespace())),
+                Some(pos) => (
+                    &trimmed[..pos],
+                    trimmed[pos + 1..]
+                        .trim_start_matches(|c: char| c == '=' || c.is_ascii_whitespace()),
+                ),
                 None => (trimmed, ""),
             };
             let key = raw_key.to_lowercase();
             let val = raw_val.to_string();
             if key == "host" || key == "match" {
                 if let Some(h) = current.take()
-                    && !h.alias.contains('*') && !h.alias.contains('?') {
-                        hosts.push(h);
-                    }
+                    && !h.alias.contains('*')
+                    && !h.alias.contains('?')
+                {
+                    hosts.push(h);
+                }
                 if key == "host"
-                    && let Some(alias) = val.split_whitespace().find(|s| !s.contains('*') && !s.contains('?')).map(|s| s.to_string()) {
-                        current = Some(SshHost { hostname: alias.clone(), alias, user: None, port: None, identity_file: None });
-                    }
+                    && let Some(alias) = val
+                        .split_whitespace()
+                        .find(|s| !s.contains('*') && !s.contains('?'))
+                        .map(|s| s.to_string())
+                {
+                    current = Some(SshHost {
+                        hostname: alias.clone(),
+                        alias,
+                        user: None,
+                        port: None,
+                        identity_file: None,
+                    });
+                }
             } else if let Some(ref mut h) = current {
                 match key.as_str() {
                     "hostname" => h.hostname = val,
@@ -59,14 +74,19 @@ impl App {
             }
         }
         if let Some(h) = current
-            && !h.alias.contains('*') && !h.alias.contains('?') {
-                hosts.push(h);
-            }
+            && !h.alias.contains('*')
+            && !h.alias.contains('?')
+        {
+            hosts.push(h);
+        }
         hosts
     }
 
     pub(crate) fn parse_rclone_remotes() -> Vec<RemoteEntry> {
-        let out = match Command::new("rclone").args(["listremotes", "--long"]).output() {
+        let out = match Command::new("rclone")
+            .args(["listremotes", "--long"])
+            .output()
+        {
             Ok(o) if o.status.success() => o,
             _ => return Vec::new(),
         };
@@ -77,7 +97,9 @@ impl App {
                 let mut parts = line.splitn(2, ':');
                 let name = parts.next()?.trim().to_string();
                 let rtype = parts.next().unwrap_or("").trim().to_string();
-                if name.is_empty() { return None; }
+                if name.is_empty() {
+                    return None;
+                }
                 Some(RemoteEntry::Rclone { name, rtype })
             })
             .collect()
@@ -85,7 +107,7 @@ impl App {
 
     pub(crate) fn parse_local_mount_dirs() -> Vec<RemoteEntry> {
         let user = env::var("USER").unwrap_or_default();
-        let uid = users::get_current_uid();
+        let uid = uzers::get_current_uid();
         let candidates: Vec<(&str, PathBuf)> = vec![
             ("media", PathBuf::from(format!("/media/{}", user))),
             ("run-media", PathBuf::from(format!("/run/media/{}", user))),
@@ -152,16 +174,23 @@ impl App {
         if has_rclone {
             entries.extend(App::parse_rclone_remotes());
         }
-        entries.extend(self.archive_mounts.iter().map(|m| RemoteEntry::ArchiveMount {
-            archive_name: m.archive_name.clone(),
-            mount_path: m.mount_path.clone(),
-        }));
+        entries.extend(
+            self.archive_mounts
+                .iter()
+                .map(|m| RemoteEntry::ArchiveMount {
+                    archive_name: m.archive_name.clone(),
+                    mount_path: m.mount_path.clone(),
+                }),
+        );
         entries.extend(App::parse_local_mount_dirs());
         self.remote.entries = entries;
         if self.remote.entries.is_empty() {
             self.remote.picker_selection = 0;
         } else {
-            self.remote.picker_selection = self.remote.picker_selection.min(self.remote.entries.len() - 1);
+            self.remote.picker_selection = self
+                .remote
+                .picker_selection
+                .min(self.remote.entries.len() - 1);
         }
     }
 
@@ -202,7 +231,10 @@ impl App {
     }
 
     pub(crate) fn current_dir_display_path_with_filter(&self) -> String {
-        Self::path_with_filter_suffix(self.current_dir_display_path(), self.path_filter_suffix_text())
+        Self::path_with_filter_suffix(
+            self.current_dir_display_path(),
+            self.path_filter_suffix_text(),
+        )
     }
 
     pub(crate) fn current_path_edit_value(&self) -> String {
@@ -213,7 +245,12 @@ impl App {
     pub(crate) fn mount_rclone_remote(&mut self, name: &str, rtype: &str) -> io::Result<()> {
         let return_dir = self.active_panel_dir();
         // If already mounted, just navigate there
-        if let Some(existing) = self.remote.ssh_mounts.iter_mut().find(|m| m.host_alias == name) {
+        if let Some(existing) = self
+            .remote
+            .ssh_mounts
+            .iter_mut()
+            .find(|m| m.host_alias == name)
+        {
             existing.return_dir = return_dir.clone();
             let mount_path = existing.mount_path.clone();
             self.mode = AppMode::Browsing;
@@ -228,8 +265,14 @@ impl App {
         fs::create_dir_all(&mount_dir)?;
         let remote_spec = format!("{}:", name);
         let status = Command::new("rclone")
-            .args(["mount", &remote_spec, mount_dir.to_str().unwrap_or(""),
-                   "--daemon", "--vfs-cache-mode", "writes"])
+            .args([
+                "mount",
+                &remote_spec,
+                mount_dir.to_str().unwrap_or(""),
+                "--daemon",
+                "--vfs-cache-mode",
+                "writes",
+            ])
             .status()?;
         if status.success() {
             Self::wait_for_mount_ready(&mount_dir);
@@ -265,7 +308,10 @@ impl App {
         }
     }
 
-    pub(crate) fn detect_ssh_remote_os_icon(host: &SshHost, theme_id: ui::theme::ThemeId) -> Option<(&'static str, Color)> {
+    pub(crate) fn detect_ssh_remote_os_icon(
+        host: &SshHost,
+        theme_id: ui::theme::ThemeId,
+    ) -> Option<(&'static str, Color)> {
         let target = match &host.user {
             Some(u) => format!("{}@{}", u, host.hostname),
             None => host.hostname.clone(),
@@ -280,7 +326,10 @@ impl App {
         if let Some(idf) = &host.identity_file {
             cmd.args(["-i", &Self::expand_identity_file(idf)]);
         }
-        let output = cmd.args([&target, "cat", "/etc/os-release"]).output().ok()?;
+        let output = cmd
+            .args([&target, "cat", "/etc/os-release"])
+            .output()
+            .ok()?;
         if !output.status.success() {
             return None;
         }
@@ -292,7 +341,12 @@ impl App {
     pub(crate) fn mount_ssh_host(&mut self, host: &SshHost) -> io::Result<()> {
         let return_dir = self.active_panel_dir();
         // If already mounted, just navigate there
-        if let Some(existing) = self.remote.ssh_mounts.iter_mut().find(|m| m.host_alias == host.alias) {
+        if let Some(existing) = self
+            .remote
+            .ssh_mounts
+            .iter_mut()
+            .find(|m| m.host_alias == host.alias)
+        {
             existing.return_dir = return_dir.clone();
             if existing.remote_os_icon.is_none() {
                 existing.remote_os_icon = Self::detect_ssh_remote_os_icon(host, self.active_theme);
@@ -302,7 +356,8 @@ impl App {
             self.try_enter_dir_on_active_panel(mount_path);
             return Ok(());
         }
-        let mount_dir = crate::util::config::runtime_dir().join(format!("mnt_sshfs_{}", host.alias));
+        let mount_dir =
+            crate::util::config::runtime_dir().join(format!("mnt_sshfs_{}", host.alias));
         // Remove stale dir if it exists but isn't mounted
         if mount_dir.exists() {
             let _ = fs::remove_dir(&mount_dir);
@@ -317,7 +372,10 @@ impl App {
             cmd.args(["-p", &port.to_string()]);
         }
         if let Some(idf) = &host.identity_file {
-            cmd.args(["-o", &format!("IdentityFile={}", Self::expand_identity_file(idf))]);
+            cmd.args([
+                "-o",
+                &format!("IdentityFile={}", Self::expand_identity_file(idf)),
+            ]);
         }
         cmd.arg(&remote_spec).arg(&mount_dir);
         let status = cmd.status()?;
@@ -349,9 +407,11 @@ impl App {
 
     pub(crate) fn try_leave_ssh_mount(&mut self) -> bool {
         // Check if we are at the mount root (not just a subdir) — only intercept at the boundary
-        let mount_idx = self.remote.ssh_mounts.iter().rposition(|m| {
-            self.left.dir == m.mount_path
-        });
+        let mount_idx = self
+            .remote
+            .ssh_mounts
+            .iter()
+            .rposition(|m| self.left.dir == m.mount_path);
         let Some(idx) = mount_idx else { return false };
         self.remember_current_selection();
         let return_dir = self.remote.ssh_mounts[idx].return_dir.clone();
@@ -378,7 +438,12 @@ impl App {
     }
 
     pub(crate) fn unmount_ssh_mount_by_alias(&mut self, alias: &str) -> bool {
-        let Some(idx) = self.remote.ssh_mounts.iter().rposition(|m| m.host_alias == alias) else {
+        let Some(idx) = self
+            .remote
+            .ssh_mounts
+            .iter()
+            .rposition(|m| m.host_alias == alias)
+        else {
             return false;
         };
 
@@ -416,7 +481,10 @@ impl App {
                 }
             }
             Err(e) => {
-                self.set_status(format!("failed to start ssh session for {}: {}", host.alias, e));
+                self.set_status(format!(
+                    "failed to start ssh session for {}: {}",
+                    host.alias, e
+                ));
             }
         }
 

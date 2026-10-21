@@ -147,9 +147,7 @@ impl TimgStreamFilter {
             }
         };
         let params = &body[..semi];
-        let is_png_transmit = params
-            .split(|&b| b == b',')
-            .any(|kv| kv == b"a=T")
+        let is_png_transmit = params.split(|&b| b == b',').any(|kv| kv == b"a=T")
             && params.split(|&b| b == b',').any(|kv| kv == b"f=100");
         if !is_png_transmit {
             out.extend_from_slice(b"\x1b_G");
@@ -168,12 +166,15 @@ impl TimgStreamFilter {
         }
         use base64::Engine as _;
         let head = base64::engine::general_purpose::STANDARD.decode(&payload[..32]);
-        let dims = head.ok().filter(|h| h.starts_with(b"\x89PNG\r\n\x1a\n")).map(|h| {
-            (
-                u32::from_be_bytes([h[16], h[17], h[18], h[19]]),
-                u32::from_be_bytes([h[20], h[21], h[22], h[23]]),
-            )
-        });
+        let dims = head
+            .ok()
+            .filter(|h| h.starts_with(b"\x89PNG\r\n\x1a\n"))
+            .map(|h| {
+                (
+                    u32::from_be_bytes([h[16], h[17], h[18], h[19]]),
+                    u32::from_be_bytes([h[20], h[21], h[22], h[23]]),
+                )
+            });
         // Every frame is positioned absolutely: timg's own repositioning
         // (LF + cursor-up, relying on terminal-specific cursor-after-image
         // behavior) is dropped by the main loop and cannot be trusted.
@@ -278,8 +279,16 @@ impl App {
 
         let (cols, rows, xpixel, ypixel) = match crossterm::terminal::window_size() {
             Ok(ws) if ws.columns > 0 && ws.rows > 0 => {
-                let xp = if ws.width > 0 { ws.width } else { ws.columns.saturating_mul(8) };
-                let yp = if ws.height > 0 { ws.height } else { ws.rows.saturating_mul(16) };
+                let xp = if ws.width > 0 {
+                    ws.width
+                } else {
+                    ws.columns.saturating_mul(8)
+                };
+                let yp = if ws.height > 0 {
+                    ws.height
+                } else {
+                    ws.rows.saturating_mul(16)
+                };
                 (ws.columns, ws.rows, xp, yp)
             }
             _ => (80, 24, 640, 384),
@@ -383,17 +392,20 @@ impl App {
     }
 
     pub(crate) fn pane_video_is_playing(&mut self) -> bool {
-        self.pane_video.as_mut().map(|s| s.is_playing()).unwrap_or(false)
+        self.pane_video
+            .as_mut()
+            .map(|s| s.is_playing())
+            .unwrap_or(false)
     }
 
     /// Any user input while a video is playing stops the playback (leaving the
     /// current frame visible) before the key/mouse event is handled normally.
     pub(crate) fn pause_pane_video_for_input(&mut self) {
-        if let Some(session) = &mut self.pane_video {
-            if session.is_playing() {
-                session.stop_playback();
-                self.needs_redraw = true;
-            }
+        if let Some(session) = &mut self.pane_video
+            && session.is_playing()
+        {
+            session.stop_playback();
+            self.needs_redraw = true;
         }
     }
 
@@ -513,7 +525,10 @@ mod tests {
     fn test_timg_filter_adds_cell_rect_to_png_transmit() {
         let mut f = filter();
         // 870x489 px at 10x21 px cells -> 87 cols, ceil(489/21) = 24 rows.
-        let input = format!("\x1b_Ga=T,i=7,q=2,f=100,m=1;{}\x1b\\", png_head_b64(870, 489));
+        let input = format!(
+            "\x1b_Ga=T,i=7,q=2,f=100,m=1;{}\x1b\\",
+            png_head_b64(870, 489)
+        );
         let out = f.process(input.as_bytes());
         let expected = format!(
             "\x1b[3;46H\x1b_Ga=T,i=7,q=2,f=100,m=1,c=87,r=24;{}\x1b\\",
@@ -529,7 +544,10 @@ mod tests {
         // A frame reported far larger than the pane still maps to <= 87x32.
         let input = format!("\x1b_Ga=T,q=2,f=100,m=1;{}", png_head_b64(2000, 2000));
         let out = f.process(input.as_bytes());
-        let expected = format!("\x1b[3;46H\x1b_Ga=T,q=2,f=100,m=1,c=87,r=32;{}", png_head_b64(2000, 2000));
+        let expected = format!(
+            "\x1b[3;46H\x1b_Ga=T,q=2,f=100,m=1,c=87,r=32;{}",
+            png_head_b64(2000, 2000)
+        );
         assert_eq!(out, expected.as_bytes());
     }
 

@@ -1,22 +1,22 @@
 use std::{
     collections::hash_map::DefaultHasher,
-    env, fs,
+    fs,
     hash::{Hash, Hasher},
     io::{self, Cursor, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use crossterm::{
     cursor::MoveTo,
     event::{self, Event, KeyCode},
     execute,
     style::{Color as CtColor, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
-    terminal::{disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType},
+    terminal::{Clear as TermClear, ClearType, disable_raw_mode, enable_raw_mode},
 };
-use image::{imageops::FilterType, GenericImageView, ImageFormat, ImageReader};
+use image::{GenericImageView, ImageFormat, ImageReader, imageops::FilterType};
 use ratatui::{
     layout::Rect,
     style::{Color, Style},
@@ -24,7 +24,7 @@ use ratatui::{
 };
 
 use crate::util::tui::{self, ResumeMode};
-use crate::{integration::probe::TerminalImageProtocol, App};
+use crate::{App, integration::probe::TerminalImageProtocol};
 
 /// Kitty Graphics Protocol image IDs for the app's two independent, concurrently
 /// visible native-protocol overlays. Distinct IDs let each be cleared with
@@ -83,7 +83,8 @@ impl App {
     }
 
     fn slideshow_images(&self) -> Vec<PathBuf> {
-        self.left.entries
+        self.left
+            .entries
             .iter()
             .map(|e| e.path())
             .filter(|path| self.supports_image_slideshow_path(path))
@@ -106,7 +107,8 @@ impl App {
         let mut hasher = DefaultHasher::new();
         path.hash(&mut hasher);
         let hash = hasher.finish();
-        let output_path = env::temp_dir().join(format!("sbrs_svg_{hash:016x}.png"));
+        let output_path =
+            crate::util::tmp::session_cache_dir()?.join(format!("svg_{hash:016x}.png"));
         let _ = fs::remove_file(&output_path);
 
         let status = Command::new("resvg")
@@ -143,11 +145,15 @@ impl App {
 
         let (fit_w, fit_h) = if img_ratio >= avail_ratio {
             let w = area.width;
-            let h = (((w as f32 / img_ratio) / 2.0).floor() as u16).max(1).min(area.height);
+            let h = (((w as f32 / img_ratio) / 2.0).floor() as u16)
+                .max(1)
+                .min(area.height);
             (w, h)
         } else {
             let h = area.height;
-            let w = (((h as f32 * 2.0) * img_ratio).floor() as u16).max(1).min(area.width);
+            let w = (((h as f32 * 2.0) * img_ratio).floor() as u16)
+                .max(1)
+                .min(area.width);
             (w, h)
         };
 
@@ -244,10 +250,12 @@ impl App {
                 io::stdout().flush().map_err(|e| e.to_string())?;
 
                 let key = loop {
-                    if event::poll(std::time::Duration::from_millis(120)).map_err(|e| e.to_string())?
-                        && let Event::Key(k) = event::read().map_err(|e| e.to_string())? {
-                            break k;
-                        }
+                    if event::poll(std::time::Duration::from_millis(120))
+                        .map_err(|e| e.to_string())?
+                        && let Event::Key(k) = event::read().map_err(|e| e.to_string())?
+                    {
+                        break k;
+                    }
                 };
 
                 match key.code {
@@ -309,12 +317,28 @@ impl App {
 
                 let cell_x = col - x_offset;
                 let fg = if top_in {
-                    avg_pixel(rgb_data, img_w, img_h, render_w, render_h, cell_x, py_top - y_offset)
+                    avg_pixel(
+                        rgb_data,
+                        img_w,
+                        img_h,
+                        render_w,
+                        render_h,
+                        cell_x,
+                        py_top - y_offset,
+                    )
                 } else {
                     Color::Black
                 };
                 let bg = if bot_in {
-                    avg_pixel(rgb_data, img_w, img_h, render_w, render_h, cell_x, py_bot - y_offset)
+                    avg_pixel(
+                        rgb_data,
+                        img_w,
+                        img_h,
+                        render_w,
+                        render_h,
+                        cell_x,
+                        py_bot - y_offset,
+                    )
                 } else {
                     Color::Black
                 };
@@ -359,9 +383,11 @@ impl App {
         let (new_w, new_h) = if w <= max_w && h <= max_h {
             (w, h)
         } else {
-            let scale = (max_w as f32 / w.max(1) as f32)
-                .min(max_h as f32 / h.max(1) as f32);
-            (((w as f32 * scale) as u32).max(1), ((h as f32 * scale) as u32).max(1))
+            let scale = (max_w as f32 / w.max(1) as f32).min(max_h as f32 / h.max(1) as f32);
+            (
+                ((w as f32 * scale) as u32).max(1),
+                ((h as f32 * scale) as u32).max(1),
+            )
         };
 
         let resized = if new_w == w && new_h == h {
@@ -434,12 +460,28 @@ impl App {
                 let cell_x = col - x_offset;
 
                 let fg = if top_in {
-                    avg_pixel(rgb_data, img_w, img_h, render_w, render_h, cell_x, py_top - y_offset)
+                    avg_pixel(
+                        rgb_data,
+                        img_w,
+                        img_h,
+                        render_w,
+                        render_h,
+                        cell_x,
+                        py_top - y_offset,
+                    )
                 } else {
                     Color::Black
                 };
                 let bg = if bot_in {
-                    avg_pixel(rgb_data, img_w, img_h, render_w, render_h, cell_x, py_bot - y_offset)
+                    avg_pixel(
+                        rgb_data,
+                        img_w,
+                        img_h,
+                        render_w,
+                        render_h,
+                        cell_x,
+                        py_bot - y_offset,
+                    )
                 } else {
                     Color::Black
                 };
@@ -512,12 +554,21 @@ impl App {
                 write!(
                     out,
                     "\x1b_Ga=T,f=100,i={},s={},v={},c={},r={},m={},q=2;{}\x1b\\",
-                    image_id, img_w, img_h, pane.width, pane.height, more,
+                    image_id,
+                    img_w,
+                    img_h,
+                    pane.width,
+                    pane.height,
+                    more,
                     std::str::from_utf8(chunk).unwrap_or("")
                 )?;
             } else {
-                write!(out, "\x1b_Gm={};{}\x1b\\", more,
-                    std::str::from_utf8(chunk).unwrap_or(""))?;
+                write!(
+                    out,
+                    "\x1b_Gm={};{}\x1b\\",
+                    more,
+                    std::str::from_utf8(chunk).unwrap_or("")
+                )?;
             }
             offset = end;
         }
@@ -537,14 +588,17 @@ impl App {
         write!(
             out,
             "\x1b]1337;File=inline=1;preserveAspectRatio=1;width={};height={};doNotMoveCursor=1:{}\x07",
-            pane.width,
-            pane.height,
-            payload
+            pane.width, pane.height, payload
         )?;
         out.flush()
     }
 
-    pub(crate) fn emit_sixel_pane(rgb_data: &[u8], img_w: u32, img_h: u32, pane: Rect) -> io::Result<()> {
+    pub(crate) fn emit_sixel_pane(
+        rgb_data: &[u8],
+        img_w: u32,
+        img_h: u32,
+        pane: Rect,
+    ) -> io::Result<()> {
         use crossterm::cursor::MoveTo;
         use crossterm::execute;
         use crossterm::terminal::window_size;
@@ -578,8 +632,9 @@ impl App {
             .resize(max_w, max_h, FilterType::Lanczos3)
             .to_rgb8();
 
-        let mut rgba: Vec<u8> = Vec::with_capacity((resized.width() as usize) * (resized.height() as usize) * 4);
-        for px in resized.as_raw().chunks_exact(3) {
+        let mut rgba: Vec<u8> =
+            Vec::with_capacity((resized.width() as usize) * (resized.height() as usize) * 4);
+        for px in resized.as_raw().as_chunks::<3>().0 {
             rgba.push(px[0]);
             rgba.push(px[1]);
             rgba.push(px[2]);
@@ -675,10 +730,12 @@ impl App {
                 io::stdout().flush().map_err(|e| e.to_string())?;
 
                 let key = loop {
-                    if event::poll(std::time::Duration::from_millis(120)).map_err(|e| e.to_string())?
-                        && let Event::Key(k) = event::read().map_err(|e| e.to_string())? {
-                            break k;
-                        }
+                    if event::poll(std::time::Duration::from_millis(120))
+                        .map_err(|e| e.to_string())?
+                        && let Event::Key(k) = event::read().map_err(|e| e.to_string())?
+                    {
+                        break k;
+                    }
                 };
 
                 match key.code {
@@ -729,7 +786,8 @@ impl App {
         }
         let (sw, sh) = img.dimensions();
         let mut buf = Cursor::new(Vec::new());
-        img.write_to(&mut buf, ImageFormat::Png).map_err(|e| e.to_string())?;
+        img.write_to(&mut buf, ImageFormat::Png)
+            .map_err(|e| e.to_string())?;
         Ok((buf.into_inner(), sw, sh))
     }
 
@@ -763,11 +821,23 @@ impl App {
             let chunk = &bytes[offset..end];
             let more = if end < bytes.len() { 1 } else { 0 };
             if offset == 0 {
-                write!(out, "\x1b_Ga=T,f=100,s={},v={},m={},q=2;{}\x1b\\", w, h, more,
-                    std::str::from_utf8(chunk).unwrap_or("")).map_err(|e| e.to_string())?;
+                write!(
+                    out,
+                    "\x1b_Ga=T,f=100,s={},v={},m={},q=2;{}\x1b\\",
+                    w,
+                    h,
+                    more,
+                    std::str::from_utf8(chunk).unwrap_or("")
+                )
+                .map_err(|e| e.to_string())?;
             } else {
-                write!(out, "\x1b_Gm={};{}\x1b\\", more,
-                    std::str::from_utf8(chunk).unwrap_or("")).map_err(|e| e.to_string())?;
+                write!(
+                    out,
+                    "\x1b_Gm={};{}\x1b\\",
+                    more,
+                    std::str::from_utf8(chunk).unwrap_or("")
+                )
+                .map_err(|e| e.to_string())?;
             }
             offset = end;
         }
@@ -791,7 +861,7 @@ impl App {
         let (rgb, w, h) = Self::decode_to_rgb_bytes(path, max_edge)?;
 
         let mut rgba: Vec<u8> = Vec::with_capacity((w as usize) * (h as usize) * 4);
-        for chunk in rgb.chunks_exact(3) {
+        for chunk in rgb.as_chunks::<3>().0 {
             rgba.push(chunk[0]);
             rgba.push(chunk[1]);
             rgba.push(chunk[2]);
@@ -805,7 +875,8 @@ impl App {
             .map_err(|e| format!("sixel encode error: {}", e))?;
 
         let mut out = io::stdout();
-        out.write_all(sixel_out.as_bytes()).map_err(|e| e.to_string())?;
+        out.write_all(sixel_out.as_bytes())
+            .map_err(|e| e.to_string())?;
         out.flush().map_err(|e| e.to_string())
     }
 
@@ -835,7 +906,8 @@ impl App {
         tool_tag: &str,
         viewer_invocation: &str,
     ) -> io::Result<()> {
-        let images: Vec<PathBuf> = self.left
+        let images: Vec<PathBuf> = self
+            .left
             .entries
             .iter()
             .map(|e| e.path())
@@ -848,16 +920,7 @@ impl App {
 
         let mut idx = images.iter().position(|p| *p == start_path).unwrap_or(0);
 
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let result_file = env::temp_dir().join(format!(
-            "sbrs_{}_sel_{}_{}",
-            tool_tag,
-            std::process::id(),
-            stamp
-        ));
+        let result_file = crate::util::tmp::private_file(&format!("sbrs_{tool_tag}_sel_"), "")?;
 
         let _tui = tui::suspend(ResumeMode::Plain)?;
 

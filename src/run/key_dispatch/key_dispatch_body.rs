@@ -75,17 +75,13 @@ pub(crate) fn handle_app_key_event_body(
             KeyCode::Right => {
                 app.switch_sqlite_preview_table(1);
             }
-            KeyCode::Home => {
-                if !app.db_preview.tables.is_empty() {
-                    app.db_preview.selected = 0;
-                    app.refresh_sqlite_preview_rows();
-                }
+            KeyCode::Home if !app.db_preview.tables.is_empty() => {
+                app.db_preview.selected = 0;
+                app.refresh_sqlite_preview_rows();
             }
-            KeyCode::End => {
-                if !app.db_preview.tables.is_empty() {
-                    app.db_preview.selected = app.db_preview.tables.len() - 1;
-                    app.refresh_sqlite_preview_rows();
-                }
+            KeyCode::End if !app.db_preview.tables.is_empty() => {
+                app.db_preview.selected = app.db_preview.tables.len() - 1;
+                app.refresh_sqlite_preview_rows();
             }
             _ => {}
         },
@@ -210,7 +206,10 @@ pub(crate) fn handle_app_key_event_body(
                 app.refresh_active_panel_entries_or_status();
                 app.sync_inactive_panel_if_same_dir();
             }
-            KeyCode::Esc => { app.clear_input_edit(); app.mode = AppMode::Browsing; }
+            KeyCode::Esc => {
+                app.clear_input_edit();
+                app.mode = AppMode::Browsing;
+            }
             _ => {
                 handle_text_input_key(app, key);
             }
@@ -222,7 +221,8 @@ pub(crate) fn handle_app_key_event_body(
                     app.set_status("name cannot be empty");
                 } else if let Some(src) = app.transfer.paste_current_src.clone() {
                     let target_dir = app
-                        .transfer.paste_target_dir
+                        .transfer
+                        .paste_target_dir
                         .as_ref()
                         .cloned()
                         .unwrap_or_else(|| app.left.dir.clone());
@@ -346,7 +346,7 @@ pub(crate) fn handle_app_key_event_body(
                 terminal.clear()?;
             }
             _ => {}
-        }
+        },
         AppMode::Integrations => {
             // While the search bar is focused, printable keys edit the filter.
             if app.integration.search_active {
@@ -395,10 +395,17 @@ pub(crate) fn handle_app_key_event_body(
                     cursor_up(&mut app.integration.selected);
                 }
                 KeyCode::Down => {
-                    cursor_down(&mut app.integration.selected, app.integration.rows_cache.len());
+                    cursor_down(
+                        &mut app.integration.selected,
+                        app.integration.rows_cache.len(),
+                    );
                 }
                 KeyCode::Char(' ') => {
-                    let row = app.integration.rows_cache.get(app.integration.selected).cloned();
+                    let row = app
+                        .integration
+                        .rows_cache
+                        .get(app.integration.selected)
+                        .cloned();
                     if let Some(row) = row {
                         if row.key == "__all_optional__" {
                             let all_on = app.all_optional_integrations_enabled();
@@ -407,7 +414,10 @@ pub(crate) fn handle_app_key_event_body(
                             let (available, partially_supported, _) =
                                 App::integration_support_and_detail(&row.key);
                             if !available && !partially_supported {
-                                app.set_status(format!("{} is missing and cannot be toggled", row.key));
+                                app.set_status(format!(
+                                    "{} is missing and cannot be toggled",
+                                    row.key
+                                ));
                                 app.refresh_integration_rows_cache();
                                 return Ok(KeyDispatchOutcome::ContinueLoop);
                             }
@@ -498,35 +508,33 @@ pub(crate) fn handle_app_key_event_body(
                 _ => {}
             }
         }
-        AppMode::SortMenu => {
-            match key.code {
-                KeyCode::BackTab => {
-                    app.panel_tab = 3;
-                    app.refresh_remote_entries();
-                    app.mode = AppMode::SshPicker;
-                }
-                KeyCode::Tab => {
-                    app.panel_tab = 5;
-                    app.integration.selected = 0;
-                    app.reset_integration_search();
-                    app.refresh_integration_rows_cache();
-                    app.mode = AppMode::Integrations;
-                }
-                KeyCode::Esc | KeyCode::Char('q') | KeyCode::Left => {
-                    app.mode = AppMode::Browsing;
-                }
-                KeyCode::Up => {
-                    cursor_up(&mut app.sort_menu_selected);
-                }
-                KeyCode::Down => {
-                    cursor_down(&mut app.sort_menu_selected, App::sort_mode_options().len());
-                }
-                KeyCode::Enter | KeyCode::Right => {
-                    app.commit_sort_menu_choice();
-                }
-                _ => {}
+        AppMode::SortMenu => match key.code {
+            KeyCode::BackTab => {
+                app.panel_tab = 3;
+                app.refresh_remote_entries();
+                app.mode = AppMode::SshPicker;
             }
-        }
+            KeyCode::Tab => {
+                app.panel_tab = 5;
+                app.integration.selected = 0;
+                app.reset_integration_search();
+                app.refresh_integration_rows_cache();
+                app.mode = AppMode::Integrations;
+            }
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Left => {
+                app.mode = AppMode::Browsing;
+            }
+            KeyCode::Up => {
+                cursor_up(&mut app.sort_menu_selected);
+            }
+            KeyCode::Down => {
+                cursor_down(&mut app.sort_menu_selected, App::sort_mode_options().len());
+            }
+            KeyCode::Enter | KeyCode::Right => {
+                app.commit_sort_menu_choice();
+            }
+            _ => {}
+        },
         AppMode::Settings => match key.code {
             KeyCode::Esc => {
                 app.maybe_check_api_key();
@@ -618,10 +626,14 @@ pub(crate) fn handle_app_key_event_body(
                         cursor_up(&mut app.shortcuts_panel.selected);
                     }
                     KeyCode::Down => {
-                        cursor_down(&mut app.shortcuts_panel.selected, crate::util::keymap::ACTIONS.len());
+                        cursor_down(
+                            &mut app.shortcuts_panel.selected,
+                            crate::util::keymap::ACTIONS.len(),
+                        );
                     }
                     KeyCode::PageUp => {
-                        app.shortcuts_panel.selected = app.shortcuts_panel.selected.saturating_sub(10);
+                        app.shortcuts_panel.selected =
+                            app.shortcuts_panel.selected.saturating_sub(10);
                     }
                     KeyCode::PageDown => {
                         let max = crate::util::keymap::ACTIONS.len().saturating_sub(1);
@@ -631,7 +643,8 @@ pub(crate) fn handle_app_key_event_body(
                         app.shortcuts_panel.selected = 0;
                     }
                     KeyCode::End => {
-                        app.shortcuts_panel.selected = crate::util::keymap::ACTIONS.len().saturating_sub(1);
+                        app.shortcuts_panel.selected =
+                            crate::util::keymap::ACTIONS.len().saturating_sub(1);
                     }
                     KeyCode::Enter | KeyCode::Char(' ') => {
                         app.shortcuts_panel.capture = true;
@@ -704,7 +717,9 @@ pub(crate) fn handle_app_key_event_body(
         }
         AppMode::SshPicker => return handle_ssh_picker_key(terminal, app, key),
         AppMode::Bookmarks => match key.code {
-            KeyCode::Esc | KeyCode::Char('b') | KeyCode::Char('q') => { app.mode = AppMode::Browsing; }
+            KeyCode::Esc | KeyCode::Char('b') | KeyCode::Char('q') => {
+                app.mode = AppMode::Browsing;
+            }
             KeyCode::BackTab => {
                 app.panel_tab = 1;
                 app.start_internal_search();
@@ -743,7 +758,12 @@ pub(crate) fn handle_app_key_event_body(
             }
             KeyCode::Char('d') => {
                 let idx = app.bookmarks.selected;
-                if app.bookmarks().get(idx).map(|(_, p)| p.is_some()).unwrap_or(false) {
+                if app
+                    .bookmarks()
+                    .get(idx)
+                    .map(|(_, p)| p.is_some())
+                    .unwrap_or(false)
+                {
                     app.bookmarks.delete_idx = idx;
                     app.confirm_delete.bookmark_button_focus = 0;
                     app.mode = AppMode::ConfirmDeleteBookmark;
@@ -767,7 +787,10 @@ pub(crate) fn handle_app_key_event_body(
                 app.clear_input_edit();
                 app.mode = AppMode::Bookmarks;
             }
-            KeyCode::Esc => { app.clear_input_edit(); app.mode = AppMode::Bookmarks; }
+            KeyCode::Esc => {
+                app.clear_input_edit();
+                app.mode = AppMode::Bookmarks;
+            }
             _ => {
                 handle_text_input_key(app, key);
             }
@@ -810,4 +833,3 @@ pub(crate) fn handle_app_key_event_body(
 
     Ok(KeyDispatchOutcome::Ok)
 }
-

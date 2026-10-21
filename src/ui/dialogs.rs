@@ -1,10 +1,10 @@
+use crate::OrganizeMove;
+use crate::ui::theme::ThemeSpec;
 use ratatui::{
     prelude::*,
     widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap},
 };
 use std::path::{Path, PathBuf};
-use crate::ui::theme::ThemeSpec;
-use crate::OrganizeMove;
 
 /// Build the spans for a single dialog button.
 ///
@@ -69,7 +69,8 @@ pub fn confirm_integration_install_msg_lines(
     ];
 
     if brew_missing {
-        msg_lines.push("Homebrew is not installed; setup guidance will be shown first.".to_string());
+        msg_lines
+            .push("Homebrew is not installed; setup guidance will be shown first.".to_string());
         msg_lines.push(String::new());
     }
 
@@ -177,7 +178,10 @@ pub fn render_confirm_integration_install_dialog(
             } else {
                 Line::from(vec![
                     Span::raw(" "),
-                    Span::styled(content.to_string(), Style::default().fg(theme.accent_primary)),
+                    Span::styled(
+                        content.to_string(),
+                        Style::default().fg(theme.accent_primary),
+                    ),
                 ])
             }
         })
@@ -296,7 +300,13 @@ pub fn confirm_delete_button_layout(area: Rect) -> Option<(Rect, u16, u16, u16, 
     let start_x = button_area.x + (button_area.width - total_w) / 2;
     let confirm_start = start_x + prefix_w;
     let cancel_start = confirm_start + confirm_w + gap_w;
-    Some((button_area, confirm_start, confirm_w, cancel_start, cancel_w))
+    Some((
+        button_area,
+        confirm_start,
+        confirm_w,
+        cancel_start,
+        cancel_w,
+    ))
 }
 
 pub fn render_confirm_delete_buttons(
@@ -315,7 +325,7 @@ pub fn render_confirm_delete_buttons(
         theme.error,
         theme.text_dim,
         nerd_font_active,
-            theme,
+        theme,
     ));
     button_spans.push(Span::styled("    ", Style::default()));
     button_spans.extend(dialog_button_spans(
@@ -324,7 +334,7 @@ pub fn render_confirm_delete_buttons(
         theme.accent_primary,
         theme.text_dim,
         nerd_font_active,
-            theme,
+        theme,
     ));
     f.render_widget(
         Paragraph::new(Line::from(button_spans)).alignment(Alignment::Center),
@@ -447,7 +457,13 @@ where
             list_inner.height,
         );
         crate::ui::scrollbar::render_scrollbar_track(
-            f, sb_area, to_delete.len(), visible_rows, offset, theme.divider, theme.border,
+            f,
+            sb_area,
+            to_delete.len(),
+            visible_rows,
+            offset,
+            theme.divider,
+            theme.border,
         );
     }
 
@@ -468,7 +484,11 @@ pub struct ConfirmDeleteBookmarkView<'a> {
     pub theme: &'a ThemeSpec,
 }
 
-pub fn render_confirm_delete_bookmark_dialog(f: &mut Frame, area: Rect, view: &ConfirmDeleteBookmarkView) {
+pub fn render_confirm_delete_bookmark_dialog(
+    f: &mut Frame,
+    area: Rect,
+    view: &ConfirmDeleteBookmarkView,
+) {
     let &ConfirmDeleteBookmarkView {
         bookmark_idx,
         bookmark_path,
@@ -515,7 +535,9 @@ pub fn render_confirm_delete_bookmark_dialog(f: &mut Frame, area: Rect, view: &C
     lines.push(Line::from(""));
 
     let content_h = lines.len() as u16;
-    let dialog_w = (bookmark_path.len() as u16 + 20).max(54).min(area.width.saturating_sub(4));
+    let dialog_w = (bookmark_path.len() as u16 + 20)
+        .max(54)
+        .min(area.width.saturating_sub(4));
     let dialog_h = (content_h + 4).max(8).min(area.height.saturating_sub(4));
     let confirm_area = Rect::new(
         (area.width.saturating_sub(dialog_w)) / 2,
@@ -545,7 +567,10 @@ pub fn render_confirm_delete_bookmark_dialog(f: &mut Frame, area: Rect, view: &C
         .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(inner);
 
-    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), sections[0]);
+    f.render_widget(
+        Paragraph::new(lines).wrap(Wrap { trim: false }),
+        sections[0],
+    );
 
     if let Some((button_area, _, _, _, _)) = confirm_ok_cancel_button_layout(confirm_area) {
         let delete_focused = button_focus == 0;
@@ -590,7 +615,11 @@ pub struct OrganizePlanView<'a> {
 /// scrollable list (new folders as headers, moved entries indented beneath)
 /// followed by Confirm/Cancel buttons. Mirrors
 /// [`render_confirm_delete_dialog`]'s layout and scrolling.
-pub fn render_organize_plan_dialog(f: &mut Frame, area: Rect, view: &OrganizePlanView) -> ConfirmDeleteRenderState {
+pub fn render_organize_plan_dialog(
+    f: &mut Frame,
+    area: Rect,
+    view: &OrganizePlanView,
+) -> ConfirmDeleteRenderState {
     let &OrganizePlanView {
         title,
         folders,
@@ -645,9 +674,15 @@ pub fn render_organize_plan_dialog(f: &mut Frame, area: Rect, view: &OrganizePla
             .add_modifier(Modifier::BOLD);
         let name_style = Style::default().fg(theme.text_normal);
         for folder in folders {
-            rows.push(Line::from(Span::styled(format!("📁 {}/", folder), folder_style)));
+            rows.push(Line::from(Span::styled(
+                format!("📁 {}/", folder),
+                folder_style,
+            )));
             for mv in moves.iter().filter(|m| &m.folder == folder) {
-                rows.push(Line::from(Span::styled(format!("   {}", mv.name), name_style)));
+                rows.push(Line::from(Span::styled(
+                    format!("   {}", mv.name),
+                    name_style,
+                )));
             }
         }
         let orphaned: Vec<&OrganizeMove> = moves
@@ -657,7 +692,10 @@ pub fn render_organize_plan_dialog(f: &mut Frame, area: Rect, view: &OrganizePla
         if !orphaned.is_empty() {
             rows.push(Line::from(Span::styled("📁 (other)/", folder_style)));
             for mv in orphaned {
-                rows.push(Line::from(Span::styled(format!("   {}", mv.name), name_style)));
+                rows.push(Line::from(Span::styled(
+                    format!("   {}", mv.name),
+                    name_style,
+                )));
             }
         }
     }
@@ -681,7 +719,13 @@ pub fn render_organize_plan_dialog(f: &mut Frame, area: Rect, view: &OrganizePla
             list_inner.height,
         );
         crate::ui::scrollbar::render_scrollbar_track(
-            f, sb_area, total_rows, visible_rows, offset, theme.divider, theme.border,
+            f,
+            sb_area,
+            total_rows,
+            visible_rows,
+            offset,
+            theme.divider,
+            theme.border,
         );
     }
 

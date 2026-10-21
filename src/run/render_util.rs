@@ -16,7 +16,13 @@ pub(crate) fn darken_color(color: Color, factor: f32) -> Color {
 /// Build one span of the disk progress bar. The "used" portion gets the
 /// threshold fill color as background with a dark foreground for contrast; the
 /// "free" portion uses the dim panel background with normal-text foreground.
-pub(crate) fn bar_span(text: String, in_used: bool, used_bg: Option<Color>, free_bg: Color, free_fg: Color) -> Span<'static> {
+pub(crate) fn bar_span(
+    text: String,
+    in_used: bool,
+    used_bg: Option<Color>,
+    free_bg: Color,
+    free_fg: Color,
+) -> Span<'static> {
     match (in_used, used_bg) {
         (true, Some(bg)) => Span::styled(text, Style::default().bg(bg).fg(Color::Black)),
         _ => Span::styled(text, Style::default().bg(free_bg).fg(free_fg)),
@@ -81,7 +87,10 @@ pub(crate) fn build_panel_title(
             Style::default().fg(Color::Rgb(255, 220, 120)),
         ));
     } else {
-        title_spans.push(Span::styled(display_text.clone(), Style::default().fg(style.theme.text_normal)));
+        title_spans.push(Span::styled(
+            display_text.clone(),
+            Style::default().fg(style.theme.text_normal),
+        ));
     }
     let used_width = prefix_width + UnicodeWidthStr::width(display_text.as_str());
     if used_width < title_inner_width {
@@ -89,4 +98,3 @@ pub(crate) fn build_panel_title(
     }
     Line::from(title_spans)
 }
-

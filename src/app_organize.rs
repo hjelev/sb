@@ -224,7 +224,10 @@ impl App {
         self.organize.scroll_offset = 0;
         self.organize.max_offset = 0;
         self.organize.button_focus = 0;
-        self.set_status(format!("generating organize plan via {}...", provider.label));
+        self.set_status(format!(
+            "generating organize plan via {}...",
+            provider.label
+        ));
         self.organize.rx = Some(spawn_worker(move |tx| {
             let result = generate_organize_plan(
                 &endpoint,

@@ -102,11 +102,13 @@ pub(crate) fn handle_browsing_key(
                 app.preview_scroll_down(8);
             } else if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
                 if !app.right.entries.is_empty() {
-                    app.right.selected_index = (app.right.selected_index + app.page_size).min(app.right.entries.len() - 1);
+                    app.right.selected_index =
+                        (app.right.selected_index + app.page_size).min(app.right.entries.len() - 1);
                     app.right.table_state.select(Some(app.right.selected_index));
                 }
             } else if !app.left.entries.is_empty() {
-                app.left.selected_index = (app.left.selected_index + app.page_size).min(app.left.entries.len() - 1);
+                app.left.selected_index =
+                    (app.left.selected_index + app.page_size).min(app.left.entries.len() - 1);
                 app.left.table_state.select(Some(app.left.selected_index));
             }
         }
@@ -137,10 +139,11 @@ pub(crate) fn handle_browsing_key(
         KeyCode::Left | KeyCode::Backspace => {
             if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
                 if !app.try_leave_archive()
-                    && let Some(parent) = app.right.dir.parent() {
-                        app.right.dir = parent.to_path_buf();
-                        let _ = app.refresh_right_panel_entries();
-                    }
+                    && let Some(parent) = app.right.dir.parent()
+                {
+                    app.right.dir = parent.to_path_buf();
+                    let _ = app.refresh_right_panel_entries();
+                }
                 return Ok(KeyDispatchOutcome::ContinueLoop);
             }
             if !app.try_leave_archive() && !app.try_leave_ssh_mount() {
@@ -281,7 +284,9 @@ fn dispatch_action(
                 if !app.left.marked_indices.is_empty() {
                     // Copy all marked
                     for &idx in &app.left.marked_indices {
-                        if let Some(e) = app.left.entries.get(idx) { app.clipboard.push(e.path()); }
+                        if let Some(e) = app.left.entries.get(idx) {
+                            app.clipboard.push(e.path());
+                        }
                     }
                 } else if let Some(e) = app.left.entries.get(app.left.selected_index) {
                     // Copy single selected
@@ -373,21 +378,22 @@ fn dispatch_action(
         }
         Action::ViewFile => {
             if let Some(selected_path) = app.active_selected_entry_path()
-                && !selected_path.is_dir() {
-                    {
-                        let _tui = tui::suspend(ResumeMode::Plain)?;
-                        if App::is_binary_file(&selected_path) && app.integration_active("hexyl") {
-                            let mut hexyl = Command::new("hexyl");
-                            hexyl.arg(&selected_path);
-                            crate::util::command::pipe_to_pager_or_less(hexyl, &selected_path);
-                        } else {
-                            let _ = Command::new("less")
-                                .args(["-R", selected_path.to_str().unwrap_or_default()])
-                                .status();
-                        }
+                && !selected_path.is_dir()
+            {
+                {
+                    let _tui = tui::suspend(ResumeMode::Plain)?;
+                    if App::is_binary_file(&selected_path) && app.integration_active("hexyl") {
+                        let mut hexyl = Command::new("hexyl");
+                        hexyl.arg(&selected_path);
+                        crate::util::command::pipe_to_pager_or_less(hexyl, &selected_path);
+                    } else {
+                        let _ = Command::new("less")
+                            .args(["-R", selected_path.to_str().unwrap_or_default()])
+                            .status();
                     }
-                    terminal.clear()?;
                 }
+                terminal.clear()?;
+            }
         }
         Action::NewFile => {
             app.begin_input_edit(AppMode::NewFile, String::new());
@@ -431,7 +437,9 @@ fn dispatch_action(
             app.refresh_remote_entries();
             if app.remote.entries.is_empty() {
                 if !has_sshfs && !has_rclone {
-                    app.set_status("No media mounts or mounted archives found (sshfs/rclone not installed)");
+                    app.set_status(
+                        "No media mounts or mounted archives found (sshfs/rclone not installed)",
+                    );
                 } else {
                     app.set_status("No SSH/rclone/media mounts or mounted archives found");
                 }
@@ -454,7 +462,9 @@ fn dispatch_action(
                 if !app.integration_active("vidir") {
                     app.status_tool_not_found("vidir");
                 } else {
-                    let targets: Vec<PathBuf> = app.left.entries
+                    let targets: Vec<PathBuf> = app
+                        .left
+                        .entries
                         .iter()
                         .enumerate()
                         .filter(|(i, _)| app.left.marked_indices.contains(i))
@@ -477,7 +487,11 @@ fn dispatch_action(
                 }
             } else {
                 let target_idx = if app.left.marked_indices.len() == 1 {
-                    *app.left.marked_indices.iter().next().unwrap_or(&app.left.selected_index)
+                    *app.left
+                        .marked_indices
+                        .iter()
+                        .next()
+                        .unwrap_or(&app.left.selected_index)
                 } else {
                     app.left.selected_index
                 };
@@ -544,458 +558,463 @@ fn handle_organize_workflow(app: &mut App) -> io::Result<KeyDispatchOutcome> {
     Ok(KeyDispatchOutcome::Ok)
 }
 
-fn handle_git_log_key(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> io::Result<KeyDispatchOutcome> {
-            let work_dir = app.active_panel_dir();
-            if app.integration_active("git")
-                && App::get_git_info(&work_dir).is_some()
-            {
-                let fmt = "%C(bold blue)%h%C(reset) - %C(cyan)%ad%C(reset) | %C(yellow)%d%C(reset) %C(white)%s%C(reset) %C(green)[%an]%C(reset)";
-                let _tui = tui::suspend(ResumeMode::Cleared)?;
-                execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
-                let mut log_cmd = Command::new("git");
-                log_cmd
-                    .args([
-                        "log",
-                        "--graph",
-                        &format!("--pretty=format:{}", fmt),
-                        "--date=short",
-                        "--all",
-                        "--color=always",
-                    ])
-                    .current_dir(&work_dir)
-                    .stderr(Stdio::null());
-                // Pipe the colored log into the pager; if that's unavailable, fall
-                // back to streaming an uncolored log straight to the terminal.
-                if !crate::util::command::pipe_to_pager(log_cmd) {
-                    crate::util::command::CommandBuilder::git_interactive(
-                        &work_dir,
-                        &[
-                            "log",
-                            "--graph",
-                            &format!("--pretty=format:{}", fmt),
-                            "--date=short",
-                            "--all",
-                        ],
-                    );
-                }
-                drop(_tui);
-                terminal.clear()?;
-            } else {
-                app.set_status("not a git repository");
-            }
+fn handle_git_log_key(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    app: &mut App,
+) -> io::Result<KeyDispatchOutcome> {
+    let work_dir = app.active_panel_dir();
+    if app.integration_active("git") && App::get_git_info(&work_dir).is_some() {
+        let fmt = "%C(bold blue)%h%C(reset) - %C(cyan)%ad%C(reset) | %C(yellow)%d%C(reset) %C(white)%s%C(reset) %C(green)[%an]%C(reset)";
+        let _tui = tui::suspend(ResumeMode::Cleared)?;
+        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+        let mut log_cmd = Command::new("git");
+        log_cmd
+            .args([
+                "log",
+                "--graph",
+                &format!("--pretty=format:{}", fmt),
+                "--date=short",
+                "--all",
+                "--color=always",
+            ])
+            .current_dir(&work_dir)
+            .stderr(Stdio::null());
+        // Pipe the colored log into the pager; if that's unavailable, fall
+        // back to streaming an uncolored log straight to the terminal.
+        if !crate::util::command::pipe_to_pager(log_cmd) {
+            crate::util::command::CommandBuilder::git_interactive(
+                &work_dir,
+                &[
+                    "log",
+                    "--graph",
+                    &format!("--pretty=format:{}", fmt),
+                    "--date=short",
+                    "--all",
+                ],
+            );
+        }
+        drop(_tui);
+        terminal.clear()?;
+    } else {
+        app.set_status("not a git repository");
+    }
     Ok(KeyDispatchOutcome::Ok)
 }
 
-fn handle_vertical_move_key(app: &mut App, key: KeyEvent, deferred_key: &mut Option<KeyEvent>) -> io::Result<KeyDispatchOutcome> {
-            // With the folder-filter box open and focus on the list, pressing Up
-            // at the top row returns keyboard focus to the box.
-            if key.code == KeyCode::Up && app.folder_filter_visible {
-                let at_top = if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
-                    app.right.selected_index == 0
+fn handle_vertical_move_key(
+    app: &mut App,
+    key: KeyEvent,
+    deferred_key: &mut Option<KeyEvent>,
+) -> io::Result<KeyDispatchOutcome> {
+    // With the folder-filter box open and focus on the list, pressing Up
+    // at the top row returns keyboard focus to the box.
+    if key.code == KeyCode::Up && app.folder_filter_visible {
+        let at_top = if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
+            app.right.selected_index == 0
+        } else {
+            app.left.selected_index == 0
+        };
+        if at_top {
+            app.mode = AppMode::FolderFilter;
+            app.input_cursor = app.input_buffer.chars().count();
+            return Ok(KeyDispatchOutcome::ContinueLoop);
+        }
+    }
+    if app.preview_focus_is_preview() {
+        if key.code == KeyCode::Up {
+            app.preview_scroll_up(1);
+        } else {
+            app.preview_scroll_down(1);
+        }
+        return Ok(KeyDispatchOutcome::ContinueLoop);
+    }
+
+    if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
+        if app.right.entries.is_empty() {
+            return Ok(KeyDispatchOutcome::ContinueLoop);
+        }
+
+        let mut steps: usize = 1;
+        while steps < 32 && event::poll(Duration::from_millis(0))? {
+            match event::read()? {
+                Event::Key(next)
+                    if next.code == key.code
+                        && next.modifiers == key.modifiers
+                        && next.kind == key.kind =>
+                {
+                    steps += 1;
+                }
+                Event::Key(next) => {
+                    *deferred_key = Some(next);
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        let max_idx = app.right.entries.len().saturating_sub(1);
+        let next_idx = if key.code == KeyCode::Up {
+            app.right.selected_index.saturating_sub(steps)
+        } else {
+            (app.right.selected_index + steps).min(max_idx)
+        };
+        app.right.selected_index = next_idx;
+        app.right.table_state.select(Some(next_idx));
+        return Ok(KeyDispatchOutcome::ContinueLoop);
+    }
+
+    let mut steps: usize = 1;
+    while steps < 32 && event::poll(Duration::from_millis(0))? {
+        match event::read()? {
+            Event::Key(next)
+                if next.code == key.code
+                    && next.modifiers == key.modifiers
+                    && next.kind == key.kind =>
+            {
+                steps += 1;
+            }
+            Event::Key(next) => {
+                *deferred_key = Some(next);
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    let delta = if key.code == KeyCode::Up {
+        -(steps as isize)
+    } else {
+        steps as isize
+    };
+    app.move_selection_delta(delta);
+    Ok(KeyDispatchOutcome::Ok)
+}
+
+fn handle_enter_or_right(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    app: &mut App,
+    key: KeyEvent,
+) -> io::Result<KeyDispatchOutcome> {
+    // Right in the right panel only navigates into directories; Enter opens everything.
+    if key.code == KeyCode::Right
+        && app.is_dual_panel_mode()
+        && app.active_panel == DualPanelSide::Right
+    {
+        if let Some(selected_path) = app
+            .right
+            .entries
+            .get(app.right.selected_index)
+            .map(|e| e.path())
+            && selected_path.is_dir()
+        {
+            app.try_enter_dir_on_active_panel(selected_path);
+        }
+        return Ok(KeyDispatchOutcome::ContinueLoop);
+    }
+
+    let selected_path = if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
+        app.right
+            .entries
+            .get(app.right.selected_index)
+            .map(|e| e.path())
+    } else {
+        app.left
+            .entries
+            .get(app.left.selected_index)
+            .map(|e| e.path())
+    };
+
+    if let Some(selected_path) = selected_path {
+        if selected_path.is_dir() {
+            app.try_enter_dir_on_active_panel(selected_path);
+        } else if App::is_age_protected_file(&selected_path) {
+            if !app.integration_active("age") {
+                app.status_tool_not_found("age");
+            } else if app.preview_age_file(&selected_path)? {
+                terminal.clear()?;
+            }
+        } else if App::is_excel_file(&selected_path) && app.integration_active("xleak") {
+            {
+                let _tui = tui::suspend(ResumeMode::Plain)?;
+                let _ = Command::new("xleak").arg("-i").arg(&selected_path).status();
+            }
+            terminal.clear()?;
+        } else if App::is_docx_file(&selected_path) && app.integration_active("doxx") {
+            {
+                let _tui = tui::suspend(ResumeMode::Plain)?;
+                let _ = Command::new("doxx").arg(&selected_path).status();
+            }
+            terminal.clear()?;
+        } else if App::is_fuse_zip_archive(&selected_path) && app.integration_active("fuse-zip") {
+            let _ = app.try_mount_archive(selected_path);
+        } else if App::is_archivemount_archive(&selected_path)
+            && app.integration_active("archivemount")
+        {
+            let _ = app.try_mount_archive_with(selected_path, "archivemount");
+        } else if App::is_supported_archive(&selected_path) {
+            let _ = app.preview_archive_contents(&selected_path);
+            terminal.clear()?;
+        } else if App::is_image_file(&selected_path)
+            || (App::is_svg_file(&selected_path) && app.integration_active("resvg"))
+        {
+            let is_bitmap_image = App::is_image_file(&selected_path);
+            if is_bitmap_image && app.integration_active("timg") {
+                app.preview_images_with_timg(selected_path)?;
+                terminal.clear()?;
+            } else if app.preview_images_with_native(selected_path.clone())?
+                || app.preview_images_with_halfblock_fullscreen(selected_path.clone())?
+            {
+                terminal.clear()?;
+            } else if is_bitmap_image && app.integration_active("viu") {
+                app.preview_images_with_viu(selected_path)?;
+                terminal.clear()?;
+            } else if is_bitmap_image && app.integration_active("chafa") {
+                app.preview_images_with_chafa(selected_path)?;
+                terminal.clear()?;
+            } else {
+                app.set_status(
+                    "image preview unavailable (timg, native, halfblock, viu, chafa, resvg)",
+                );
+            }
+        } else if App::is_video_file(&selected_path) && app.integration_active("timg") {
+            {
+                let _tui = tui::suspend(ResumeMode::Plain)?;
+                execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+                let mut cmd = Command::new("timg");
+                cmd.args(["-C", "--loops=1"]).arg(&selected_path);
+                let _ = crate::util::command::status_ignoring_sigint(&mut cmd);
+            }
+            App::drain_pending_terminal_events();
+            terminal.clear()?;
+        } else if App::is_markdown_file(&selected_path) && app.integration_active("glow") {
+            {
+                let _tui = tui::suspend(ResumeMode::Plain)?;
+                let _ = Command::new("glow").arg("-p").arg(&selected_path).status();
+            }
+            terminal.clear()?;
+        } else if App::is_mermaid_file(&selected_path) && app.integration_active("mmdflux") {
+            {
+                let _tui = tui::suspend(ResumeMode::Plain)?;
+                let mut cmd = Command::new("mmdflux");
+                // Explicit --color skips mmdflux's OSC 11 tty query,
+                // whose reply `less` would swallow, hanging mmdflux.
+                cmd.args(["--color", "always"]).arg(&selected_path);
+                let _ = crate::util::command::pipe_to_pager(cmd);
+            }
+            terminal.clear()?;
+        } else if App::is_html_file(&selected_path) && app.integration_active("links") {
+            {
+                let _tui = tui::suspend(ResumeMode::Plain)?;
+                let _ = Command::new("links").arg(&selected_path).status();
+            }
+            terminal.clear()?;
+        } else if App::is_json_file(&selected_path) && app.integration_active("jnv") {
+            {
+                let _tui = tui::suspend(ResumeMode::Plain)?;
+                execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+                let _ = App::preview_json_with_jnv(&selected_path);
+            }
+            terminal.clear()?;
+        } else if App::is_delimited_text_file(&selected_path) && app.integration_active("csvlens") {
+            {
+                let _tui = tui::suspend(ResumeMode::Plain)?;
+                let _ = Command::new("csvlens").arg(&selected_path).status();
+            }
+            terminal.clear()?;
+        } else if App::is_sqlite_db_file(&selected_path) {
+            if app.integration_active("sqlite3") {
+                app.begin_sqlite_preview(selected_path);
+            } else {
+                app.status_tool_not_found("sqlite3");
+            }
+        } else if App::is_audio_file(&selected_path) && app.integration_active("sox") {
+            {
+                let _tui = tui::suspend(ResumeMode::Plain)?;
+                execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+
+                let (player, extra): (&str, &[&str]) = if App::integration_probe("play").0 {
+                    ("play", &[])
                 } else {
-                    app.left.selected_index == 0
+                    ("sox", &["-d"])
                 };
-                if at_top {
-                    app.mode = AppMode::FolderFilter;
-                    app.input_cursor = app.input_buffer.chars().count();
-                    return Ok(KeyDispatchOutcome::ContinueLoop);
-                }
-            }
-            if app.preview_focus_is_preview() {
-                if key.code == KeyCode::Up {
-                    app.preview_scroll_up(1);
-                } else {
-                    app.preview_scroll_down(1);
-                }
-                return Ok(KeyDispatchOutcome::ContinueLoop);
-            }
+                let mut child = crate::util::command::spawn_detached(player, &selected_path, extra);
 
-            if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
-                if app.right.entries.is_empty() {
-                    return Ok(KeyDispatchOutcome::ContinueLoop);
-                }
-
-                let mut steps: usize = 1;
-                while steps < 32 && event::poll(Duration::from_millis(0))? {
-                    match event::read()? {
-                        Event::Key(next)
-                            if next.code == key.code
-                                && next.modifiers == key.modifiers
-                                && next.kind == key.kind =>
-                        {
-                            steps += 1;
-                        }
-                        Event::Key(next) => {
-                            *deferred_key = Some(next);
+                if let Ok(ref mut proc) = child {
+                    println!("Playing: {}", selected_path.display());
+                    println!("Press q, Esc, or Left to stop playback.");
+                    enable_raw_mode()?;
+                    loop {
+                        if proc.try_wait()?.is_some() {
                             break;
                         }
-                        _ => {}
+                        if event::poll(Duration::from_millis(120))?
+                            && let Event::Key(k) = event::read()?
+                            && matches!(k.code, KeyCode::Char('q') | KeyCode::Esc | KeyCode::Left)
+                        {
+                            let _ = proc.kill();
+                            let _ = proc.wait();
+                            break;
+                        }
                     }
+                    disable_raw_mode()?;
                 }
+            }
 
-                let max_idx = app.right.entries.len().saturating_sub(1);
-                let next_idx = if key.code == KeyCode::Up {
-                    app.right.selected_index.saturating_sub(steps)
+            terminal.clear()?;
+        } else if App::is_pdf_file(&selected_path) && app.integration_active("pdftotext") {
+            {
+                let _tui = tui::suspend(ResumeMode::Plain)?;
+
+                let mut cmd = Command::new("pdftotext");
+                cmd.args(["-layout", "-nopgbrk"])
+                    .arg(&selected_path)
+                    .arg("-");
+                crate::util::command::pipe_to_pager_or_less(cmd, &selected_path);
+            }
+
+            terminal.clear()?;
+        } else if App::is_cast_file(&selected_path) && app.integration_active("asciinema") {
+            {
+                let _tui = tui::suspend(ResumeMode::Plain)?;
+                let _ = App::preview_cast_with_asciinema(&selected_path)?;
+            }
+
+            terminal.clear()?;
+        } else {
+            {
+                let _tui = tui::suspend(ResumeMode::Plain)?;
+                if App::is_binary_file(&selected_path) && app.integration_active("hexyl") {
+                    let mut cmd = Command::new("hexyl");
+                    cmd.arg(&selected_path);
+                    let _ = crate::util::command::pipe_to_pager(cmd);
+                } else if app.integration_active("bat") {
+                    let bat_cmd = App::bat_tool().unwrap_or_else(|| "bat".to_string());
+                    let _ = Command::new(bat_cmd)
+                        .args(["--paging=always", "--style=full", "--color=always"])
+                        .arg(&selected_path)
+                        .status();
                 } else {
-                    (app.right.selected_index + steps).min(max_idx)
-                };
-                app.right.selected_index = next_idx;
-                app.right.table_state.select(Some(next_idx));
-                return Ok(KeyDispatchOutcome::ContinueLoop);
-            }
-
-            let mut steps: usize = 1;
-            while steps < 32 && event::poll(Duration::from_millis(0))? {
-                match event::read()? {
-                    Event::Key(next)
-                        if next.code == key.code
-                            && next.modifiers == key.modifiers
-                            && next.kind == key.kind =>
-                    {
-                        steps += 1;
-                    }
-                    Event::Key(next) => {
-                        *deferred_key = Some(next);
-                        break;
-                    }
-                    _ => {}
+                    let _ = Command::new("less").arg("-R").arg(&selected_path).status();
                 }
             }
-
-            let delta = if key.code == KeyCode::Up {
-                -(steps as isize)
-            } else {
-                steps as isize
-            };
-            app.move_selection_delta(delta);
+            terminal.clear()?;
+        }
+    }
     Ok(KeyDispatchOutcome::Ok)
 }
 
-fn handle_enter_or_right(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App, key: KeyEvent) -> io::Result<KeyDispatchOutcome> {
-            // Right in the right panel only navigates into directories; Enter opens everything.
-            if key.code == KeyCode::Right && app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
-                if let Some(selected_path) = app.right.entries.get(app.right.selected_index).map(|e| e.path())
-                    && selected_path.is_dir() {
-                        app.try_enter_dir_on_active_panel(selected_path);
-                    }
-                return Ok(KeyDispatchOutcome::ContinueLoop);
-            }
-
-            let selected_path = if app.is_dual_panel_mode() && app.active_panel == DualPanelSide::Right {
-                app.right.entries.get(app.right.selected_index).map(|e| e.path())
-            } else {
-                app.left.entries.get(app.left.selected_index).map(|e| e.path())
-            };
-
-            if let Some(selected_path) = selected_path {
-                if selected_path.is_dir() {
-                    app.try_enter_dir_on_active_panel(selected_path);
-                }
-                else if App::is_age_protected_file(&selected_path) {
-                    if !app.integration_active("age") {
-                        app.status_tool_not_found("age");
-                    } else if app.preview_age_file(&selected_path)? {
-                        terminal.clear()?;
-                    }
-                }
-                else if App::is_excel_file(&selected_path) && app.integration_active("xleak") {
-                    {
-                        let _tui = tui::suspend(ResumeMode::Plain)?;
-                        let _ = Command::new("xleak")
-                            .arg("-i")
-                            .arg(&selected_path)
-                            .status();
-                    }
-                    terminal.clear()?;
-                }
-                else if App::is_docx_file(&selected_path) && app.integration_active("doxx") {
-                    {
-                        let _tui = tui::suspend(ResumeMode::Plain)?;
-                        let _ = Command::new("doxx").arg(&selected_path).status();
-                    }
-                    terminal.clear()?;
-                }
-                else if App::is_fuse_zip_archive(&selected_path) && app.integration_active("fuse-zip") {
-                    let _ = app.try_mount_archive(selected_path);
-                }
-                else if App::is_archivemount_archive(&selected_path) && app.integration_active("archivemount") {
-                    let _ = app.try_mount_archive_with(selected_path, "archivemount");
-                }
-                else if App::is_supported_archive(&selected_path) {
-                    let _ = app.preview_archive_contents(&selected_path);
-                    terminal.clear()?;
-                }
-                else if App::is_image_file(&selected_path)
-                    || (App::is_svg_file(&selected_path) && app.integration_active("resvg")) {
-                    let is_bitmap_image = App::is_image_file(&selected_path);
-                    if is_bitmap_image && app.integration_active("timg") {
-                        app.preview_images_with_timg(selected_path)?;
-                        terminal.clear()?;
-                    } else if app.preview_images_with_native(selected_path.clone())?
-                        || app.preview_images_with_halfblock_fullscreen(selected_path.clone())? {
-                        terminal.clear()?;
-                    } else if is_bitmap_image && app.integration_active("viu") {
-                        app.preview_images_with_viu(selected_path)?;
-                        terminal.clear()?;
-                    } else if is_bitmap_image && app.integration_active("chafa") {
-                        app.preview_images_with_chafa(selected_path)?;
-                        terminal.clear()?;
-                    } else {
-                        app.set_status("image preview unavailable (timg, native, halfblock, viu, chafa, resvg)");
-                    }
-                }
-                else if App::is_video_file(&selected_path) && app.integration_active("timg") {
-                    {
-                        let _tui = tui::suspend(ResumeMode::Plain)?;
-                        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
-                        let mut cmd = Command::new("timg");
-                        cmd.args(["-C", "--loops=1"]).arg(&selected_path);
-                        let _ = crate::util::command::status_ignoring_sigint(&mut cmd);
-                    }
-                    App::drain_pending_terminal_events();
-                    terminal.clear()?;
-                }
-                else if App::is_markdown_file(&selected_path) && app.integration_active("glow") {
-                    {
-                        let _tui = tui::suspend(ResumeMode::Plain)?;
-                        let _ = Command::new("glow")
-                            .arg("-p")
-                            .arg(&selected_path)
-                            .status();
-                    }
-                    terminal.clear()?;
-                }
-                else if App::is_mermaid_file(&selected_path) && app.integration_active("mmdflux") {
-                    {
-                        let _tui = tui::suspend(ResumeMode::Plain)?;
-                        let mut cmd = Command::new("mmdflux");
-                        // Explicit --color skips mmdflux's OSC 11 tty query,
-                        // whose reply `less` would swallow, hanging mmdflux.
-                        cmd.args(["--color", "always"]).arg(&selected_path);
-                        let _ = crate::util::command::pipe_to_pager(cmd);
-                    }
-                    terminal.clear()?;
-                }
-                else if App::is_html_file(&selected_path) && app.integration_active("links") {
-                    {
-                        let _tui = tui::suspend(ResumeMode::Plain)?;
-                        let _ = Command::new("links").arg(&selected_path).status();
-                    }
-                    terminal.clear()?;
-                }
-                else if App::is_json_file(&selected_path) && app.integration_active("jnv") {
-                    {
-                        let _tui = tui::suspend(ResumeMode::Plain)?;
-                        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
-                        let _ = App::preview_json_with_jnv(&selected_path);
-                    }
-                    terminal.clear()?;
-                }
-                else if App::is_delimited_text_file(&selected_path) && app.integration_active("csvlens") {
-                    {
-                        let _tui = tui::suspend(ResumeMode::Plain)?;
-                        let _ = Command::new("csvlens").arg(&selected_path).status();
-                    }
-                    terminal.clear()?;
-                }
-                else if App::is_sqlite_db_file(&selected_path) {
-                    if app.integration_active("sqlite3") {
-                        app.begin_sqlite_preview(selected_path);
-                    } else {
-                        app.status_tool_not_found("sqlite3");
-                    }
-                }
-                else if App::is_audio_file(&selected_path) && app.integration_active("sox") {
-                    {
-                        let _tui = tui::suspend(ResumeMode::Plain)?;
-                        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
-
-                        let (player, extra): (&str, &[&str]) = if App::integration_probe("play").0 {
-                            ("play", &[])
-                        } else {
-                            ("sox", &["-d"])
-                        };
-                        let mut child =
-                            crate::util::command::spawn_detached(player, &selected_path, extra);
-
-                        if let Ok(ref mut proc) = child {
-                            println!("Playing: {}", selected_path.display());
-                            println!("Press q, Esc, or Left to stop playback.");
-                            enable_raw_mode()?;
-                            loop {
-                                if proc.try_wait()?.is_some() {
-                                    break;
-                                }
-                                if event::poll(Duration::from_millis(120))?
-                                    && let Event::Key(k) = event::read()?
-                                        && matches!(k.code, KeyCode::Char('q') | KeyCode::Esc | KeyCode::Left) {
-                                            let _ = proc.kill();
-                                            let _ = proc.wait();
-                                            break;
-                                        }
-                            }
-                            disable_raw_mode()?;
-                        }
-                    }
-
-                    terminal.clear()?;
-                }
-                else if App::is_pdf_file(&selected_path) && app.integration_active("pdftotext") {
-                    {
-                        let _tui = tui::suspend(ResumeMode::Plain)?;
-
-                        let mut cmd = Command::new("pdftotext");
-                        cmd.args(["-layout", "-nopgbrk"]).arg(&selected_path).arg("-");
-                        crate::util::command::pipe_to_pager_or_less(cmd, &selected_path);
-                    }
-
-                    terminal.clear()?;
-                }
-                else if App::is_cast_file(&selected_path) && app.integration_active("asciinema") {
-                    {
-                        let _tui = tui::suspend(ResumeMode::Plain)?;
-                        let _ = App::preview_cast_with_asciinema(&selected_path)?;
-                    }
-
-                    terminal.clear()?;
-                }
-                else {
-                    {
-                        let _tui = tui::suspend(ResumeMode::Plain)?;
-                        if App::is_binary_file(&selected_path) && app.integration_active("hexyl") {
-                            let mut cmd = Command::new("hexyl");
-                            cmd.arg(&selected_path);
-                            let _ = crate::util::command::pipe_to_pager(cmd);
-                        } else if app.integration_active("bat") {
-                            let bat_cmd = App::bat_tool().unwrap_or_else(|| "bat".to_string());
-                            let _ = Command::new(bat_cmd)
-                                .args(["--paging=always", "--style=full", "--color=always"])
-                                .arg(&selected_path)
-                                .status();
-                        } else {
-                            let _ = Command::new("less").arg("-R").arg(&selected_path).status();
-                        }
-                    }
-                    terminal.clear()?;
+fn handle_grep_search_key(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    app: &mut App,
+) -> io::Result<KeyDispatchOutcome> {
+    let work_dir = app.active_panel_dir();
+    let has_rg = app.integration_active("rg");
+    let has_fzf = app.integration_active("fzf");
+    if has_rg {
+        let cmd = if has_fzf {
+            // rg pipes into fzf; the chosen file name comes back on
+            // stdout. fzf draws its UI on /dev/tty, so capturing
+            // stdout doesn't take the terminal away from it.
+            "rg --color=always --line-number --no-heading --smart-case \
+                     --fixed-strings --colors=match:fg:214 '' 2>/dev/null \
+                     | fzf --ansi --exact --layout=reverse --delimiter=: \
+                     | awk -F: '{print $1}'"
+        } else {
+            // no fzf: pick first file with a match
+            "rg --files-with-matches '' 2>/dev/null | head -1"
+        };
+        let selected = run_picker(&work_dir, cmd)?;
+        terminal.clear()?;
+        let first_line = selected.lines().next().unwrap_or("").trim().to_string();
+        if !first_line.is_empty() {
+            let selected_path = work_dir.join(&first_line);
+            if let Some(parent) = selected_path.parent() {
+                app.try_enter_dir_on_active_panel(parent.to_path_buf());
+                if let Some(name) = selected_path.file_name() {
+                    app.select_entry_named(&name.to_string_lossy());
                 }
             }
+        }
+    } else {
+        app.start_internal_search_with_scope(InternalSearchScope::Content);
+        app.set_status("rg not found; opened Search in content mode");
+    }
     Ok(KeyDispatchOutcome::Ok)
 }
 
-fn handle_grep_search_key(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> io::Result<KeyDispatchOutcome> {
-            let work_dir = app.active_panel_dir();
-            let has_rg  = app.integration_active("rg");
-            let has_fzf = app.integration_active("fzf");
-            if has_rg {
-                let tmp = App::create_temp_selection_path("sbrs_fzf_rg_selection");
-                let cmd = if has_fzf {
-                    // rg pipes into fzf; fzf writes its selection to temp file.
-                    // Using inherited stdio so fzf owns the real TTY on all platforms.
-                    format!(
-                        "rg --color=always --line-number --no-heading --smart-case \
-                         --fixed-strings --colors=match:fg:214 '' 2>/dev/null \
-                         | fzf --ansi --exact --layout=reverse --delimiter=: \
-                         | awk -F: '{{print $1}}' > {}",
-                        tmp.display()
-                    )
-                } else {
-                    // no fzf: pick first file with a match
-                    format!(
-                        "rg --files-with-matches '' 2>/dev/null | head -1 > {}",
-                        tmp.display()
-                    )
-                };
+/// Run a shell picker pipeline (fzf & co.) in `work_dir` with the TUI
+/// suspended and return what it printed. stdin/stderr stay on the terminal so
+/// the picker is interactive; only stdout is captured.
+fn run_picker(work_dir: &std::path::Path, cmd: &str) -> io::Result<String> {
+    let _tui = tui::suspend(ResumeMode::Plain)?;
+    let output = Command::new("sh")
+        .args(["-c", cmd])
+        .current_dir(work_dir)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .output();
+    Ok(output
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default())
+}
+
+fn handle_fzf_find_key(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    app: &mut App,
+) -> io::Result<KeyDispatchOutcome> {
+    let work_dir = app.active_panel_dir();
+    if app.integration_active("fzf") {
+        let selected = run_picker(
+            &work_dir,
+            "find . -path '*/.*' -prune -o -print 2>/dev/null | fzf --layout=reverse",
+        )?;
+        terminal.clear()?;
+        let selected = selected.trim().to_string();
+        if !selected.is_empty() {
+            let selected_path = work_dir.join(&selected);
+            if let Some(parent) = selected_path.parent() {
+                app.try_enter_dir_on_active_panel(parent.to_path_buf());
+                if let Some(name) = selected_path.file_name() {
+                    app.select_entry_named(&name.to_string_lossy());
+                }
+            }
+        }
+    } else {
+        app.start_internal_search();
+    }
+    Ok(KeyDispatchOutcome::Ok)
+}
+
+fn handle_edit_key(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    app: &mut App,
+) -> io::Result<KeyDispatchOutcome> {
+    if let Some(path) = app.active_selected_entry_path() {
+        if path.is_dir() {
+            let current_name = crate::util::classify::path_file_name(&path).unwrap_or_default();
+            app.begin_input_edit(AppMode::Renaming, current_name);
+        } else if App::is_age_protected_file(&path) {
+            if !app.integration_active("age") {
+                app.status_tool_not_found("age");
+            } else if app.edit_age_file(&path)? {
+                terminal.clear()?;
+            }
+        } else {
+            {
+                let _tui = tui::suspend_showing_cursor(ResumeMode::Plain)?;
+                if !path.is_dir() && App::is_binary_file(&path) && app.integration_active("hexedit")
                 {
-                    let _tui = tui::suspend(ResumeMode::Plain)?;
-                    let _ = Command::new("sh")
-                        .args(["-c", &cmd])
-                        .current_dir(&work_dir)
-                        .stdin(Stdio::inherit())
-                        .stdout(Stdio::inherit())
-                        .stderr(Stdio::inherit())
+                    let _ = Command::new("hexedit").arg(&path).status();
+                } else {
+                    let _ = Command::new(crate::util::command::editor_command())
+                        .arg(&path)
                         .status();
                 }
-                terminal.clear()?;
-                let selected = fs::read_to_string(&tmp).unwrap_or_default();
-                let _ = fs::remove_file(&tmp);
-                let first_line = selected.lines().next().unwrap_or("").trim().to_string();
-                if !first_line.is_empty() {
-                    let selected_path = work_dir.join(&first_line);
-                    if let Some(parent) = selected_path.parent() {
-                        app.try_enter_dir_on_active_panel(parent.to_path_buf());
-                        if let Some(name) = selected_path.file_name() {
-                            app.select_entry_named(&name.to_string_lossy());
-                        }
-                    }
-                }
-            } else {
-                app.start_internal_search_with_scope(InternalSearchScope::Content);
-                app.set_status("rg not found; opened Search in content mode");
             }
+            terminal.clear()?;
+            app.refresh_entries_or_status();
+        }
+    }
     Ok(KeyDispatchOutcome::Ok)
 }
-
-fn handle_fzf_find_key(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> io::Result<KeyDispatchOutcome> {
-            let work_dir = app.active_panel_dir();
-            if app.integration_active("fzf") {
-                let tmp = App::create_temp_selection_path("sbrs_fzf_selection");
-                let cmd = format!(
-                    "find . -path '*/.*' -prune -o -print 2>/dev/null | fzf --layout=reverse > {}",
-                    tmp.display()
-                );
-                {
-                    let _tui = tui::suspend(ResumeMode::Plain)?;
-                    let _ = Command::new("sh")
-                        .args(["-c", &cmd])
-                        .current_dir(&work_dir)
-                        .stdin(Stdio::inherit())
-                        .stdout(Stdio::inherit())
-                        .stderr(Stdio::inherit())
-                        .status();
-                }
-                terminal.clear()?;
-                let selected = fs::read_to_string(&tmp).unwrap_or_default();
-                let _ = fs::remove_file(&tmp);
-                let selected = selected.trim().to_string();
-                if !selected.is_empty() {
-                    let selected_path = work_dir.join(&selected);
-                    if let Some(parent) = selected_path.parent() {
-                        app.try_enter_dir_on_active_panel(parent.to_path_buf());
-                        if let Some(name) = selected_path.file_name() {
-                            app.select_entry_named(&name.to_string_lossy());
-                        }
-                    }
-                }
-            } else {
-                app.start_internal_search();
-            }
-    Ok(KeyDispatchOutcome::Ok)
-}
-
-fn handle_edit_key(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> io::Result<KeyDispatchOutcome> {
-            if let Some(path) = app.active_selected_entry_path() {
-                if path.is_dir() {
-                    let current_name = crate::util::classify::path_file_name(&path).unwrap_or_default();
-                    app.begin_input_edit(AppMode::Renaming, current_name);
-                } else if App::is_age_protected_file(&path) {
-                    if !app.integration_active("age") {
-                        app.status_tool_not_found("age");
-                    } else if app.edit_age_file(&path)? {
-                        terminal.clear()?;
-                    }
-                } else {
-                    {
-                        let _tui = tui::suspend_showing_cursor(ResumeMode::Plain)?;
-                        if !path.is_dir() && App::is_binary_file(&path) && app.integration_active("hexedit") {
-                            let _ = Command::new("hexedit").arg(&path).status();
-                        } else {
-                            let _ = Command::new(crate::util::command::editor_command()).arg(&path).status();
-                        }
-                    }
-                    terminal.clear()?;
-                    app.refresh_entries_or_status();
-                }
-            }
-    Ok(KeyDispatchOutcome::Ok)
-}
-

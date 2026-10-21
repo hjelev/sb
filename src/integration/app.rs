@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::util::tui::{self, ResumeMode};
-use crate::{integration, App, AppMode, ArchiveKind};
+use crate::{App, AppMode, ArchiveKind, integration};
 
 use super::{catalog, probe, rows::IntegrationRow};
 
@@ -60,7 +60,12 @@ impl App {
             return;
         }
 
-        let Some(row) = self.integration.rows_cache.get(self.integration.selected).cloned() else {
+        let Some(row) = self
+            .integration
+            .rows_cache
+            .get(self.integration.selected)
+            .cloned()
+        else {
             self.set_status("invalid integration selection");
             return;
         };
@@ -127,7 +132,8 @@ impl App {
         };
 
         let brew_path = self
-            .integration.install_brew_path
+            .integration
+            .install_brew_path
             .clone()
             .or_else(Self::brew_command_path);
 
@@ -158,10 +164,7 @@ impl App {
             }
         }
         if key == "mmdflux" {
-            install_steps.push(vec![
-                "tap".to_string(),
-                "kevinswiber/mmdflux".to_string(),
-            ]);
+            install_steps.push(vec!["tap".to_string(), "kevinswiber/mmdflux".to_string()]);
         }
         install_steps.push(vec!["install".to_string(), package.clone()]);
 
@@ -265,7 +268,8 @@ impl App {
             if !available && !partially_supported {
                 continue;
             }
-            self.integration.overrides
+            self.integration
+                .overrides
                 .insert(spec.key.to_string(), enabled);
         }
     }
@@ -283,8 +287,7 @@ impl App {
             Self::integration_catalog(),
             |key| self.integration_enabled(key),
             |key| {
-                let (available, partially_supported, _) =
-                    Self::integration_support_and_detail(key);
+                let (available, partially_supported, _) = Self::integration_support_and_detail(key);
                 (available, partially_supported)
             },
         )

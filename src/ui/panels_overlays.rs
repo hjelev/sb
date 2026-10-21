@@ -1,13 +1,13 @@
 //! Overlay-panel renderers (integrations, help, bookmarks, sort, settings, shortcuts,
 //! plugins, themes). Split from panels.rs; re-exported there so `ui::panels::*` paths hold.
-use crate::ui::theme::{theme_spec, themes, ThemeId};
+use super::panels::*;
 use crate::SortMode;
+use crate::ui::theme::{ThemeId, theme_spec, themes};
 use crossterm::event::KeyEvent;
 use ratatui::{prelude::*, widgets::*};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use unicode_width::UnicodeWidthStr;
-use super::panels::*;
 
 pub fn render_integrations_overlay(
     f: &mut Frame,
@@ -37,10 +37,20 @@ pub fn render_integrations_overlay(
     // The first line is either a blank spacer or the live search bar. Keeping it as
     // a single leading line preserves the row indexing used by mouse click handling.
     let first_line = if search_active {
-        let query_icon = if show_icons && nerd_font { "\u{f002}" } else { "/" };
+        let query_icon = if show_icons && nerd_font {
+            "\u{f002}"
+        } else {
+            "/"
+        };
         Line::from(vec![
-            Span::styled(format!("  {}  ", query_icon), Style::default().fg(spec.key_label)),
-            Span::styled(search_query.to_string(), Style::default().fg(spec.text_normal)),
+            Span::styled(
+                format!("  {}  ", query_icon),
+                Style::default().fg(spec.key_label),
+            ),
+            Span::styled(
+                search_query.to_string(),
+                Style::default().fg(spec.text_normal),
+            ),
             Span::styled("▏", Style::default().fg(spec.key_label)),
         ])
     } else {
@@ -54,7 +64,11 @@ pub fn render_integrations_overlay(
             "[required]" | "[active]" | "[partial]" | "[on]"
         );
         let is_ok = row.required || (is_enabled && (row.available || row.partially_supported));
-        let status_text = if is_ok { " ✓ ".to_string() } else { " ✕ ".to_string() };
+        let status_text = if is_ok {
+            " ✓ ".to_string()
+        } else {
+            " ✕ ".to_string()
+        };
         let status_style = if row.required || (is_enabled && row.available) {
             Style::default().fg(spec.success)
         } else if is_enabled && row.partially_supported {
@@ -65,7 +79,11 @@ pub fn render_integrations_overlay(
         let base_style = if is_selected {
             Style::default()
                 .bg(spec.bg_selected)
-                .fg(crate::ui::palette::readable_fg(spec.bg_selected, Color::Black, spec.text_normal))
+                .fg(crate::ui::palette::readable_fg(
+                    spec.bg_selected,
+                    Color::Black,
+                    spec.text_normal,
+                ))
         } else {
             Style::default().fg(spec.text_normal)
         };
@@ -108,7 +126,10 @@ pub fn render_integrations_overlay(
                 + UnicodeWidthStr::width(category_text.as_str())
                 + UnicodeWidthStr::width(purpose_text.as_str());
             if int_row_inner_w > used_w {
-                spans.push(Span::styled(" ".repeat(int_row_inner_w - used_w), base_style));
+                spans.push(Span::styled(
+                    " ".repeat(int_row_inner_w - used_w),
+                    base_style,
+                ));
             }
         }
 
@@ -128,8 +149,9 @@ pub fn render_integrations_overlay(
     let total_rows = lines.len();
     let max_scroll = total_rows.saturating_sub(visible_rows);
     let selected_line = integration_selected + 1;
-    let int_scroll = (selected_line + 1).saturating_sub(visible_rows)
-    .min(max_scroll);
+    let int_scroll = (selected_line + 1)
+        .saturating_sub(visible_rows)
+        .min(max_scroll);
     let can_draw_scrollbar = int_chunks[0].width > 2 && total_rows > visible_rows;
 
     f.render_widget(
@@ -157,7 +179,11 @@ pub fn render_integrations_overlay(
         Paragraph::new(shortcut_footer_lines(footer_entries, theme_id, nerd_font)),
         int_chunks[1],
     );
-    footer_zones.extend(footer_shortcut_zones(footer_entries, int_chunks[1], nerd_font));
+    footer_zones.extend(footer_shortcut_zones(
+        footer_entries,
+        int_chunks[1],
+        nerd_font,
+    ));
 }
 
 const HELP_LOGO_BYTES: &[u8] = include_bytes!("../../docs/images/favicon.png");
@@ -185,7 +211,7 @@ fn help_logo_rgb_blend(bg: Color) -> Option<(Vec<u8>, u32, u32)> {
         _ => (0, 0, 0),
     };
     let mut rgb = Vec::with_capacity(rgba.len() / 4 * 3);
-    for px in rgba.chunks_exact(4) {
+    for px in rgba.as_chunks::<4>().0 {
         let af = px[3] as f32 / 255.0;
         rgb.push((px[0] as f32 * af + bg_r as f32 * (1.0 - af)).round() as u8);
         rgb.push((px[1] as f32 * af + bg_g as f32 * (1.0 - af)).round() as u8);
@@ -220,6 +246,8 @@ pub(crate) fn help_logo_rgb_for_sixel(bg: Color) -> Option<(Vec<u8>, u32, u32)> 
     help_logo_rgb_blend(bg)
 }
 
+// Plain render inputs; bundling them into a one-off struct would only move the list.
+#[allow(clippy::too_many_arguments)]
 pub fn render_help_overlay(
     f: &mut Frame,
     tab_overlay_anchor: Rect,
@@ -234,8 +262,12 @@ pub fn render_help_overlay(
     let help_w = tab_overlay_anchor.width;
     let inner_w = help_w.saturating_sub(4) as usize;
     let shortcut_w = inner_w.clamp(10, 18);
-    let section_style = Style::default().fg(spec.overlay_section).add_modifier(Modifier::BOLD);
-    let shortcut_style = Style::default().fg(spec.key_label).add_modifier(Modifier::BOLD);
+    let section_style = Style::default()
+        .fg(spec.overlay_section)
+        .add_modifier(Modifier::BOLD);
+    let shortcut_style = Style::default()
+        .fg(spec.key_label)
+        .add_modifier(Modifier::BOLD);
     let desc_style = Style::default().fg(spec.text_normal);
 
     let config_path = {
@@ -252,7 +284,9 @@ pub fn render_help_overlay(
         base.join("sb").join("config")
     };
 
-    let title_style = Style::default().fg(spec.text_normal).add_modifier(Modifier::BOLD);
+    let title_style = Style::default()
+        .fg(spec.text_normal)
+        .add_modifier(Modifier::BOLD);
     let subtitle_style = Style::default().fg(spec.text_dim);
 
     let title_text = format!("Shell Buddy  v{}", env!("CARGO_PKG_VERSION"));
@@ -278,9 +312,16 @@ pub fn render_help_overlay(
         Line::from(vec![
             Span::styled(
                 format!("{:<width$}", "Shortcut", width = shortcut_w),
-                Style::default().fg(spec.text_dim).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(spec.text_dim)
+                    .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("Description", Style::default().fg(spec.text_dim).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "Description",
+                Style::default()
+                    .fg(spec.text_dim)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]),
     ];
 
@@ -294,13 +335,38 @@ pub fn render_help_overlay(
             "Navigation & View",
             vec![
                 ("Up / Down".to_string(), "Move selection".to_string()),
-                ("PgUp / PgDn".to_string(), "Jump by visible page".to_string()),
-                ("Home / End".to_string(), "Jump to first or last item".to_string()),
-                ("Enter / Right".to_string(), "Open folder/file or preview".to_string()),
-                ("Left / Bksps".to_string(), "Go to parent folder".to_string()),
-                ("Mouse Click".to_string(), "L: Select | Double L: Open | R: Parent folder".to_string()),
-                (format!("Tab / {}", k(Action::GoHome)), "Edit path (or switch pane in preview) | Go home".to_string()),
-                (format!("{} / {}", k(Action::TogglePreview), k(Action::ToggleFolderSizes)), "Toggle preview | Toggle folder size calc".to_string()),
+                (
+                    "PgUp / PgDn".to_string(),
+                    "Jump by visible page".to_string(),
+                ),
+                (
+                    "Home / End".to_string(),
+                    "Jump to first or last item".to_string(),
+                ),
+                (
+                    "Enter / Right".to_string(),
+                    "Open folder/file or preview".to_string(),
+                ),
+                (
+                    "Left / Bksps".to_string(),
+                    "Go to parent folder".to_string(),
+                ),
+                (
+                    "Mouse Click".to_string(),
+                    "L: Select | Double L: Open | R: Parent folder".to_string(),
+                ),
+                (
+                    format!("Tab / {}", k(Action::GoHome)),
+                    "Edit path (or switch pane in preview) | Go home".to_string(),
+                ),
+                (
+                    format!(
+                        "{} / {}",
+                        k(Action::TogglePreview),
+                        k(Action::ToggleFolderSizes)
+                    ),
+                    "Toggle preview | Toggle folder size calc".to_string(),
+                ),
                 (k(Action::SortMenu), "Open sorting menu".to_string()),
                 (k(Action::ToggleHidden), "Toggle hidden files".to_string()),
             ],
@@ -308,25 +374,58 @@ pub fn render_help_overlay(
         (
             "Selection & Metadata",
             vec![
-                ("Space / Ins".to_string(), "Toggle mark for selected item".to_string()),
-                (k(Action::MarkAll), "Toggle all marks in directory".to_string()),
-                (k(Action::NoteEdit), "Add/edit note for selected item".to_string()),
-                (k(Action::CopyPaths), "Copy full path(s) to system clipboard".to_string()),
-                (k(Action::EditClipboard), "Edit system clipboard via temp file".to_string()),
+                (
+                    "Space / Ins".to_string(),
+                    "Toggle mark for selected item".to_string(),
+                ),
+                (
+                    k(Action::MarkAll),
+                    "Toggle all marks in directory".to_string(),
+                ),
+                (
+                    k(Action::NoteEdit),
+                    "Add/edit note for selected item".to_string(),
+                ),
+                (
+                    k(Action::CopyPaths),
+                    "Copy full path(s) to system clipboard".to_string(),
+                ),
+                (
+                    k(Action::EditClipboard),
+                    "Edit system clipboard via temp file".to_string(),
+                ),
             ],
         ),
         (
             "File Operations",
             vec![
                 (k(Action::NewFile), "New 'file' or '/folder'".to_string()),
-                (format!("{} / F5", k(Action::Copy)), "Copy marked to app clipboard".to_string()),
-                (format!("{} / {}", k(Action::Paste), k(Action::Move)), "Paste / Move clipboard to folder".to_string()),
-                (format!("{} / F2", k(Action::Rename)), "Rename or bulk rename".to_string()),
-                (format!("{} / F4", k(Action::Edit)), "Edit file (or rename folder)".to_string()),
-                (format!("{} / Del", k(Action::Delete)), "Delete selected item(s)".to_string()),
+                (
+                    format!("{} / F5", k(Action::Copy)),
+                    "Copy marked to app clipboard".to_string(),
+                ),
+                (
+                    format!("{} / {}", k(Action::Paste), k(Action::Move)),
+                    "Paste / Move clipboard to folder".to_string(),
+                ),
+                (
+                    format!("{} / F2", k(Action::Rename)),
+                    "Rename or bulk rename".to_string(),
+                ),
+                (
+                    format!("{} / F4", k(Action::Edit)),
+                    "Edit file (or rename folder)".to_string(),
+                ),
+                (
+                    format!("{} / Del", k(Action::Delete)),
+                    "Delete selected item(s)".to_string(),
+                ),
                 (k(Action::ToggleExec), "Toggle executable flag".to_string()),
                 (k(Action::Zip), "Create or extract archive".to_string()),
-                (k(Action::OpenDefault), "Open with default GUI app".to_string()),
+                (
+                    k(Action::OpenDefault),
+                    "Open with default GUI app".to_string(),
+                ),
                 (k(Action::AgeProtect), "protect file with age".to_string()),
                 (k(Action::ViewFile), "View file in pager".to_string()),
             ],
@@ -334,35 +433,78 @@ pub fn render_help_overlay(
         (
             "Search & External",
             vec![
-                (format!("{} / {}", k(Action::FzfFind), k(Action::Grep)), "Fuzzy search | Content search".to_string()),
-                (k(Action::FolderFilter), "Filter folder by name/regex (↓ list, ↑ box, Esc clear)".to_string()),
-                (k(Action::Download), "Download URL (prompt: Ctrl+V or right-click pastes from system clipboard)".to_string()),
-                (k(Action::RemoteMounts), "Open SSH/rclone mount picker".to_string()),
-                (k(Action::DeltaCompare), "Delta compare (marked vs cursor)".to_string()),
-                (format!("{} / {}", k(Action::SplitLess), k(Action::SplitEditor)), "Split shell (L) + preview/edit (R)".to_string()),
-                (k(Action::Integrations), "Open integrations panel".to_string()),
+                (
+                    format!("{} / {}", k(Action::FzfFind), k(Action::Grep)),
+                    "Fuzzy search | Content search".to_string(),
+                ),
+                (
+                    k(Action::FolderFilter),
+                    "Filter folder by name/regex (↓ list, ↑ box, Esc clear)".to_string(),
+                ),
+                (
+                    k(Action::Download),
+                    "Download URL (prompt: Ctrl+V or right-click pastes from system clipboard)"
+                        .to_string(),
+                ),
+                (
+                    k(Action::RemoteMounts),
+                    "Open SSH/rclone mount picker".to_string(),
+                ),
+                (
+                    k(Action::DeltaCompare),
+                    "Delta compare (marked vs cursor)".to_string(),
+                ),
+                (
+                    format!("{} / {}", k(Action::SplitLess), k(Action::SplitEditor)),
+                    "Split shell (L) + preview/edit (R)".to_string(),
+                ),
+                (
+                    k(Action::Integrations),
+                    "Open integrations panel".to_string(),
+                ),
                 (k(Action::Themes), "Open themes panel".to_string()),
-                (format!("{} / 0-9", k(Action::Bookmarks)), "Open bookmarks | Jump to bookmark".to_string()),
+                (
+                    format!("{} / 0-9", k(Action::Bookmarks)),
+                    "Open bookmarks | Jump to bookmark".to_string(),
+                ),
             ],
         ),
         (
             "System & Git",
             vec![
-                (k(Action::GitCommit), "Git: Commit + Push (dirty repos, built-in)".to_string()),
-                ("Ctrl+g".to_string(), "Git: Commit + Push (external 'git-commit' plugin, if installed)".to_string()),
+                (
+                    k(Action::GitCommit),
+                    "Git: Commit + Push (dirty repos, built-in)".to_string(),
+                ),
+                (
+                    "Ctrl+g".to_string(),
+                    "Git: Commit + Push (external 'git-commit' plugin, if installed)".to_string(),
+                ),
                 (k(Action::GitLog), "Git: View pretty log graph".to_string()),
-                (k(Action::DropShell), "Drop to shell in current directory".to_string()),
+                (
+                    k(Action::DropShell),
+                    "Drop to shell in current directory".to_string(),
+                ),
                 (k(Action::TodoFile), "Open ~/.todo in $EDITOR".to_string()),
                 (k(Action::CommandInput), "Run shell command".to_string()),
                 (k(Action::Help), "Open this help screen".to_string()),
-                (format!("{} / Esc", k(Action::Quit)), "Quit Shell Buddy".to_string()),
-                (k(Action::Organize), "AI: organize current folder".to_string()),
+                (
+                    format!("{} / Esc", k(Action::Quit)),
+                    "Quit Shell Buddy".to_string(),
+                ),
+                (
+                    k(Action::Organize),
+                    "AI: organize current folder".to_string(),
+                ),
             ],
         ),
     ];
     for (section_title, rows) in sections {
         lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(section_title.to_string(), section_style)));
+        lines.push(Line::from(Span::styled(
+            section_title.to_string(),
+            section_style,
+        )));
         for (shortcut, description) in rows {
             lines.push(Line::from(vec![
                 Span::styled(
@@ -376,12 +518,7 @@ pub fn render_help_overlay(
 
     let desired_h = (lines.len() as u16 + 4).max(18);
     let help_h = desired_h.min(tab_overlay_anchor.height);
-    let help_area = Rect::new(
-        tab_overlay_anchor.x,
-        tab_overlay_anchor.y,
-        help_w,
-        help_h,
-    );
+    let help_area = Rect::new(tab_overlay_anchor.x, tab_overlay_anchor.y, help_w, help_h);
     f.render_widget(Clear, help_area);
 
     let help_inner = render_overlay_block(f, help_area, panel_tab, theme_id, nerd_font);
@@ -410,7 +547,8 @@ pub fn render_help_overlay(
     let needed_w = indent_w
         + LOGO_COLS as usize
         + 1
-        + UnicodeWidthStr::width(title_text.as_str()).max(UnicodeWidthStr::width(subtitle_text.as_str()));
+        + UnicodeWidthStr::width(title_text.as_str())
+            .max(UnicodeWidthStr::width(subtitle_text.as_str()));
     let logo_rows_visible = clamped_offset == 0
         && help_text_area.height as usize > LOGO_SUBTITLE_IDX
         && needed_w <= help_text_area.width as usize;
@@ -429,8 +567,16 @@ pub fn render_help_overlay(
         // Leave a blank hole the width of the logo; the real pixels are drawn
         // via the native protocol after ratatui's frame is flushed.
         let hole = Span::raw(" ".repeat(LOGO_COLS as usize));
-        lines[LOGO_TITLE_IDX] = Line::from(vec![hole.clone(), Span::raw(" "), Span::styled(title_text.clone(), title_style)]);
-        lines[LOGO_SUBTITLE_IDX] = Line::from(vec![hole, Span::raw(" "), Span::styled(subtitle_text.clone(), subtitle_style)]);
+        lines[LOGO_TITLE_IDX] = Line::from(vec![
+            hole.clone(),
+            Span::raw(" "),
+            Span::styled(title_text.clone(), title_style),
+        ]);
+        lines[LOGO_SUBTITLE_IDX] = Line::from(vec![
+            hole,
+            Span::raw(" "),
+            Span::styled(subtitle_text.clone(), subtitle_style),
+        ]);
         Some(Rect::new(
             help_text_area.x + indent_w as u16,
             help_text_area.y + LOGO_TITLE_IDX as u16,
@@ -467,7 +613,14 @@ pub fn render_help_overlay(
             1,
             help_content_area.height,
         );
-        render_scrollbar_track(f, sb_area, total_lines, visible_lines, clamped_offset as usize, spec);
+        render_scrollbar_track(
+            f,
+            sb_area,
+            total_lines,
+            visible_lines,
+            clamped_offset as usize,
+            spec,
+        );
     }
     let footer_entries: &[(&'static str, &'static str)] = &[
         ("↑↓", "navigate"),
@@ -479,7 +632,11 @@ pub fn render_help_overlay(
         Paragraph::new(shortcut_footer_lines(footer_entries, theme_id, nerd_font)),
         help_footer_area,
     );
-    footer_zones.extend(footer_shortcut_zones(footer_entries, help_footer_area, nerd_font));
+    footer_zones.extend(footer_shortcut_zones(
+        footer_entries,
+        help_footer_area,
+        nerd_font,
+    ));
 
     (max_offset, clamped_offset, logo_native_area)
 }
@@ -507,7 +664,11 @@ pub fn render_bookmarks_overlay(
         let base_style = if is_selected {
             Style::default()
                 .bg(spec.bg_selected)
-                .fg(crate::ui::palette::readable_fg(spec.bg_selected, Color::Black, spec.text_normal))
+                .fg(crate::ui::palette::readable_fg(
+                    spec.bg_selected,
+                    Color::Black,
+                    spec.text_normal,
+                ))
         } else {
             Style::default()
         };
@@ -541,16 +702,22 @@ pub fn render_bookmarks_overlay(
         ]));
     }
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(" Add to your shell config to set bookmarks:", Style::default().fg(spec.warning))));
-    lines.push(Line::from(Span::styled("  export SB_BOOKMARK_1=\"$HOME/.config\"", Style::default().fg(spec.text_dim))));
-    lines.push(Line::from(Span::styled("  export SB_BOOKMARK_2=\"/var/log\"", Style::default().fg(spec.text_dim))));
-    let bm_h = (lines.len() as u16 + 4).max(17).min(tab_overlay_anchor.height);
-    let bm_area = Rect::new(
-        tab_overlay_anchor.x,
-        tab_overlay_anchor.y,
-        bm_w,
-        bm_h,
-    );
+    lines.push(Line::from(Span::styled(
+        " Add to your shell config to set bookmarks:",
+        Style::default().fg(spec.warning),
+    )));
+    lines.push(Line::from(Span::styled(
+        "  export SB_BOOKMARK_1=\"$HOME/.config\"",
+        Style::default().fg(spec.text_dim),
+    )));
+    lines.push(Line::from(Span::styled(
+        "  export SB_BOOKMARK_2=\"/var/log\"",
+        Style::default().fg(spec.text_dim),
+    )));
+    let bm_h = (lines.len() as u16 + 4)
+        .max(17)
+        .min(tab_overlay_anchor.height);
+    let bm_area = Rect::new(tab_overlay_anchor.x, tab_overlay_anchor.y, bm_w, bm_h);
     f.render_widget(Clear, bm_area);
     let bm_inner = render_overlay_block(f, bm_area, panel_tab, theme_id, nerd_font);
     let bm_chunks = Layout::default()
@@ -569,7 +736,11 @@ pub fn render_bookmarks_overlay(
         Paragraph::new(shortcut_footer_lines(footer_entries, theme_id, nerd_font)),
         bm_chunks[1],
     );
-    footer_zones.extend(footer_shortcut_zones(footer_entries, bm_chunks[1], nerd_font));
+    footer_zones.extend(footer_shortcut_zones(
+        footer_entries,
+        bm_chunks[1],
+        nerd_font,
+    ));
 }
 
 pub fn render_sort_overlay(
@@ -622,7 +793,11 @@ pub fn render_sort_overlay(
         let style = if is_selected {
             Style::default()
                 .bg(spec.bg_selected)
-                .fg(crate::ui::palette::readable_fg(spec.bg_selected, Color::Black, spec.text_normal))
+                .fg(crate::ui::palette::readable_fg(
+                    spec.bg_selected,
+                    Color::Black,
+                    spec.text_normal,
+                ))
         } else if is_current {
             Style::default().fg(spec.warning)
         } else {
@@ -636,13 +811,10 @@ pub fn render_sort_overlay(
         ]));
     }
 
-    let sort_h = (lines.len() as u16 + 4).max(10).min(tab_overlay_anchor.height);
-    let sort_area = Rect::new(
-        tab_overlay_anchor.x,
-        tab_overlay_anchor.y,
-        sort_w,
-        sort_h,
-    );
+    let sort_h = (lines.len() as u16 + 4)
+        .max(10)
+        .min(tab_overlay_anchor.height);
+    let sort_area = Rect::new(tab_overlay_anchor.x, tab_overlay_anchor.y, sort_w, sort_h);
     f.render_widget(Clear, sort_area);
     let sort_inner = render_overlay_block(f, sort_area, panel_tab, theme_id, nerd_font_active);
     let sort_chunks = Layout::default()
@@ -657,10 +829,18 @@ pub fn render_sort_overlay(
         ("Esc", "close"),
     ];
     f.render_widget(
-        Paragraph::new(shortcut_footer_lines(footer_entries, theme_id, nerd_font_active)),
+        Paragraph::new(shortcut_footer_lines(
+            footer_entries,
+            theme_id,
+            nerd_font_active,
+        )),
         sort_chunks[1],
     );
-    footer_zones.extend(footer_shortcut_zones(footer_entries, sort_chunks[1], nerd_font_active));
+    footer_zones.extend(footer_shortcut_zones(
+        footer_entries,
+        sort_chunks[1],
+        nerd_font_active,
+    ));
 }
 
 /// Validation indicator shown at the end of a Settings row (used for the API
@@ -742,11 +922,19 @@ pub fn render_settings_overlay(
         } else {
             base_text
         };
-        let value_fg = if row.dim_value { spec.text_dim } else { spec.text_normal };
+        let value_fg = if row.dim_value {
+            spec.text_dim
+        } else {
+            spec.text_normal
+        };
         let style = if is_selected {
             Style::default()
                 .bg(spec.bg_selected)
-                .fg(crate::ui::palette::readable_fg(spec.bg_selected, Color::Black, spec.text_normal))
+                .fg(crate::ui::palette::readable_fg(
+                    spec.bg_selected,
+                    Color::Black,
+                    spec.text_normal,
+                ))
         } else {
             Style::default().fg(value_fg)
         };
@@ -763,13 +951,10 @@ pub fn render_settings_overlay(
         lines.push(Line::from(spans));
     }
 
-    let set_h = (lines.len() as u16 + 4).max(10).min(tab_overlay_anchor.height);
-    let set_area = Rect::new(
-        tab_overlay_anchor.x,
-        tab_overlay_anchor.y,
-        set_w,
-        set_h,
-    );
+    let set_h = (lines.len() as u16 + 4)
+        .max(10)
+        .min(tab_overlay_anchor.height);
+    let set_area = Rect::new(tab_overlay_anchor.x, tab_overlay_anchor.y, set_w, set_h);
     f.render_widget(Clear, set_area);
     let set_inner = render_overlay_block(f, set_area, panel_tab, theme_id, nerd_font_active);
     let set_chunks = Layout::default()
@@ -785,10 +970,18 @@ pub fn render_settings_overlay(
         ("Esc", "close"),
     ];
     f.render_widget(
-        Paragraph::new(shortcut_footer_lines(footer_entries, theme_id, nerd_font_active)),
+        Paragraph::new(shortcut_footer_lines(
+            footer_entries,
+            theme_id,
+            nerd_font_active,
+        )),
         set_chunks[1],
     );
-    footer_zones.extend(footer_shortcut_zones(footer_entries, set_chunks[1], nerd_font_active));
+    footer_zones.extend(footer_shortcut_zones(
+        footer_entries,
+        set_chunks[1],
+        nerd_font_active,
+    ));
 }
 
 /// Render the Shortcuts panel: every rebindable Browsing-mode command grouped
@@ -868,14 +1061,22 @@ pub fn render_shortcuts_overlay(
         let style = if is_selected {
             Style::default()
                 .bg(spec.bg_selected)
-                .fg(crate::ui::palette::readable_fg(spec.bg_selected, Color::Black, spec.text_normal))
+                .fg(crate::ui::palette::readable_fg(
+                    spec.bg_selected,
+                    Color::Black,
+                    spec.text_normal,
+                ))
         } else if is_custom {
             Style::default().fg(spec.key_label)
         } else {
             Style::default().fg(spec.text_normal)
         };
         let (left_cap, right_cap) = selector_edge_spans(is_selected, spec, nerd_font_active);
-        lines.push(Line::from(vec![left_cap, Span::styled(row_text, style), right_cap]));
+        lines.push(Line::from(vec![
+            left_cap,
+            Span::styled(row_text, style),
+            right_cap,
+        ]));
     }
 
     let sc_area = Rect::new(
@@ -922,10 +1123,18 @@ pub fn render_shortcuts_overlay(
         ("Esc", "close"),
     ];
     f.render_widget(
-        Paragraph::new(shortcut_footer_lines(footer_entries, theme_id, nerd_font_active)),
+        Paragraph::new(shortcut_footer_lines(
+            footer_entries,
+            theme_id,
+            nerd_font_active,
+        )),
         sc_chunks[1],
     );
-    footer_zones.extend(footer_shortcut_zones(footer_entries, sc_chunks[1], nerd_font_active));
+    footer_zones.extend(footer_shortcut_zones(
+        footer_entries,
+        sc_chunks[1],
+        nerd_font_active,
+    ));
 }
 
 /// One row of the Plugins panel (built by the render caller from the
@@ -1005,9 +1214,13 @@ pub fn render_plugins_overlay(
             base_text
         };
         let style = if is_selected {
-            Style::default().bg(spec.bg_selected).fg(
-                crate::ui::palette::readable_fg(spec.bg_selected, Color::Black, spec.text_normal),
-            )
+            Style::default()
+                .bg(spec.bg_selected)
+                .fg(crate::ui::palette::readable_fg(
+                    spec.bg_selected,
+                    Color::Black,
+                    spec.text_normal,
+                ))
         } else if row.state == "error" {
             Style::default().fg(spec.error)
         } else if row.state == "off" {
@@ -1016,7 +1229,11 @@ pub fn render_plugins_overlay(
             Style::default().fg(spec.text_normal)
         };
         let (left_cap, right_cap) = selector_edge_spans(is_selected, spec, nerd_font_active);
-        lines.push(Line::from(vec![left_cap, Span::styled(row_text, style), right_cap]));
+        lines.push(Line::from(vec![
+            left_cap,
+            Span::styled(row_text, style),
+            right_cap,
+        ]));
     }
 
     let pl_area = Rect::new(
@@ -1046,7 +1263,10 @@ pub fn render_plugins_overlay(
     } else {
         0
     };
-    f.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), content_area);
+    f.render_widget(
+        Paragraph::new(lines).scroll((scroll as u16, 0)),
+        content_area,
+    );
     if content_area.width > 2 && total_rows > visible_rows {
         let sb_area = Rect::new(
             pl_area.x + pl_area.width.saturating_sub(1),
@@ -1082,10 +1302,18 @@ pub fn render_plugins_overlay(
         ("Esc", "close"),
     ];
     f.render_widget(
-        Paragraph::new(shortcut_footer_lines(footer_entries, theme_id, nerd_font_active)),
+        Paragraph::new(shortcut_footer_lines(
+            footer_entries,
+            theme_id,
+            nerd_font_active,
+        )),
         pl_chunks[2],
     );
-    footer_zones.extend(footer_shortcut_zones(footer_entries, pl_chunks[2], nerd_font_active));
+    footer_zones.extend(footer_shortcut_zones(
+        footer_entries,
+        pl_chunks[2],
+        nerd_font_active,
+    ));
 }
 
 pub struct ThemesOverlayState {
@@ -1138,7 +1366,9 @@ pub fn render_themes_overlay(
 
     // Top toggle row: enable/disable Nerd Font glyphs (persisted to config).
     let nerd_base_style = if nerd_focus {
-        Style::default().bg(current.bg_selected).fg(current.selected_fg)
+        Style::default()
+            .bg(current.bg_selected)
+            .fg(current.selected_fg)
     } else {
         Style::default().fg(current.text_normal)
     };
@@ -1150,7 +1380,10 @@ pub fn render_themes_overlay(
         if nerd_font { "[x]" } else { "[ ]" }
     );
     let (nerd_left_cap, nerd_right_cap) = selector_edge_spans(nerd_focus, current, nerd_font);
-    let mut nerd_row = vec![nerd_left_cap, Span::styled(nerd_text.clone(), nerd_base_style)];
+    let mut nerd_row = vec![
+        nerd_left_cap,
+        Span::styled(nerd_text.clone(), nerd_base_style),
+    ];
     if nerd_focus {
         let used_w = UnicodeWidthStr::width(nerd_text.as_str());
         if theme_row_inner_w > used_w {
@@ -1164,7 +1397,9 @@ pub fn render_themes_overlay(
 
     // Second toggle row: filename-color mode (Full / Less / White), persisted.
     let color_base_style = if color_focus {
-        Style::default().bg(current.bg_selected).fg(current.selected_fg)
+        Style::default()
+            .bg(current.bg_selected)
+            .fg(current.selected_fg)
     } else {
         Style::default().fg(current.text_normal)
     };
@@ -1176,7 +1411,10 @@ pub fn render_themes_overlay(
         color_mode.label()
     );
     let (color_left_cap, color_right_cap) = selector_edge_spans(color_focus, current, nerd_font);
-    let mut color_row = vec![color_left_cap, Span::styled(color_text.clone(), color_base_style)];
+    let mut color_row = vec![
+        color_left_cap,
+        Span::styled(color_text.clone(), color_base_style),
+    ];
     if color_focus {
         let used_w = UnicodeWidthStr::width(color_text.as_str());
         if theme_row_inner_w > used_w {
@@ -1191,7 +1429,9 @@ pub fn render_themes_overlay(
     // Third toggle row: disable the header clock (show the disk-usage pill
     // instead), persisted to config.
     let clock_base_style = if clock_focus {
-        Style::default().bg(current.bg_selected).fg(current.selected_fg)
+        Style::default()
+            .bg(current.bg_selected)
+            .fg(current.selected_fg)
     } else {
         Style::default().fg(current.text_normal)
     };
@@ -1203,7 +1443,10 @@ pub fn render_themes_overlay(
         if disable_clock { "[x]" } else { "[ ]" }
     );
     let (clock_left_cap, clock_right_cap) = selector_edge_spans(clock_focus, current, nerd_font);
-    let mut clock_row = vec![clock_left_cap, Span::styled(clock_text.clone(), clock_base_style)];
+    let mut clock_row = vec![
+        clock_left_cap,
+        Span::styled(clock_text.clone(), clock_base_style),
+    ];
     if clock_focus {
         let used_w = UnicodeWidthStr::width(clock_text.as_str());
         if theme_row_inner_w > used_w {
@@ -1230,7 +1473,9 @@ pub fn render_themes_overlay(
         let is_applied = theme.id == theme_id;
         let spec = theme_spec(theme.id);
         let base_style = if is_selected {
-            Style::default().bg(current.bg_selected).fg(current.selected_fg)
+            Style::default()
+                .bg(current.bg_selected)
+                .fg(current.selected_fg)
         } else {
             Style::default().fg(current.text_normal)
         };
@@ -1252,7 +1497,10 @@ pub fn render_themes_overlay(
             left_cap,
             Span::styled(row_text, base_style),
             Span::styled("  ", swatch_bg),
-            Span::styled("bg", Style::default().bg(spec.bg_panel).fg(spec.text_normal)),
+            Span::styled(
+                "bg",
+                Style::default().bg(spec.bg_panel).fg(spec.text_normal),
+            ),
             Span::styled(" ", swatch_bg),
             Span::styled("██", swatch_bg.fg(spec.text_normal)),
             Span::styled(" ", swatch_bg),
@@ -1267,14 +1515,19 @@ pub fn render_themes_overlay(
         if is_selected {
             let used_w = row_text_w + 19;
             if theme_row_inner_w > used_w {
-                row.push(Span::styled(" ".repeat(theme_row_inner_w - used_w), swatch_bg));
+                row.push(Span::styled(
+                    " ".repeat(theme_row_inner_w - used_w),
+                    swatch_bg,
+                ));
             }
         }
         row.push(right_cap);
         lines.push(Line::from(row));
     }
 
-    let theme_h = (lines.len() as u16 + 7).max(12).min(tab_overlay_anchor.height);
+    let theme_h = (lines.len() as u16 + 7)
+        .max(12)
+        .min(tab_overlay_anchor.height);
     let theme_area = Rect::new(tab_overlay_anchor.x, tab_overlay_anchor.y, theme_w, theme_h);
     f.render_widget(Clear, theme_area);
     let theme_inner = render_overlay_block(f, theme_area, panel_tab, theme_id, nerd_font);
@@ -1302,7 +1555,10 @@ pub fn render_themes_overlay(
         0
     };
     let needs_scroll = total_lines > content_h && theme_chunks[0].width > 1;
-    f.render_widget(Paragraph::new(lines).scroll((offset as u16, 0)), theme_chunks[0]);
+    f.render_widget(
+        Paragraph::new(lines).scroll((offset as u16, 0)),
+        theme_chunks[0],
+    );
     if needs_scroll {
         // Draw the scrollbar on the box's right border column (matching the
         // Integrations panel) so its track blends into the frame line.
@@ -1323,7 +1579,11 @@ pub fn render_themes_overlay(
         Paragraph::new(shortcut_footer_lines(footer_entries, theme_id, nerd_font)),
         theme_chunks[1],
     );
-    footer_zones.extend(footer_shortcut_zones(footer_entries, theme_chunks[1], nerd_font));
+    footer_zones.extend(footer_shortcut_zones(
+        footer_entries,
+        theme_chunks[1],
+        nerd_font,
+    ));
 }
 
 #[cfg(test)]
@@ -1349,7 +1609,10 @@ mod tests {
         let last = PANEL_TABS.len() - 1;
         // Narrow bar: active at the far right must stay in view.
         let (lo, hi, more_left, more_right) = visible_tab_window(last as u8 as usize, 30);
-        assert!(lo <= last && hi == last, "active {last} must be visible: {lo}..={hi}");
+        assert!(
+            lo <= last && hi == last,
+            "active {last} must be visible: {lo}..={hi}"
+        );
         assert!(more_left, "tabs are hidden to the left");
         assert!(!more_right, "nothing hidden past the last tab");
 
@@ -1412,8 +1675,10 @@ mod tests {
         ];
         let area = ratatui::layout::Rect::new(0, 0, 80, 2);
         let zones = footer_shortcut_zones(entries, area, false);
-        let mapped: Vec<(KeyCode, u16, u16, u16)> =
-            zones.iter().map(|(e, a, b, y)| (e.code, *a, *b, *y)).collect();
+        let mapped: Vec<(KeyCode, u16, u16, u16)> = zones
+            .iter()
+            .map(|(e, a, b, y)| (e.code, *a, *b, *y))
+            .collect();
         assert_eq!(
             mapped,
             vec![

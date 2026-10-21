@@ -49,7 +49,12 @@ pub fn pipe_to_pager(mut cmd: Command) -> bool {
 /// leaving the terminal otherwise inherited so stdin-fed diff pagers like
 /// `diffnav` can take over the screen. Returns whether the pager ran and
 /// exited successfully, so callers can fall back to another diff viewer.
-pub fn pipe_git_to_tool<P: AsRef<Path>>(cwd: P, git_args: &[&str], tool: &str, tool_args: &[&str]) -> bool {
+pub fn pipe_git_to_tool<P: AsRef<Path>>(
+    cwd: P,
+    git_args: &[&str],
+    tool: &str,
+    tool_args: &[&str],
+) -> bool {
     let Ok(mut git) = Command::new("git")
         .args(git_args)
         .current_dir(cwd.as_ref())
@@ -128,6 +133,72 @@ pub fn status_ignoring_sigint(cmd: &mut Command) -> io::Result<std::process::Exi
     #[cfg(not(unix))]
     {
         cmd.status()
+    }
+}
+
+/// Run `cmd` detached from the tty with stdout/stderr captured, killing it
+/// (and everything it spawned) if it hasn't exited within `timeout`.
+///
+/// The child leads its own session ([`detach_from_tty`]), so on timeout the
+/// whole process group is killed — otherwise a `sh -c` grandchild would keep
+/// the pipes open and the reader threads would never finish.
+pub fn output_with_timeout(mut cmd: Command, timeout: Duration) -> io::Result<Output> {
+    detach_from_tty(&mut cmd);
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let read_all = |pipe: Option<Box<dyn Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(mut p) = pipe {
+                let _ = p.read_to_end(&mut buf);
+            }
+            buf
+        })
+    };
+    let stdout = read_all(
+        child
+            .stdout
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+    let stderr = read_all(
+        child
+            .stderr
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break Some(status);
+        }
+        if Instant::now() >= deadline {
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL);
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+            break None;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    let stdout = stdout.join().unwrap_or_default();
+    let stderr = stderr.join().unwrap_or_default();
+    match status {
+        Some(status) => Ok(Output {
+            status,
+            stdout,
+            stderr,
+        }),
+        None => Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            format!("timed out after {}s", timeout.as_secs()),
+        )),
     }
 }
 
@@ -215,12 +286,12 @@ impl CommandBuilder {
         let path_str = mount_point.to_string_lossy();
 
         let variants: &[(&str, &[&str])] = &[
-            ("fusermount",  &["-u",  &path_str]),
-            ("fusermount3", &["-u",  &path_str]),
-            ("fusermount",  &["-uz", &path_str]),
+            ("fusermount", &["-u", &path_str]),
+            ("fusermount3", &["-u", &path_str]),
+            ("fusermount", &["-uz", &path_str]),
             ("fusermount3", &["-uz", &path_str]),
-            ("umount",      &[        &path_str]),
-            ("umount",      &["-l",   &path_str]),
+            ("umount", &[&path_str]),
+            ("umount", &["-l", &path_str]),
         ];
 
         for (tool, args) in variants {
@@ -229,14 +300,13 @@ impl CommandBuilder {
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .status()
-                && status.success() {
-                    return Ok(());
-                }
+                && status.success()
+            {
+                return Ok(());
+            }
         }
 
-        Err(io::Error::other(
-            format!("Failed to unmount {}", path_str),
-        ))
+        Err(io::Error::other(format!("Failed to unmount {}", path_str)))
     }
 
     /// Append the `wget`/`curl` arguments that download `url` to `output_path`,
@@ -271,7 +341,12 @@ impl CommandBuilder {
     ///
     /// `on_progress` receives a short snippet suitable for a status/footer line. Callbacks are
     /// throttled and coalesced so callers can forward them to a UI without flooding.
-    pub fn download_with_progress<F>(tool: &str, url: &str, output_path: &Path, mut on_progress: F) -> Result<(), String>
+    pub fn download_with_progress<F>(
+        tool: &str,
+        url: &str,
+        output_path: &Path,
+        mut on_progress: F,
+    ) -> Result<(), String>
     where
         F: FnMut(&str),
     {
@@ -305,12 +380,17 @@ impl CommandBuilder {
         cmd.stderr(Stdio::piped());
 
         let mut child = cmd.spawn().map_err(|e| e.to_string())?;
-        let mut stderr = child.stderr.take().ok_or_else(|| "no stderr pipe".to_string())?;
+        let mut stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| "no stderr pipe".to_string())?;
 
         let mut raw_buf = Vec::new();
         let mut err_accum = String::new();
         let mut read_buf = [0u8; 4096];
-        let mut last_emit = Instant::now().checked_sub(Duration::from_secs(1)).unwrap_or_else(Instant::now);
+        let mut last_emit = Instant::now()
+            .checked_sub(Duration::from_secs(1))
+            .unwrap_or_else(Instant::now);
         let throttle = Duration::from_millis(200);
         let mut last_hint: Option<String> = None;
 
@@ -369,5 +449,27 @@ impl CommandBuilder {
             };
             Err(detail)
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod timeout_tests {
+    use super::*;
+
+    #[test]
+    fn output_with_timeout_captures_and_kills() {
+        let mut ok = Command::new("sh");
+        ok.args(["-c", "echo out; echo err >&2"]);
+        let out = output_with_timeout(ok, Duration::from_secs(5)).unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "out\n");
+        assert_eq!(String::from_utf8_lossy(&out.stderr), "err\n");
+
+        // The grandchild `sleep` inherits the pipes; it must die too or this hangs.
+        let mut slow = Command::new("sh");
+        slow.args(["-c", "sleep 30 | cat"]);
+        let start = Instant::now();
+        let err = output_with_timeout(slow, Duration::from_millis(200)).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::TimedOut);
+        assert!(start.elapsed() < Duration::from_secs(5));
     }
 }

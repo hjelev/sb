@@ -53,7 +53,8 @@ impl App {
     pub(crate) fn consume_quick_tree_double_tap(&mut self, key: char) -> bool {
         let now = Instant::now();
         let is_double = self
-            .tree.last_tap
+            .tree
+            .last_tap
             .map(|(last_key, last_ts)| {
                 last_key == key
                     && now.duration_since(last_ts)
@@ -87,8 +88,7 @@ impl App {
         read_dir
             .filter_map(|entry| entry.ok())
             .filter(|entry| {
-                self.active_panel_show_hidden()
-                    || !crate::util::classify::is_hidden_entry(entry)
+                self.active_panel_show_hidden() || !crate::util::classify::is_hidden_entry(entry)
             })
             .map(|entry| entry.path())
             .filter(|entry_path| entry_path.is_dir())
@@ -158,7 +158,8 @@ impl App {
         for path in targets {
             let current = self.tree.expansion_levels.get(&path).copied().unwrap_or(0);
             let max_expand = self.max_expand_level_for_dir(&path);
-            self.tree.expansion_levels
+            self.tree
+                .expansion_levels
                 .insert(path, current.saturating_add(step).min(max_expand));
         }
         self.refresh_active_panel_entries_or_status();

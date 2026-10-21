@@ -63,10 +63,15 @@ impl App {
             copy: CopyOperation::default(),
             transfer: TransferState::default(),
             archive: ArchiveOperation::default(),
-            nerd_font_active: env::var("NERD_FONT_ACTIVE").map(|v| v == "1").unwrap_or(false),
+            nerd_font_active: env::var("NERD_FONT_ACTIVE")
+                .map(|v| v == "1")
+                .unwrap_or(false),
             filename_color_mode: FilenameColorMode::Full,
             os_icon: ui::icons::os_nerd_icon().map(|(g, _)| {
-                (g, ui::theme::theme_spec(ui::theme::ThemeId::original()).icon_os)
+                (
+                    g,
+                    ui::theme::theme_spec(ui::theme::ThemeId::original()).icon_os,
+                )
             }),
             no_color: env_flag_true(&["NO_COLOR"]),
             show_icons: env::var("TERMINAL_ICONS").map(|v| v != "0").unwrap_or(true),
@@ -189,12 +194,14 @@ impl App {
         app.ai.api_keys = persist.ai_api_keys.clone();
         // The live buffers show the active provider's model and key.
         app.ai.model = app
-            .ai.models
+            .ai
+            .models
             .get(&app.ai.provider)
             .cloned()
             .unwrap_or_default();
         app.ai.api_key = app
-            .ai.api_keys
+            .ai
+            .api_keys
             .get(&app.ai.provider)
             .cloned()
             .unwrap_or_default();
@@ -323,9 +330,15 @@ impl App {
 
     pub(crate) fn active_selected_entry_path(&self) -> Option<PathBuf> {
         if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
-            self.right.entries.get(self.right.selected_index).map(|e| e.path())
+            self.right
+                .entries
+                .get(self.right.selected_index)
+                .map(|e| e.path())
         } else {
-            self.left.entries.get(self.left.selected_index).map(|e| e.path())
+            self.left
+                .entries
+                .get(self.left.selected_index)
+                .map(|e| e.path())
         }
     }
 
@@ -425,19 +438,13 @@ impl App {
         }
     }
 
-
-
-
-    pub(crate) fn create_temp_selection_path(prefix: &str) -> PathBuf {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        env::temp_dir().join(format!("{}_{}_{}.txt", prefix, std::process::id(), stamp))
+    pub(crate) fn create_temp_selection_path(prefix: &str) -> io::Result<PathBuf> {
+        crate::util::tmp::private_file(&format!("{prefix}_"), ".txt")
     }
 
     pub(crate) fn remote_mount_for_path(&self, path: &PathBuf) -> Option<&SshMount> {
-        self.remote.ssh_mounts
+        self.remote
+            .ssh_mounts
             .iter()
             .filter(|mount| path == &mount.mount_path || path.starts_with(&mount.mount_path))
             .max_by_key(|mount| mount.mount_path.components().count())
@@ -500,7 +507,8 @@ impl App {
     }
 
     pub(crate) fn select_entry_named(&mut self, name: &str) {
-        if let Some(index) = self.left
+        if let Some(index) = self
+            .left
             .entries
             .iter()
             .position(|entry| entry.file_name().to_string_lossy() == name)
@@ -512,7 +520,8 @@ impl App {
 
     pub(crate) fn select_right_entry_named(&mut self, name: &str) {
         if let Some(index) = self
-            .right.entries
+            .right
+            .entries
             .iter()
             .position(|entry| entry.file_name().to_string_lossy() == name)
         {
@@ -522,7 +531,8 @@ impl App {
     }
 
     pub(crate) fn try_enter_parent_dir(&mut self) {
-        let child_name = self.left
+        let child_name = self
+            .left
             .dir
             .file_name()
             .map(|name| name.to_string_lossy().into_owned());
@@ -538,13 +548,15 @@ impl App {
     pub(crate) fn resolve_input_path(&self, raw: &str) -> PathBuf {
         let trimmed = raw.trim();
         if let Some(rest) = trimmed.strip_prefix("~/")
-            && let Ok(home) = env::var("HOME") {
-                return PathBuf::from(home).join(rest);
-            }
+            && let Ok(home) = env::var("HOME")
+        {
+            return PathBuf::from(home).join(rest);
+        }
         if trimmed == "~"
-            && let Ok(home) = env::var("HOME") {
-                return PathBuf::from(home);
-            }
+            && let Ok(home) = env::var("HOME")
+        {
+            return PathBuf::from(home);
+        }
 
         let candidate = PathBuf::from(trimmed);
         if candidate.is_absolute() {
@@ -689,13 +701,14 @@ impl App {
             }
             if let Some(name) = last_created
                 && let Some(index) = self
-                    .right.entries
+                    .right
+                    .entries
                     .iter()
                     .position(|entry| entry.file_name().to_string_lossy() == name)
-                {
-                    self.right.selected_index = index;
-                    self.right.table_state.select(Some(index));
-                }
+            {
+                self.right.selected_index = index;
+                self.right.table_state.select(Some(index));
+            }
         } else {
             self.refresh_entries_or_status();
             if let Some(name) = last_created {
@@ -707,7 +720,11 @@ impl App {
         if failed == 0 {
             self.set_status(format!("created {} item(s)", created.len()));
         } else {
-            self.set_status(format!("created {} item(s), {} failed", created.len(), failed));
+            self.set_status(format!(
+                "created {} item(s), {} failed",
+                created.len(),
+                failed
+            ));
         }
     }
 
@@ -762,7 +779,7 @@ impl App {
             if !self.tree.expansion_levels.is_empty() {
                 let mut filtered_entries = Vec::new();
                 let mut filtered_prefixes = Vec::new();
-                for (entry, prefix) in entries.into_iter().zip(tree_row_prefixes.into_iter()) {
+                for (entry, prefix) in entries.into_iter().zip(tree_row_prefixes) {
                     let name = crate::util::classify::entry_name(&entry);
                     if Self::entry_name_matches_path_filter(&name, &filter_regex) {
                         filtered_entries.push(entry);
@@ -792,7 +809,10 @@ impl App {
         };
         let uid_cache = App::build_uid_cache(&self.left.entries);
         let gid_cache = App::build_gid_cache(&self.left.entries);
-            self.left.entry_render_cache = self.left.entries.iter()
+        self.left.entry_render_cache = self
+            .left
+            .entries
+            .iter()
             .map(|entry| App::build_entry_render_cache(entry, config, &uid_cache, &gid_cache))
             .collect();
         self.apply_cached_folder_size_columns();
@@ -804,7 +824,7 @@ impl App {
         self.clear_current_dir_total_size_state();
         self.clear_selected_total_size_state();
         self.left.marked_indices.clear();
-        
+
         if self.left.entries.is_empty() {
             self.left.selected_index = 0;
             self.left.table_state.select(None);
@@ -828,7 +848,13 @@ impl App {
         if self.right.dir.as_os_str().is_empty() {
             return;
         }
-        if self.notes.right_loaded_for.as_ref().map(|p| p == &self.right.dir).unwrap_or(false) {
+        if self
+            .notes
+            .right_loaded_for
+            .as_ref()
+            .map(|p| p == &self.right.dir)
+            .unwrap_or(false)
+        {
             return;
         }
         let dir = self.right.dir.clone();
@@ -854,7 +880,10 @@ impl App {
                     }
                 }
                 Err(mpsc::TryRecvError::Empty) => break,
-                Err(mpsc::TryRecvError::Disconnected) => { keep_rx = false; break; }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    keep_rx = false;
+                    break;
+                }
             }
         }
         if keep_rx {
@@ -865,28 +894,32 @@ impl App {
     pub(crate) fn delete_targets(&self) -> Vec<PathBuf> {
         if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
             if !self.right.marked_indices.is_empty() {
-                self.right.entries
+                self.right
+                    .entries
                     .iter()
                     .enumerate()
                     .filter(|(i, _)| self.right.marked_indices.contains(i))
                     .map(|(_, e)| e.path())
                     .collect()
             } else {
-                self.right.entries
+                self.right
+                    .entries
                     .get(self.right.selected_index)
                     .map(|e| e.path())
                     .into_iter()
                     .collect()
             }
         } else if !self.left.marked_indices.is_empty() {
-            self.left.entries
+            self.left
+                .entries
                 .iter()
                 .enumerate()
                 .filter(|(i, _)| self.left.marked_indices.contains(i))
                 .map(|(_, e)| e.path())
                 .collect()
         } else {
-            self.left.entries
+            self.left
+                .entries
                 .get(self.left.selected_index)
                 .map(|e| e.path())
                 .into_iter()
@@ -950,7 +983,11 @@ impl App {
         self.set_status("integration install cancelled");
     }
 
-    pub(crate) fn handle_ok_cancel_focus_key(key: KeyCode, focus: &mut u8, allow_hl_tab: bool) -> bool {
+    pub(crate) fn handle_ok_cancel_focus_key(
+        key: KeyCode,
+        focus: &mut u8,
+        allow_hl_tab: bool,
+    ) -> bool {
         match key {
             KeyCode::Left => {
                 *focus = 0;
@@ -972,7 +1009,10 @@ impl App {
         }
     }
 
-    pub(crate) fn handle_confirm_integration_install_key(&mut self, key: KeyEvent) -> io::Result<bool> {
+    pub(crate) fn handle_confirm_integration_install_key(
+        &mut self,
+        key: KeyEvent,
+    ) -> io::Result<bool> {
         if Self::handle_ok_cancel_focus_key(
             key.code,
             &mut self.confirm_integration_install_button_focus,
@@ -1012,14 +1052,16 @@ impl App {
 
         match key.code {
             KeyCode::Up => {
-                self.confirm_delete.scroll_offset = self.confirm_delete.scroll_offset.saturating_sub(1);
+                self.confirm_delete.scroll_offset =
+                    self.confirm_delete.scroll_offset.saturating_sub(1);
             }
             KeyCode::Down => {
                 self.confirm_delete.scroll_offset =
                     (self.confirm_delete.scroll_offset + 1).min(self.confirm_delete.max_offset);
             }
             KeyCode::PageUp => {
-                self.confirm_delete.scroll_offset = self.confirm_delete.scroll_offset.saturating_sub(8);
+                self.confirm_delete.scroll_offset =
+                    self.confirm_delete.scroll_offset.saturating_sub(8);
             }
             KeyCode::PageDown => {
                 self.confirm_delete.scroll_offset =
@@ -1088,15 +1130,12 @@ impl App {
         }
     }
 
-
-
-
-
-
-
-
-
-    pub(crate) fn panel_tab_bar_line(active: u8, theme_id: ui::theme::ThemeId, nerd_font: bool, avail_width: u16) -> Line<'static> {
+    pub(crate) fn panel_tab_bar_line(
+        active: u8,
+        theme_id: ui::theme::ThemeId,
+        nerd_font: bool,
+        avail_width: u16,
+    ) -> Line<'static> {
         ui::panels::panel_tab_bar_line(active, theme_id, nerd_font, avail_width)
     }
 
@@ -1188,18 +1227,25 @@ impl App {
 
     pub(crate) fn load_bookmarks() -> Vec<(usize, Option<PathBuf>)> {
         let cfg = crate::util::config::SbPersistConfig::load();
-        (0..=9).map(|i| {
-            // Tombstone: config explicitly marks this slot deleted — overrides env var
-            if cfg.bookmarks.get(&(i as u8)).map(|v| v == "<deleted>").unwrap_or(false) {
-                return (i, None);
-            }
-            let path = env::var(format!("SB_BOOKMARK_{}", i))
-                .ok()
-                .or_else(|| cfg.bookmarks.get(&(i as u8)).cloned())
-                .map(PathBuf::from)
-                .filter(|p| p.is_dir());
-            (i, path)
-        }).collect()
+        (0..=9)
+            .map(|i| {
+                // Tombstone: config explicitly marks this slot deleted — overrides env var
+                if cfg
+                    .bookmarks
+                    .get(&(i as u8))
+                    .map(|v| v == "<deleted>")
+                    .unwrap_or(false)
+                {
+                    return (i, None);
+                }
+                let path = env::var(format!("SB_BOOKMARK_{}", i))
+                    .ok()
+                    .or_else(|| cfg.bookmarks.get(&(i as u8)).cloned())
+                    .map(PathBuf::from)
+                    .filter(|p| p.is_dir());
+                (i, path)
+            })
+            .collect()
     }
 
     pub(crate) fn delete_bookmark(&mut self, idx: usize) {
@@ -1218,7 +1264,11 @@ impl App {
     }
 
     pub(crate) fn handle_confirm_delete_bookmark_key(&mut self, key: KeyEvent) {
-        if Self::handle_ok_cancel_focus_key(key.code, &mut self.confirm_delete.bookmark_button_focus, false) {
+        if Self::handle_ok_cancel_focus_key(
+            key.code,
+            &mut self.confirm_delete.bookmark_button_focus,
+            false,
+        ) {
             return;
         }
         match key.code {
@@ -1239,5 +1289,4 @@ impl App {
             _ => {}
         }
     }
-
 }

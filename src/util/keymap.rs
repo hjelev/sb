@@ -85,7 +85,10 @@ impl KeyCombo {
             "backspace" | "bksp" => KeyCode::Backspace,
             "del" | "delete" => KeyCode::Delete,
             "ins" | "insert" => KeyCode::Insert,
-            k if k.len() >= 2 && k.starts_with('f') && k[1..].chars().all(|c| c.is_ascii_digit()) => {
+            k if k.len() >= 2
+                && k.starts_with('f')
+                && k[1..].chars().all(|c| c.is_ascii_digit()) =>
+            {
                 let n: u8 = k[1..].parse().ok()?;
                 if !(1..=12).contains(&n) {
                     return None;
@@ -129,7 +132,7 @@ impl KeyCombo {
     }
 
     /// The config-file form (`ctrl+s`, `G`, `f6`).
-    pub fn to_config_string(&self) -> String {
+    pub fn to_config_string(self) -> String {
         let mut s = String::new();
         if self.mods.contains(KeyModifiers::CONTROL) {
             s.push_str("ctrl+");
@@ -239,49 +242,350 @@ const EXT: &str = "Search & External";
 const SYS: &str = "System & Git";
 
 pub static ACTIONS: &[ActionSpec] = &[
-    ActionSpec { action: Action::FolderFilter, id: "folder_filter", label: "Filter folder by name/regex", category: NAV, default: KeyCombo::char('/'), fixed_alt: None },
-    ActionSpec { action: Action::TogglePreview, id: "toggle_preview", label: "Toggle preview mode", category: NAV, default: KeyCombo::char('`'), fixed_alt: None },
-    ActionSpec { action: Action::ToggleFolderSizes, id: "toggle_folder_sizes", label: "Toggle folder size calc", category: NAV, default: KeyCombo::char('s'), fixed_alt: None },
-    ActionSpec { action: Action::SortMenu, id: "sort_menu", label: "Open sorting menu", category: NAV, default: KeyCombo::ctrl('s'), fixed_alt: None },
-    ActionSpec { action: Action::ToggleHidden, id: "toggle_hidden", label: "Toggle hidden files", category: NAV, default: KeyCombo::char('.'), fixed_alt: None },
-    ActionSpec { action: Action::GoHome, id: "go_home", label: "Go to home directory", category: NAV, default: KeyCombo::char('~'), fixed_alt: None },
-    ActionSpec { action: Action::TreeExpand, id: "tree_expand", label: "Expand tree on selected dirs", category: NAV, default: KeyCombo::char('+'), fixed_alt: None },
-    ActionSpec { action: Action::TreeCollapse, id: "tree_collapse", label: "Collapse tree", category: NAV, default: KeyCombo::char('-'), fixed_alt: None },
-    ActionSpec { action: Action::MarkAll, id: "mark_all", label: "Toggle all marks in directory", category: SEL, default: KeyCombo::char('*'), fixed_alt: None },
-    ActionSpec { action: Action::NoteEdit, id: "note_edit", label: "Add/edit note for selected item", category: SEL, default: KeyCombo::ctrl('n'), fixed_alt: None },
-    ActionSpec { action: Action::CopyPaths, id: "copy_paths", label: "Copy full path(s) to clipboard", category: SEL, default: KeyCombo::ctrl('c'), fixed_alt: None },
-    ActionSpec { action: Action::EditClipboard, id: "edit_clipboard", label: "Edit system clipboard", category: SEL, default: KeyCombo::ctrl('e'), fixed_alt: None },
-    ActionSpec { action: Action::NewFile, id: "new_file", label: "New 'file' or '/folder'", category: OPS, default: KeyCombo::char('n'), fixed_alt: None },
-    ActionSpec { action: Action::Copy, id: "copy", label: "Copy marked to app clipboard", category: OPS, default: KeyCombo::char('c'), fixed_alt: Some("F5") },
-    ActionSpec { action: Action::Paste, id: "paste", label: "Paste clipboard to folder", category: OPS, default: KeyCombo::char('v'), fixed_alt: None },
-    ActionSpec { action: Action::Move, id: "move", label: "Move clipboard to folder", category: OPS, default: KeyCombo::char('m'), fixed_alt: None },
-    ActionSpec { action: Action::Rename, id: "rename", label: "Rename or bulk rename", category: OPS, default: KeyCombo::char('r'), fixed_alt: Some("F2") },
-    ActionSpec { action: Action::Edit, id: "edit", label: "Edit file (or rename folder)", category: OPS, default: KeyCombo::char('e'), fixed_alt: Some("F4") },
-    ActionSpec { action: Action::Delete, id: "delete", label: "Delete selected item(s)", category: OPS, default: KeyCombo::char('d'), fixed_alt: Some("Del") },
-    ActionSpec { action: Action::ToggleExec, id: "toggle_exec", label: "Toggle executable flag", category: OPS, default: KeyCombo::char('x'), fixed_alt: None },
-    ActionSpec { action: Action::Zip, id: "zip", label: "Create or extract archive", category: OPS, default: KeyCombo::char('Z'), fixed_alt: None },
-    ActionSpec { action: Action::OpenDefault, id: "open_default", label: "Open with default GUI app", category: OPS, default: KeyCombo::char('o'), fixed_alt: None },
-    ActionSpec { action: Action::AgeProtect, id: "age_protect", label: "Protect file with age", category: OPS, default: KeyCombo::char('p'), fixed_alt: None },
-    ActionSpec { action: Action::ViewFile, id: "view_file", label: "View file in pager", category: OPS, default: KeyCombo::char('l'), fixed_alt: None },
-    ActionSpec { action: Action::Download, id: "download", label: "Download URL", category: OPS, default: KeyCombo::char('w'), fixed_alt: None },
-    ActionSpec { action: Action::FzfFind, id: "fzf_find", label: "Fuzzy file search", category: EXT, default: KeyCombo::char('f'), fixed_alt: None },
-    ActionSpec { action: Action::Grep, id: "grep", label: "Content search", category: EXT, default: KeyCombo::char('g'), fixed_alt: None },
-    ActionSpec { action: Action::RemoteMounts, id: "remote_mounts", label: "Open SSH/rclone mount picker", category: EXT, default: KeyCombo::char('S'), fixed_alt: None },
-    ActionSpec { action: Action::DeltaCompare, id: "delta_compare", label: "Delta compare (marked vs cursor)", category: EXT, default: KeyCombo::char('C'), fixed_alt: None },
-    ActionSpec { action: Action::SplitLess, id: "split_less", label: "Split shell + preview", category: EXT, default: KeyCombo::char('i'), fixed_alt: None },
-    ActionSpec { action: Action::SplitEditor, id: "split_editor", label: "Split shell + edit", category: EXT, default: KeyCombo::char('E'), fixed_alt: None },
-    ActionSpec { action: Action::Integrations, id: "integrations", label: "Open integrations panel", category: EXT, default: KeyCombo::char('I'), fixed_alt: None },
-    ActionSpec { action: Action::Bookmarks, id: "bookmarks", label: "Open bookmarks", category: EXT, default: KeyCombo::char('b'), fixed_alt: None },
-    ActionSpec { action: Action::Themes, id: "themes", label: "Open themes panel", category: EXT, default: KeyCombo::char('T'), fixed_alt: None },
-    ActionSpec { action: Action::Plugins, id: "plugins", label: "Open plugins panel", category: EXT, default: KeyCombo::char('P'), fixed_alt: None },
-    ActionSpec { action: Action::GitCommit, id: "git_commit", label: "Git: commit + push", category: SYS, default: KeyCombo::char('G'), fixed_alt: None },
-    ActionSpec { action: Action::GitLog, id: "git_log", label: "Git: view pretty log graph", category: SYS, default: KeyCombo::char('H'), fixed_alt: None },
-    ActionSpec { action: Action::DropShell, id: "drop_shell", label: "Drop to shell in current dir", category: SYS, default: KeyCombo::ctrl('z'), fixed_alt: None },
-    ActionSpec { action: Action::TodoFile, id: "todo_file", label: "Open ~/.todo in $EDITOR", category: SYS, default: KeyCombo::char('t'), fixed_alt: None },
-    ActionSpec { action: Action::CommandInput, id: "command_input", label: "Run shell command", category: SYS, default: KeyCombo::char(';'), fixed_alt: None },
-    ActionSpec { action: Action::Organize, id: "organize", label: "AI: organize current folder", category: SYS, default: KeyCombo::ctrl('o'), fixed_alt: None },
-    ActionSpec { action: Action::Help, id: "help", label: "Open help screen", category: SYS, default: KeyCombo::char('h'), fixed_alt: None },
-    ActionSpec { action: Action::Quit, id: "quit", label: "Quit Shell Buddy", category: SYS, default: KeyCombo::char('q'), fixed_alt: Some("Esc") },
+    ActionSpec {
+        action: Action::FolderFilter,
+        id: "folder_filter",
+        label: "Filter folder by name/regex",
+        category: NAV,
+        default: KeyCombo::char('/'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::TogglePreview,
+        id: "toggle_preview",
+        label: "Toggle preview mode",
+        category: NAV,
+        default: KeyCombo::char('`'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::ToggleFolderSizes,
+        id: "toggle_folder_sizes",
+        label: "Toggle folder size calc",
+        category: NAV,
+        default: KeyCombo::char('s'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::SortMenu,
+        id: "sort_menu",
+        label: "Open sorting menu",
+        category: NAV,
+        default: KeyCombo::ctrl('s'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::ToggleHidden,
+        id: "toggle_hidden",
+        label: "Toggle hidden files",
+        category: NAV,
+        default: KeyCombo::char('.'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::GoHome,
+        id: "go_home",
+        label: "Go to home directory",
+        category: NAV,
+        default: KeyCombo::char('~'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::TreeExpand,
+        id: "tree_expand",
+        label: "Expand tree on selected dirs",
+        category: NAV,
+        default: KeyCombo::char('+'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::TreeCollapse,
+        id: "tree_collapse",
+        label: "Collapse tree",
+        category: NAV,
+        default: KeyCombo::char('-'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::MarkAll,
+        id: "mark_all",
+        label: "Toggle all marks in directory",
+        category: SEL,
+        default: KeyCombo::char('*'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::NoteEdit,
+        id: "note_edit",
+        label: "Add/edit note for selected item",
+        category: SEL,
+        default: KeyCombo::ctrl('n'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::CopyPaths,
+        id: "copy_paths",
+        label: "Copy full path(s) to clipboard",
+        category: SEL,
+        default: KeyCombo::ctrl('c'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::EditClipboard,
+        id: "edit_clipboard",
+        label: "Edit system clipboard",
+        category: SEL,
+        default: KeyCombo::ctrl('e'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::NewFile,
+        id: "new_file",
+        label: "New 'file' or '/folder'",
+        category: OPS,
+        default: KeyCombo::char('n'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::Copy,
+        id: "copy",
+        label: "Copy marked to app clipboard",
+        category: OPS,
+        default: KeyCombo::char('c'),
+        fixed_alt: Some("F5"),
+    },
+    ActionSpec {
+        action: Action::Paste,
+        id: "paste",
+        label: "Paste clipboard to folder",
+        category: OPS,
+        default: KeyCombo::char('v'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::Move,
+        id: "move",
+        label: "Move clipboard to folder",
+        category: OPS,
+        default: KeyCombo::char('m'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::Rename,
+        id: "rename",
+        label: "Rename or bulk rename",
+        category: OPS,
+        default: KeyCombo::char('r'),
+        fixed_alt: Some("F2"),
+    },
+    ActionSpec {
+        action: Action::Edit,
+        id: "edit",
+        label: "Edit file (or rename folder)",
+        category: OPS,
+        default: KeyCombo::char('e'),
+        fixed_alt: Some("F4"),
+    },
+    ActionSpec {
+        action: Action::Delete,
+        id: "delete",
+        label: "Delete selected item(s)",
+        category: OPS,
+        default: KeyCombo::char('d'),
+        fixed_alt: Some("Del"),
+    },
+    ActionSpec {
+        action: Action::ToggleExec,
+        id: "toggle_exec",
+        label: "Toggle executable flag",
+        category: OPS,
+        default: KeyCombo::char('x'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::Zip,
+        id: "zip",
+        label: "Create or extract archive",
+        category: OPS,
+        default: KeyCombo::char('Z'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::OpenDefault,
+        id: "open_default",
+        label: "Open with default GUI app",
+        category: OPS,
+        default: KeyCombo::char('o'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::AgeProtect,
+        id: "age_protect",
+        label: "Protect file with age",
+        category: OPS,
+        default: KeyCombo::char('p'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::ViewFile,
+        id: "view_file",
+        label: "View file in pager",
+        category: OPS,
+        default: KeyCombo::char('l'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::Download,
+        id: "download",
+        label: "Download URL",
+        category: OPS,
+        default: KeyCombo::char('w'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::FzfFind,
+        id: "fzf_find",
+        label: "Fuzzy file search",
+        category: EXT,
+        default: KeyCombo::char('f'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::Grep,
+        id: "grep",
+        label: "Content search",
+        category: EXT,
+        default: KeyCombo::char('g'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::RemoteMounts,
+        id: "remote_mounts",
+        label: "Open SSH/rclone mount picker",
+        category: EXT,
+        default: KeyCombo::char('S'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::DeltaCompare,
+        id: "delta_compare",
+        label: "Delta compare (marked vs cursor)",
+        category: EXT,
+        default: KeyCombo::char('C'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::SplitLess,
+        id: "split_less",
+        label: "Split shell + preview",
+        category: EXT,
+        default: KeyCombo::char('i'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::SplitEditor,
+        id: "split_editor",
+        label: "Split shell + edit",
+        category: EXT,
+        default: KeyCombo::char('E'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::Integrations,
+        id: "integrations",
+        label: "Open integrations panel",
+        category: EXT,
+        default: KeyCombo::char('I'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::Bookmarks,
+        id: "bookmarks",
+        label: "Open bookmarks",
+        category: EXT,
+        default: KeyCombo::char('b'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::Themes,
+        id: "themes",
+        label: "Open themes panel",
+        category: EXT,
+        default: KeyCombo::char('T'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::Plugins,
+        id: "plugins",
+        label: "Open plugins panel",
+        category: EXT,
+        default: KeyCombo::char('P'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::GitCommit,
+        id: "git_commit",
+        label: "Git: commit + push",
+        category: SYS,
+        default: KeyCombo::char('G'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::GitLog,
+        id: "git_log",
+        label: "Git: view pretty log graph",
+        category: SYS,
+        default: KeyCombo::char('H'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::DropShell,
+        id: "drop_shell",
+        label: "Drop to shell in current dir",
+        category: SYS,
+        default: KeyCombo::ctrl('z'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::TodoFile,
+        id: "todo_file",
+        label: "Open ~/.todo in $EDITOR",
+        category: SYS,
+        default: KeyCombo::char('t'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::CommandInput,
+        id: "command_input",
+        label: "Run shell command",
+        category: SYS,
+        default: KeyCombo::char(';'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::Organize,
+        id: "organize",
+        label: "AI: organize current folder",
+        category: SYS,
+        default: KeyCombo::ctrl('o'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::Help,
+        id: "help",
+        label: "Open help screen",
+        category: SYS,
+        default: KeyCombo::char('h'),
+        fixed_alt: None,
+    },
+    ActionSpec {
+        action: Action::Quit,
+        id: "quit",
+        label: "Quit Shell Buddy",
+        category: SYS,
+        default: KeyCombo::char('q'),
+        fixed_alt: Some("Esc"),
+    },
 ];
 
 fn action_index(action: Action) -> usize {
@@ -409,7 +713,9 @@ mod tests {
 
     #[test]
     fn parse_roundtrip() {
-        for s in ["c", "G", "ctrl+s", "alt+x", "f6", "+", "ctrl++", "space", "~", ";"] {
+        for s in [
+            "c", "G", "ctrl+s", "alt+x", "f6", "+", "ctrl++", "space", "~", ";",
+        ] {
             let combo = KeyCombo::parse(s).unwrap_or_else(|| panic!("parse {}", s));
             assert_eq!(combo.to_config_string(), s, "roundtrip {}", s);
         }
@@ -462,7 +768,10 @@ mod tests {
             None
         );
         // Conflict detection: 'm' belongs to Move.
-        let rename_idx = ACTIONS.iter().position(|s| s.action == Action::Rename).unwrap();
+        let rename_idx = ACTIONS
+            .iter()
+            .position(|s| s.action == Action::Rename)
+            .unwrap();
         let conflict = map.conflict(KeyCombo::char('m'), rename_idx).unwrap();
         assert_eq!(conflict.action, Action::Move);
         assert!(map.conflict(KeyCombo::char('u'), rename_idx).is_none());

@@ -1,21 +1,19 @@
+use crossterm::{
+    cursor::MoveTo,
+    event::{self, Event, KeyCode},
+    execute,
+    terminal::{Clear as TermClear, ClearType, disable_raw_mode, enable_raw_mode},
+};
 use std::{
     io::{self, Write},
     path::PathBuf,
     time::{Duration, Instant},
 };
-use crossterm::{
-    cursor::MoveTo,
-    event::{self, Event, KeyCode},
-    execute,
-    terminal::{
-        disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType,
-    },
-};
 
-use crate::{App, AppMode, GitInfo, GitInfoCache, GitInfoRef};
 use crate::util::background::{pump_once, spawn_worker};
-use crate::util::command::{pipe_git_to_tool, CommandBuilder};
+use crate::util::command::{CommandBuilder, pipe_git_to_tool};
 use crate::util::tui::{self, ResumeMode};
+use crate::{App, AppMode, GitInfo, GitInfoCache, GitInfoRef};
 
 impl App {
     pub(crate) fn pump_git_info(&mut self) {
@@ -34,13 +32,15 @@ impl App {
             return;
         }
         let cache_is_current = self
-            .git.info_cache
+            .git
+            .info_cache
             .as_ref()
             .map(|cache| cache.path == self.left.dir)
             .unwrap_or(false);
 
         let is_fresh = self
-            .git.last_check_at
+            .git
+            .last_check_at
             .map(|t| t.elapsed() < Duration::from_secs(8))
             .unwrap_or(false);
 
@@ -97,8 +97,8 @@ impl App {
             })?;
 
         // Fast tracked-change dirty check: exit code 1 means dirty, 0 means clean.
-        let dirty_status = CommandBuilder::git_command(path, &["diff-index", "--quiet", "HEAD", "--"])
-            .ok()?;
+        let dirty_status =
+            CommandBuilder::git_command(path, &["diff-index", "--quiet", "HEAD", "--"]).ok()?;
 
         let tracked_dirty = match dirty_status.status.code() {
             Some(0) => false,
@@ -106,10 +106,11 @@ impl App {
             _ => return None,
         };
 
-        let has_untracked = CommandBuilder::git_command(path, &["ls-files", "--others", "--exclude-standard"])
-            .ok()
-            .map(|out| !out.stdout.is_empty())
-            .unwrap_or(false);
+        let has_untracked =
+            CommandBuilder::git_command(path, &["ls-files", "--others", "--exclude-standard"])
+                .ok()
+                .map(|out| !out.stdout.is_empty())
+                .unwrap_or(false);
 
         let is_dirty = tracked_dirty || has_untracked;
 
@@ -134,19 +135,22 @@ impl App {
         });
 
         let tag_info = latest_tag.map(|tag| {
-            let ahead = CommandBuilder::git_command(path, &["rev-list", "--count", &format!("{}..HEAD", tag)])
-                .ok()
-                .and_then(|out| {
-                    if out.status.success() {
-                        String::from_utf8_lossy(&out.stdout)
-                            .trim()
-                            .parse::<u64>()
-                            .ok()
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or(0);
+            let ahead = CommandBuilder::git_command(
+                path,
+                &["rev-list", "--count", &format!("{}..HEAD", tag)],
+            )
+            .ok()
+            .and_then(|out| {
+                if out.status.success() {
+                    String::from_utf8_lossy(&out.stdout)
+                        .trim()
+                        .parse::<u64>()
+                        .ok()
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0);
             (tag, ahead)
         });
 
@@ -163,9 +167,10 @@ impl App {
             .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
             .unwrap_or_default();
 
-        if let Ok(out) =
-            CommandBuilder::git_command(&self.left.dir, &["ls-files", "--others", "--exclude-standard"])
-        {
+        if let Ok(out) = CommandBuilder::git_command(
+            &self.left.dir,
+            &["ls-files", "--others", "--exclude-standard"],
+        ) {
             let untracked = String::from_utf8_lossy(&out.stdout);
             let untracked = untracked.trim();
             if !untracked.is_empty() {
@@ -195,19 +200,16 @@ impl App {
     }
 
     pub(crate) fn latest_git_tag(&self) -> Option<String> {
-        let out = CommandBuilder::git_command(&self.left.dir, &["describe", "--tags", "--abbrev=0"])
-            .ok()?;
+        let out =
+            CommandBuilder::git_command(&self.left.dir, &["describe", "--tags", "--abbrev=0"])
+                .ok()?;
 
         if !out.status.success() {
             return None;
         }
 
         let tag = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if tag.is_empty() {
-            None
-        } else {
-            Some(tag)
-        }
+        if tag.is_empty() { None } else { Some(tag) }
     }
 
     pub(crate) fn preview_git_diff_and_confirm_commit(&mut self) -> io::Result<bool> {
@@ -228,7 +230,9 @@ impl App {
 
         if !shown {
             if self.integration_active("delta") {
-                println!("$ git -c core.pager=delta -c delta.side-by-side=true -c delta.features=side-by-side diff");
+                println!(
+                    "$ git -c core.pager=delta -c delta.side-by-side=true -c delta.features=side-by-side diff"
+                );
                 CommandBuilder::git_interactive(
                     &self.left.dir,
                     &[
@@ -263,7 +267,11 @@ impl App {
         Ok(confirmed)
     }
 
-    pub(crate) fn run_git_commit_and_push(&mut self, commit_message: &str, amend: bool) -> io::Result<()> {
+    pub(crate) fn run_git_commit_and_push(
+        &mut self,
+        commit_message: &str,
+        amend: bool,
+    ) -> io::Result<()> {
         let _tui = tui::suspend(ResumeMode::Cleared)?;
 
         let mut failed_step: Option<String> = None;
@@ -305,8 +313,9 @@ impl App {
                     println!("git push failed, pulling with --rebase and retrying...");
                     println!("$ git pull --rebase");
                     if !run_step(&["pull", "--rebase"], &self.left.dir)? {
-                        failed_step =
-                            Some("git pull --rebase failed (resolve conflicts manually)".to_string());
+                        failed_step = Some(
+                            "git pull --rebase failed (resolve conflicts manually)".to_string(),
+                        );
                     } else {
                         println!("$ git push origin HEAD");
                         if !run_step(&["push", "origin", "HEAD"], &self.left.dir)? {
@@ -319,7 +328,9 @@ impl App {
 
         let mut tag_requested = false;
         if failed_step.is_none() {
-            println!("\nPress any key to return to shell buddy, or press 't' to create+push a tag...");
+            println!(
+                "\nPress any key to return to shell buddy, or press 't' to create+push a tag..."
+            );
             let _ = io::stdout().flush();
             enable_raw_mode()?;
             loop {
@@ -348,14 +359,18 @@ impl App {
         } else if push_forced {
             self.set_status("amend commit pushed with -f");
             if tag_requested {
-                let prefill = self.latest_git_tag().unwrap_or_else(|| "v0.1.0".to_string());
+                let prefill = self
+                    .latest_git_tag()
+                    .unwrap_or_else(|| "v0.1.0".to_string());
                 self.begin_input_edit(AppMode::GitTagInput, prefill);
                 self.set_status("edit tag and press Enter to create+push (Esc=cancel)");
             }
         } else {
             self.set_status("commit pushed");
             if tag_requested {
-                let prefill = self.latest_git_tag().unwrap_or_else(|| "v0.1.0".to_string());
+                let prefill = self
+                    .latest_git_tag()
+                    .unwrap_or_else(|| "v0.1.0".to_string());
                 self.begin_input_edit(AppMode::GitTagInput, prefill);
                 self.set_status("edit tag and press Enter to create+push (Esc=cancel)");
             }

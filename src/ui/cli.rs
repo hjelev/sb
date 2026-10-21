@@ -1,4 +1,4 @@
-use crossterm::style::{style, Attribute, Color as CtColor, Stylize};
+use crossterm::style::{Attribute, Color as CtColor, Stylize, style};
 use ratatui::style::Modifier;
 use std::{
     collections::HashMap,
@@ -8,10 +8,10 @@ use std::{
 };
 use unicode_width::UnicodeWidthStr;
 
+use crate::App;
 use crate::app_render_cache::{EntryRenderCache, EntryRenderConfig};
 use crate::ui::list_render;
 use crate::ui::list_temperature;
-use crate::App;
 
 pub(crate) fn rt_to_ct_color(color: ratatui::style::Color) -> CtColor {
     match color {
@@ -72,15 +72,17 @@ pub fn list_current_directory(
 
     use crate::util::format::{truncate_display_width, truncate_with_ellipsis};
 
-    let tree_rows = tree_depth.map(|depth| {
-        crate::ui::tree::collect_tree_rows(
-            &current_dir,
-            include_hidden,
-            if depth == 0 { None } else { Some(depth) },
-            crate::SortMode::NameAsc,
-            None,
-        )
-    }).transpose()?;
+    let tree_rows = tree_depth
+        .map(|depth| {
+            crate::ui::tree::collect_tree_rows(
+                &current_dir,
+                include_hidden,
+                if depth == 0 { None } else { Some(depth) },
+                crate::SortMode::NameAsc,
+                None,
+            )
+        })
+        .transpose()?;
 
     let mut direct_entries: Vec<fs::DirEntry> = Vec::new();
     if tree_rows.is_none() {
@@ -125,7 +127,12 @@ pub fn list_current_directory(
             .as_ref()
             .map(|rows| rows[idx].prefix.clone())
             .unwrap_or_default();
-        rows.push(RowData { path, tree_prefix, cache, entry_total_bytes: None });
+        rows.push(RowData {
+            path,
+            tree_prefix,
+            cache,
+            entry_total_bytes: None,
+        });
     }
 
     group_width = group_width.clamp(1, 16);
@@ -182,8 +189,16 @@ pub fn list_current_directory(
         let cache = row.cache;
 
         // Derive crossterm colours from the ratatui styles stored in the cache
-        let mut icon_color = cache.icon_style.fg.map(rt_to_ct_color).unwrap_or(CtColor::Reset);
-        let mut name_color = cache.name_style.fg.map(rt_to_ct_color).unwrap_or(CtColor::White);
+        let mut icon_color = cache
+            .icon_style
+            .fg
+            .map(rt_to_ct_color)
+            .unwrap_or(CtColor::Reset);
+        let mut name_color = cache
+            .name_style
+            .fg
+            .map(rt_to_ct_color)
+            .unwrap_or(CtColor::White);
         if no_color {
             name_color = CtColor::Reset;
             icon_color = CtColor::Reset;
@@ -250,7 +265,10 @@ pub fn list_current_directory(
             let size_color = if no_color {
                 CtColor::Reset
             } else {
-                rt_to_ct_color(list_temperature::size_color_for(cache.size_bytes, size_min_max))
+                rt_to_ct_color(list_temperature::size_color_for(
+                    cache.size_bytes,
+                    size_min_max,
+                ))
             };
             let date_color = if no_color {
                 CtColor::Reset
@@ -270,10 +288,9 @@ pub fn list_current_directory(
             print!("{}", styled_name);
             print!("{}", trailing_pad);
             if show_meta {
-                let perms_segments = list_render::permission_gradient_segments(perms_col, perms_width);
-                print!(
-                    " "
-                );
+                let perms_segments =
+                    list_render::permission_gradient_segments(perms_col, perms_width);
+                print!(" ");
                 for (text, color) in perms_segments {
                     let seg = match (no_color, color) {
                         (false, Some(c)) => style(text).with(rt_to_ct_color(c)),
@@ -343,11 +360,19 @@ pub fn parse_list_mode_args<'a>(args: &'a [String]) -> Option<ListModeArgs<'a>> 
             "--total-size" => {
                 include_total_size = true;
             }
-            other if other.starts_with("-l") && other.len() > 2 && other[2..].chars().all(|c| c.is_ascii_digit()) => {
+            other
+                if other.starts_with("-l")
+                    && other.len() > 2
+                    && other[2..].chars().all(|c| c.is_ascii_digit()) =>
+            {
                 list_mode_seen = true;
                 tree_depth = other[2..].parse::<usize>().ok();
             }
-            other if other.chars().all(|c| c.is_ascii_digit()) && list_mode_seen && tree_depth.is_none() => {
+            other
+                if other.chars().all(|c| c.is_ascii_digit())
+                    && list_mode_seen
+                    && tree_depth.is_none() =>
+            {
                 tree_depth = other.parse::<usize>().ok();
             }
             other if !other.starts_with('-') && list_path.is_none() => {
@@ -374,8 +399,12 @@ pub fn validate_cli_args(args: &[String]) -> Result<(), String> {
 
     for arg in args {
         match arg.as_str() {
-            "-h" | "--help" | "-V" | "--version" | "-l" | "-a" | "-la" | "-e" | "-t" | "--total-size" => {}
-            other if other.starts_with("-l") && other.len() > 2 && other[2..].chars().all(|c| c.is_ascii_digit()) => {}
+            "-h" | "--help" | "-V" | "--version" | "-l" | "-a" | "-la" | "-e" | "-t"
+            | "--total-size" => {}
+            other
+                if other.starts_with("-l")
+                    && other.len() > 2
+                    && other[2..].chars().all(|c| c.is_ascii_digit()) => {}
             other if other.chars().all(|c| c.is_ascii_digit()) => {}
             other if other.starts_with('-') => {
                 return Err(format!("unrecognized option: {}", other));

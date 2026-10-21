@@ -71,11 +71,7 @@ fn coerce_peek_result(
     match value {
         Value::String(s) => {
             let text = s.to_string_lossy();
-            let lines = text
-                .lines()
-                .take(max_lines)
-                .map(str::to_string)
-                .collect();
+            let lines = text.lines().take(max_lines).map(str::to_string).collect();
             Ok((lines, None))
         }
         Value::Table(t) => {

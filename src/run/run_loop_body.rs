@@ -3,10 +3,11 @@ use super::*;
 pub(crate) fn run_tui_body(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     app: &mut App,
-) -> io::Result<()>
-{
+) -> io::Result<()> {
     let mut deferred_key: Option<KeyEvent> = None;
-    let hostname = hostname::get().map(|h| h.to_string_lossy().into_owned()).unwrap_or_else(|_| "host".to_string());
+    let hostname = hostname::get()
+        .map(|h| h.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "host".to_string());
     let user = env::var("USER").unwrap_or_else(|_| "user".to_string());
 
     loop {
@@ -62,62 +63,65 @@ pub(crate) fn run_tui_body(
         // move it and derail the relative frame positioning, so rendering is
         // deferred until playback stops (any keypress stops it).
         let video_playing = app.pane_video_is_playing();
-        let should_draw =
-            (app.needs_redraw || clock_changed || had_async_work) && !video_playing;
+        let should_draw = (app.needs_redraw || clock_changed || had_async_work) && !video_playing;
         if should_draw {
-        if text_input_cursor {
-            execute!(terminal.backend_mut(), SetCursorStyle::BlinkingBar)?;
-        } else {
-            execute!(terminal.backend_mut(), SetCursorStyle::DefaultUserShape)?;
-        }
-        terminal.draw(|f| {
-            // Footer pill hit-zones are rebuilt every frame. Overlay footers
-            // append during render_overlays and the main footer appends in
-            // render_footer, so clear once here before any of them run.
-            app.footer_shortcut_zones.clear();
-            let theme = *ui::theme::theme_spec(app.active_theme);
-            f.render_widget(
-                Block::default().style(
-                    Style::default()
-                        .bg(theme.bg_panel)
-                        .fg(theme.text_normal),
-                ),
-                f.size(),
-            );
-            let footer_height: u16 = if app.is_preview_mode() || app.is_dual_panel_mode() { 1 } else { 2 };
-            let header_rows: u16 = if app.is_preview_mode() || app.is_dual_panel_mode() { 1 } else { 2 };
-            let chunks = Layout::default()
-                .constraints([Constraint::Min(3), Constraint::Length(footer_height)])
-                .split(f.size());
-            // Pre-calculate if scrollbar will be visible for header alignment
-            let scrollbar_in_main = {
-                let table_area_height = chunks[0].height.saturating_sub(header_rows);
-                let needs_scroll = app.left.entries.len() > table_area_height as usize;
-                let table_area_width = if app.is_preview_mode() {
-                    (chunks[0].width * 33 / 100).max(1)
-                } else if app.is_dual_panel_mode() {
-                    (chunks[0].width * 50 / 100).max(1)
+            if text_input_cursor {
+                execute!(terminal.backend_mut(), SetCursorStyle::BlinkingBar)?;
+            } else {
+                execute!(terminal.backend_mut(), SetCursorStyle::DefaultUserShape)?;
+            }
+            terminal.draw(|f| {
+                // Footer pill hit-zones are rebuilt every frame. Overlay footers
+                // append during render_overlays and the main footer appends in
+                // render_footer, so clear once here before any of them run.
+                app.footer_shortcut_zones.clear();
+                let theme = *ui::theme::theme_spec(app.active_theme);
+                f.render_widget(
+                    Block::default()
+                        .style(Style::default().bg(theme.bg_panel).fg(theme.text_normal)),
+                    f.area(),
+                );
+                let footer_height: u16 = if app.is_preview_mode() || app.is_dual_panel_mode() {
+                    1
                 } else {
-                    chunks[0].width
+                    2
                 };
-                app.mode_shows_main_scrollbar() && table_area_width > 2 && needs_scroll
-            };
-            let ctx = RenderCtx {
-                theme,
-                main: chunks[0],
-                footer: chunks[1],
-                header_rows,
-                scrollbar_in_main,
-            };
-            render_header(f, app, &ctx, &user, &hostname);
-            let tl = render_table(f, app, &ctx);
-            render_scrollbar_and_preview(f, app, &ctx, &tl);
-            render_overlays(f, app, &ctx);
-            render_footer(f, app, &ctx);
-        })?;
+                let header_rows: u16 = if app.is_preview_mode() || app.is_dual_panel_mode() {
+                    1
+                } else {
+                    2
+                };
+                let chunks = Layout::default()
+                    .constraints([Constraint::Min(3), Constraint::Length(footer_height)])
+                    .split(f.area());
+                // Pre-calculate if scrollbar will be visible for header alignment
+                let scrollbar_in_main = {
+                    let table_area_height = chunks[0].height.saturating_sub(header_rows);
+                    let needs_scroll = app.left.entries.len() > table_area_height as usize;
+                    let table_area_width = if app.is_preview_mode() {
+                        (chunks[0].width * 33 / 100).max(1)
+                    } else if app.is_dual_panel_mode() {
+                        (chunks[0].width * 50 / 100).max(1)
+                    } else {
+                        chunks[0].width
+                    };
+                    app.mode_shows_main_scrollbar() && table_area_width > 2 && needs_scroll
+                };
+                let ctx = RenderCtx {
+                    theme,
+                    main: chunks[0],
+                    footer: chunks[1],
+                    header_rows,
+                    scrollbar_in_main,
+                };
+                render_header(f, app, &ctx, &user, &hostname);
+                let tl = render_table(f, app, &ctx);
+                render_scrollbar_and_preview(f, app, &ctx, &tl);
+                render_overlays(f, app, &ctx);
+                render_footer(f, app, &ctx);
+            })?;
             app.needs_redraw = false;
         }
-
 
         // After ratatui has drawn, overlay native protocol image in the preview pane
         // for terminals that support in-pane rendering.
@@ -136,7 +140,8 @@ pub(crate) fn run_tui_body(
             ) {
                 let fit = App::fit_native_image_area(area, *iw, *ih);
                 let path_key = app
-                    .preview.target_path
+                    .preview
+                    .target_path
                     .as_ref()
                     .map(|p| p.to_string_lossy().into_owned())
                     .unwrap_or_else(|| "<no-path>".to_string());
@@ -148,7 +153,9 @@ pub(crate) fn run_tui_body(
                 if app.preview.native_last_key.as_deref() != Some(draw_key.as_str()) {
                     match native_protocol {
                         crate::integration::probe::TerminalImageProtocol::Kitty => {
-                            let _ = App::clear_kitty_pane_image(crate::app_images::KITTY_IMAGE_ID_PREVIEW);
+                            let _ = App::clear_kitty_pane_image(
+                                crate::app_images::KITTY_IMAGE_ID_PREVIEW,
+                            );
                             let _ = App::emit_kitty_pane(
                                 png,
                                 *iw,
@@ -175,7 +182,8 @@ pub(crate) fn run_tui_body(
                 // Switched from image -> non-image (folder/text/etc.): clear once.
                 match native_protocol {
                     crate::integration::probe::TerminalImageProtocol::Kitty => {
-                        let _ = App::clear_kitty_pane_image(crate::app_images::KITTY_IMAGE_ID_PREVIEW);
+                        let _ =
+                            App::clear_kitty_pane_image(crate::app_images::KITTY_IMAGE_ID_PREVIEW);
                     }
                     crate::integration::probe::TerminalImageProtocol::Iterm2Inline
                     | crate::integration::probe::TerminalImageProtocol::Sixel => {
@@ -207,16 +215,22 @@ pub(crate) fn run_tui_body(
         // After ratatui has drawn, overlay the native-protocol help logo when
         // the Help overlay is open, unscrolled, and the terminal supports it.
         if app.mode == AppMode::Help && native_pane_supported {
-            if let (Some(area), Some((png, iw, ih))) =
-                (app.help.logo_native_area, ui::panels::help_logo_png_bytes_and_dims())
-            {
+            if let (Some(area), Some((png, iw, ih))) = (
+                app.help.logo_native_area,
+                ui::panels::help_logo_png_bytes_and_dims(),
+            ) {
                 let fit = App::fit_native_image_area(area, iw, ih);
-                let draw_key = format!("{}x{}|{}:{}:{}:{}", iw, ih, fit.x, fit.y, fit.width, fit.height);
+                let draw_key = format!(
+                    "{}x{}|{}:{}:{}:{}",
+                    iw, ih, fit.x, fit.y, fit.width, fit.height
+                );
 
                 if app.help.logo_native_last_key.as_deref() != Some(draw_key.as_str()) {
                     match native_protocol {
                         crate::integration::probe::TerminalImageProtocol::Kitty => {
-                            let _ = App::clear_kitty_pane_image(crate::app_images::KITTY_IMAGE_ID_HELP_LOGO);
+                            let _ = App::clear_kitty_pane_image(
+                                crate::app_images::KITTY_IMAGE_ID_HELP_LOGO,
+                            );
                             let _ = App::emit_kitty_pane(
                                 png,
                                 iw,
@@ -244,7 +258,9 @@ pub(crate) fn run_tui_body(
                 // Logo no longer drawable (scrolled away, mode changed mid-frame): clear once.
                 match native_protocol {
                     crate::integration::probe::TerminalImageProtocol::Kitty => {
-                        let _ = App::clear_kitty_pane_image(crate::app_images::KITTY_IMAGE_ID_HELP_LOGO);
+                        let _ = App::clear_kitty_pane_image(
+                            crate::app_images::KITTY_IMAGE_ID_HELP_LOGO,
+                        );
                     }
                     crate::integration::probe::TerminalImageProtocol::Iterm2Inline
                     | crate::integration::probe::TerminalImageProtocol::Sixel => {
@@ -261,7 +277,8 @@ pub(crate) fn run_tui_body(
             // Left Help mode (or protocol unsupported): clear once and stop tracking.
             match native_protocol {
                 crate::integration::probe::TerminalImageProtocol::Kitty => {
-                    let _ = App::clear_kitty_pane_image(crate::app_images::KITTY_IMAGE_ID_HELP_LOGO);
+                    let _ =
+                        App::clear_kitty_pane_image(crate::app_images::KITTY_IMAGE_ID_HELP_LOGO);
                 }
                 crate::integration::probe::TerminalImageProtocol::Iterm2Inline
                 | crate::integration::probe::TerminalImageProtocol::Sixel => {
@@ -297,14 +314,18 @@ pub(crate) fn run_tui_body(
                         // Drain queued scroll events so one wheel tick = one move
                         while event::poll(Duration::from_millis(0))? {
                             match event::read()? {
-                                Event::Mouse(m)
-                                    if m.kind == mouse.kind => {}
+                                Event::Mouse(m) if m.kind == mouse.kind => {}
                                 other => {
                                     // Non-scroll event — put it back via deferred handling isn't
                                     // possible, so just process it immediately before the scroll.
                                     if let Event::Mouse(m2) = other {
-                                        let area = terminal.size()?;
-                                        if let Some(simulated_key) = app.handle_mouse_event(m2, area) {
+                                        let area = Rect::from((
+                                            ratatui::layout::Position::ORIGIN,
+                                            terminal.size()?,
+                                        ));
+                                        if let Some(simulated_key) =
+                                            app.handle_mouse_event(m2, area)
+                                        {
                                             deferred_key = Some(simulated_key);
                                         }
                                     }
@@ -313,7 +334,7 @@ pub(crate) fn run_tui_body(
                             }
                         }
                     }
-                    let area = terminal.size()?;
+                    let area = Rect::from((ratatui::layout::Position::ORIGIN, terminal.size()?));
                     if let Some(simulated_key) = app.handle_mouse_event(mouse, area) {
                         deferred_key = Some(simulated_key);
                     }
@@ -338,6 +359,4 @@ pub(crate) fn run_tui_body(
     app.discard_pane_video();
 
     Ok(())
-
 }
-

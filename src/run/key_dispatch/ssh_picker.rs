@@ -7,7 +7,9 @@ pub(crate) fn handle_ssh_picker_key(
     key: KeyEvent,
 ) -> io::Result<KeyDispatchOutcome> {
     match key.code {
-        KeyCode::Esc | KeyCode::Char('q') => { app.mode = AppMode::Browsing; }
+        KeyCode::Esc | KeyCode::Char('q') => {
+            app.mode = AppMode::Browsing;
+        }
         KeyCode::BackTab => {
             app.panel_tab = 2;
             app.refresh_bookmarks_cache();
@@ -22,7 +24,9 @@ pub(crate) fn handle_ssh_picker_key(
             }
         }
         KeyCode::Down => {
-            if !app.remote.entries.is_empty() && app.remote.picker_selection < app.remote.entries.len() - 1 {
+            if !app.remote.entries.is_empty()
+                && app.remote.picker_selection < app.remote.entries.len() - 1
+            {
                 app.remote.picker_selection += 1;
             }
         }
@@ -31,7 +35,8 @@ pub(crate) fn handle_ssh_picker_key(
                 let alias = entry.alias().to_string();
                 match entry {
                     RemoteEntry::Ssh(host) => {
-                        let already_mounted = app.remote.ssh_mounts.iter().any(|m| m.host_alias == alias);
+                        let already_mounted =
+                            app.remote.ssh_mounts.iter().any(|m| m.host_alias == alias);
                         if already_mounted {
                             app.mount_ssh_host(&host)?;
                         } else {
@@ -47,7 +52,8 @@ pub(crate) fn handle_ssh_picker_key(
                         }
                     }
                     RemoteEntry::Rclone { name, rtype } => {
-                        let already_mounted = app.remote.ssh_mounts.iter().any(|m| m.host_alias == alias);
+                        let already_mounted =
+                            app.remote.ssh_mounts.iter().any(|m| m.host_alias == alias);
                         if already_mounted {
                             app.mount_rclone_remote(&name, &rtype)?;
                         } else {
@@ -63,7 +69,10 @@ pub(crate) fn handle_ssh_picker_key(
                             }
                         }
                     }
-                    RemoteEntry::ArchiveMount { mount_path, archive_name } => {
+                    RemoteEntry::ArchiveMount {
+                        mount_path,
+                        archive_name,
+                    } => {
                         if mount_path.is_dir() {
                             app.mode = AppMode::Browsing;
                             app.try_enter_dir_on_active_panel(mount_path);
@@ -72,7 +81,9 @@ pub(crate) fn handle_ssh_picker_key(
                             app.mode = AppMode::Browsing;
                         }
                     }
-                    RemoteEntry::LocalMount { mount_path, name, .. } => {
+                    RemoteEntry::LocalMount {
+                        mount_path, name, ..
+                    } => {
                         if mount_path.is_dir() {
                             app.mode = AppMode::Browsing;
                             app.try_enter_dir_on_active_panel(mount_path);
@@ -101,7 +112,10 @@ pub(crate) fn handle_ssh_picker_key(
                             app.set_status(format!("not mounted: {}", name));
                         }
                     }
-                    RemoteEntry::ArchiveMount { mount_path, archive_name } => {
+                    RemoteEntry::ArchiveMount {
+                        mount_path,
+                        archive_name,
+                    } => {
                         if app.unmount_archive_mount_by_path(&mount_path) {
                             app.set_status(format!("unmounted {}", archive_name));
                         } else {
@@ -133,4 +147,3 @@ pub(crate) fn handle_ssh_picker_key(
     }
     Ok(KeyDispatchOutcome::Ok)
 }
-

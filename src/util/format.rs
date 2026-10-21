@@ -1,5 +1,5 @@
-use std::time::SystemTime;
 use chrono::{DateTime, Local};
+use std::time::SystemTime;
 use unicode_width::UnicodeWidthStr;
 
 /// Truncate `s` to at most `max_width` terminal columns, appending `…` when
@@ -55,7 +55,9 @@ pub fn truncate_with_ellipsis(s: &str, max: usize) -> String {
 
 /// Formats a `SystemTime` as `"YYYY-MM-DD HH:MM"` in local time.
 pub fn format_mtime(t: SystemTime) -> String {
-    DateTime::<Local>::from(t).format("%Y-%m-%d %H:%M").to_string()
+    DateTime::<Local>::from(t)
+        .format("%Y-%m-%d %H:%M")
+        .to_string()
 }
 
 pub fn format_eta(total_seconds: u64) -> String {
@@ -75,7 +77,11 @@ pub fn format_eta(total_seconds: u64) -> String {
 /// status lines.
 pub fn progress_bar(percent: f64, width: usize) -> String {
     let filled = (((percent / 100.0) * width as f64).round() as usize).min(width);
-    format!("{}{}", "#".repeat(filled), "-".repeat(width.saturating_sub(filled)))
+    format!(
+        "{}{}",
+        "#".repeat(filled),
+        "-".repeat(width.saturating_sub(filled))
+    )
 }
 
 pub fn format_size(bytes: u64) -> String {

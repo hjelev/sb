@@ -57,7 +57,13 @@ pub fn parse_ansi_line(line: &str) -> Vec<Span<'static>> {
                 continue;
             }
 
-            flush(&mut current_text, &mut spans, current_bold, current_fg, current_bg);
+            flush(
+                &mut current_text,
+                &mut spans,
+                current_bold,
+                current_fg,
+                current_bg,
+            );
 
             // Parse SGR codes: split by semicolon to handle multi-part codes
             let parts: Vec<&str> = code_str.split(';').collect();
@@ -136,7 +142,13 @@ pub fn parse_ansi_line(line: &str) -> Vec<Span<'static>> {
     }
 
     // Flush remaining text
-    flush(&mut current_text, &mut spans, current_bold, current_fg, current_bg);
+    flush(
+        &mut current_text,
+        &mut spans,
+        current_bold,
+        current_fg,
+        current_bg,
+    );
 
     if spans.is_empty() {
         spans.push(Span::raw(""));

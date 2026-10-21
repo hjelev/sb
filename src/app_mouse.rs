@@ -1,12 +1,11 @@
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
 use crate::ui;
 use crate::util::list::{cursor_down, cursor_up};
 use crate::{App, AppMode, DualPanelSide, InternalSearchScope, PreviewPaneFocus};
 
 impl App {
-
     pub(crate) fn panel_tab_hit_test(relative_x: u16, active: u8, avail_width: u16) -> Option<u8> {
         ui::panels::panel_tab_hit_test(relative_x, active, avail_width)
     }
@@ -161,7 +160,8 @@ impl App {
 
         let popup_area = Self::tab_overlay_anchor(area);
         let close_area = Self::tabbed_overlay_close_area(popup_area);
-        if row == close_area.y && column >= close_area.x && column < close_area.x + close_area.width {
+        if row == close_area.y && column >= close_area.x && column < close_area.x + close_area.width
+        {
             self.close_tabbed_overlay();
             return true;
         }
@@ -187,12 +187,19 @@ impl App {
         }
 
         let popup_area = Self::tab_overlay_anchor(area);
-        if row != popup_area.y || column <= popup_area.x || column >= popup_area.x + popup_area.width.saturating_sub(1) {
+        if row != popup_area.y
+            || column <= popup_area.x
+            || column >= popup_area.x + popup_area.width.saturating_sub(1)
+        {
             return false;
         }
 
         let relative_x = column.saturating_sub(popup_area.x + 1);
-        if let Some(tab) = Self::panel_tab_hit_test(relative_x, self.panel_tab, popup_area.width.saturating_sub(3)) {
+        if let Some(tab) = Self::panel_tab_hit_test(
+            relative_x,
+            self.panel_tab,
+            popup_area.width.saturating_sub(3),
+        ) {
             self.open_panel_tab(tab);
             return true;
         }
@@ -200,12 +207,22 @@ impl App {
         false
     }
 
-    pub(crate) fn handle_confirm_delete_click(&mut self, column: u16, row: u16, area: Rect) -> bool {
+    pub(crate) fn handle_confirm_delete_click(
+        &mut self,
+        column: u16,
+        row: u16,
+        area: Rect,
+    ) -> bool {
         if self.mode != AppMode::ConfirmDelete {
             return false;
         }
 
-        let folder_count = self.confirm_delete.targets.iter().filter(|t| t.is_dir).count();
+        let folder_count = self
+            .confirm_delete
+            .targets
+            .iter()
+            .filter(|t| t.is_dir)
+            .count();
         let file_count = self.confirm_delete.targets.len() - folder_count;
         let title = ui::dialogs::confirm_delete_title(file_count, folder_count);
         let confirm_area = ui::dialogs::confirm_delete_dialog_area(area, &title);
@@ -233,7 +250,12 @@ impl App {
         false
     }
 
-    pub(crate) fn handle_confirm_integration_install_click(&mut self, column: u16, row: u16, area: Rect) -> bool {
+    pub(crate) fn handle_confirm_integration_install_click(
+        &mut self,
+        column: u16,
+        row: u16,
+        area: Rect,
+    ) -> bool {
         if self.mode != AppMode::ConfirmIntegrationInstall {
             return false;
         }
@@ -265,15 +287,18 @@ impl App {
 
     pub(crate) fn confirm_integration_install_msg_lines(&self) -> Vec<String> {
         let key = self
-            .integration.install_key
+            .integration
+            .install_key
             .clone()
             .unwrap_or_else(|| "(unknown)".to_string());
         let package = self
-            .integration.install_package
+            .integration
+            .install_package
             .clone()
             .unwrap_or_else(|| "(unknown)".to_string());
         let brew_display = self
-            .integration.install_brew_path
+            .integration
+            .install_brew_path
             .clone()
             .unwrap_or_else(|| "brew (not found)".to_string());
 
@@ -381,7 +406,8 @@ impl App {
 
                 let clicked_result_row = row.saturating_sub(result_start_y) as usize;
                 let rendered_results = self
-                    .search.results
+                    .search
+                    .results
                     .len()
                     .saturating_sub(offset)
                     .min(max_rows);
@@ -612,7 +638,8 @@ impl App {
                 if scroll_up {
                     self.help.scroll_offset = self.help.scroll_offset.saturating_sub(1);
                 } else {
-                    self.help.scroll_offset = (self.help.scroll_offset + 1).min(self.help.max_offset);
+                    self.help.scroll_offset =
+                        (self.help.scroll_offset + 1).min(self.help.max_offset);
                 }
             }
             AppMode::InternalSearch => {
@@ -642,7 +669,10 @@ impl App {
                 if scroll_up {
                     cursor_up(&mut self.integration.selected);
                 } else {
-                    cursor_down(&mut self.integration.selected, self.integration.rows_cache.len());
+                    cursor_down(
+                        &mut self.integration.selected,
+                        self.integration.rows_cache.len(),
+                    );
                 }
             }
             AppMode::Settings => {
@@ -656,7 +686,10 @@ impl App {
                 if scroll_up {
                     cursor_up(&mut self.shortcuts_panel.selected);
                 } else {
-                    cursor_down(&mut self.shortcuts_panel.selected, crate::util::keymap::ACTIONS.len());
+                    cursor_down(
+                        &mut self.shortcuts_panel.selected,
+                        crate::util::keymap::ACTIONS.len(),
+                    );
                 }
             }
             AppMode::Plugins => {
@@ -670,7 +703,10 @@ impl App {
                 if scroll_up {
                     cursor_up(&mut self.sort_menu_selected);
                 } else {
-                    cursor_down(&mut self.sort_menu_selected, Self::sort_mode_options().len());
+                    cursor_down(
+                        &mut self.sort_menu_selected,
+                        Self::sort_mode_options().len(),
+                    );
                 }
             }
             AppMode::SshPicker => {
@@ -712,7 +748,8 @@ impl App {
             }
             AppMode::ConfirmDelete => {
                 if scroll_up {
-                    self.confirm_delete.scroll_offset = self.confirm_delete.scroll_offset.saturating_sub(1);
+                    self.confirm_delete.scroll_offset =
+                        self.confirm_delete.scroll_offset.saturating_sub(1);
                 } else {
                     self.confirm_delete.scroll_offset =
                         (self.confirm_delete.scroll_offset + 1).min(self.confirm_delete.max_offset);
@@ -727,8 +764,16 @@ impl App {
             return None;
         }
 
-        let footer_height = if self.is_preview_mode() || self.is_dual_panel_mode() { 1 } else { 2 };
-        let header_reserved_rows = if self.is_preview_mode() || self.is_dual_panel_mode() { 1 } else { 2 };
+        let footer_height = if self.is_preview_mode() || self.is_dual_panel_mode() {
+            1
+        } else {
+            2
+        };
+        let header_reserved_rows = if self.is_preview_mode() || self.is_dual_panel_mode() {
+            1
+        } else {
+            2
+        };
         let chunks = Layout::default()
             .constraints([Constraint::Min(3), Constraint::Length(footer_height)])
             .split(area);
@@ -770,7 +815,8 @@ impl App {
         }
 
         let needs_scroll = self.left.entries.len() > table_area.height as usize;
-        let can_draw_scrollbar = self.mode_shows_main_scrollbar() && table_area.width > 2 && needs_scroll;
+        let can_draw_scrollbar =
+            self.mode_shows_main_scrollbar() && table_area.width > 2 && needs_scroll;
         let list_area = if can_draw_scrollbar {
             Rect::new(
                 table_area.x,
@@ -786,7 +832,8 @@ impl App {
     }
 
     pub(crate) fn preview_pane_frame_areas(&self, area: Rect) -> Option<(Rect, Rect)> {
-        if !self.is_preview_mode() || !matches!(self.mode, AppMode::Browsing | AppMode::PathEditing) {
+        if !self.is_preview_mode() || !matches!(self.mode, AppMode::Browsing | AppMode::PathEditing)
+        {
             return None;
         }
 
@@ -809,7 +856,12 @@ impl App {
         Some((split[0], split[1]))
     }
 
-    pub(crate) fn handle_preview_pane_tab_click(&mut self, column: u16, row: u16, area: Rect) -> bool {
+    pub(crate) fn handle_preview_pane_tab_click(
+        &mut self,
+        column: u16,
+        row: u16,
+        area: Rect,
+    ) -> bool {
         let Some((folder_area, preview_area)) = self.preview_pane_frame_areas(area) else {
             return false;
         };
@@ -862,7 +914,12 @@ impl App {
         None
     }
 
-    pub(crate) fn handle_main_list_click(&mut self, column: u16, row: u16, area: Rect) -> Option<KeyEvent> {
+    pub(crate) fn handle_main_list_click(
+        &mut self,
+        column: u16,
+        row: u16,
+        area: Rect,
+    ) -> Option<KeyEvent> {
         let (_, list_area) = self.main_table_and_list_areas(area)?;
         if list_area.width == 0 || list_area.height == 0 {
             return None;
@@ -900,7 +957,12 @@ impl App {
         }
     }
 
-    pub(crate) fn scroll_main_list_from_scrollbar_row(&mut self, area: Rect, row: u16, grab_offset: u16) {
+    pub(crate) fn scroll_main_list_from_scrollbar_row(
+        &mut self,
+        area: Rect,
+        row: u16,
+        grab_offset: u16,
+    ) {
         let Some(sb_area) = self.main_table_scrollbar_area(area) else {
             return;
         };
@@ -922,7 +984,9 @@ impl App {
         }
 
         let row_rel = row.saturating_sub(sb_area.y) as usize;
-        let thumb_top = row_rel.saturating_sub(grab_offset as usize).min(scroll_space);
+        let thumb_top = row_rel
+            .saturating_sub(grab_offset as usize)
+            .min(scroll_space);
         let target_offset = (thumb_top * max_scroll + (scroll_space / 2)) / scroll_space;
         let target_index = target_offset.min(self.left.entries.len().saturating_sub(1));
         self.left.selected_index = target_index;
@@ -976,7 +1040,12 @@ impl App {
         ))
     }
 
-    pub(crate) fn handle_right_list_click(&mut self, column: u16, row: u16, area: Rect) -> Option<KeyEvent> {
+    pub(crate) fn handle_right_list_click(
+        &mut self,
+        column: u16,
+        row: u16,
+        area: Rect,
+    ) -> Option<KeyEvent> {
         let (_, list_area) = self.right_table_and_list_areas(area)?;
         if list_area.width == 0 || list_area.height == 0 {
             return None;
@@ -1012,7 +1081,12 @@ impl App {
         }
     }
 
-    pub(crate) fn scroll_right_list_from_scrollbar_row(&mut self, area: Rect, row: u16, grab_offset: u16) {
+    pub(crate) fn scroll_right_list_from_scrollbar_row(
+        &mut self,
+        area: Rect,
+        row: u16,
+        grab_offset: u16,
+    ) {
         let Some(sb_area) = self.right_table_scrollbar_area(area) else {
             return;
         };
@@ -1034,7 +1108,9 @@ impl App {
         }
 
         let row_rel = row.saturating_sub(sb_area.y) as usize;
-        let thumb_top = row_rel.saturating_sub(grab_offset as usize).min(scroll_space);
+        let thumb_top = row_rel
+            .saturating_sub(grab_offset as usize)
+            .min(scroll_space);
         let target_offset = (thumb_top * max_scroll + (scroll_space / 2)) / scroll_space;
         let target_index = target_offset.min(self.right.entries.len().saturating_sub(1));
         self.right.selected_index = target_index;
@@ -1046,29 +1122,27 @@ impl App {
         match mouse.kind {
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
                 if self.is_dual_panel_mode()
-                    && let Some((left_frame, right_frame)) = self.dual_panel_frame_areas(area) {
-                        let in_left = mouse.column >= left_frame.x
-                            && mouse.column < left_frame.x + left_frame.width
-                            && mouse.row >= left_frame.y
-                            && mouse.row < left_frame.y + left_frame.height;
-                        let in_right = mouse.column >= right_frame.x
-                            && mouse.column < right_frame.x + right_frame.width
-                            && mouse.row >= right_frame.y
-                            && mouse.row < right_frame.y + right_frame.height;
-                        if in_left {
-                            self.active_panel = DualPanelSide::Left;
-                        } else if in_right {
-                            self.active_panel = DualPanelSide::Right;
-                        }
+                    && let Some((left_frame, right_frame)) = self.dual_panel_frame_areas(area)
+                {
+                    let in_left = mouse.column >= left_frame.x
+                        && mouse.column < left_frame.x + left_frame.width
+                        && mouse.row >= left_frame.y
+                        && mouse.row < left_frame.y + left_frame.height;
+                    let in_right = mouse.column >= right_frame.x
+                        && mouse.column < right_frame.x + right_frame.width
+                        && mouse.row >= right_frame.y
+                        && mouse.row < right_frame.y + right_frame.height;
+                    if in_left {
+                        self.active_panel = DualPanelSide::Left;
+                    } else if in_right {
+                        self.active_panel = DualPanelSide::Right;
                     }
+                }
                 self.handle_mouse_scroll(matches!(mouse.kind, MouseEventKind::ScrollUp));
             }
             MouseEventKind::Down(MouseButton::Right) => {
                 self.left.list_scroll_dragging = false;
-                if matches!(
-                    self.mode,
-                    AppMode::DownloadInput | AppMode::DownloadNaming
-                ) {
+                if matches!(self.mode, AppMode::DownloadInput | AppMode::DownloadNaming) {
                     self.paste_clipboard_at_input_cursor();
                     return None;
                 }
@@ -1096,52 +1170,52 @@ impl App {
 
                     if let Some(sb_area) = self.right_table_scrollbar_area(area)
                         && mouse.column >= sb_area.x
-                            && mouse.column < sb_area.x + sb_area.width
-                            && mouse.row >= sb_area.y
-                            && mouse.row < sb_area.y + sb_area.height
-                        {
-                            let total_rows = self.right.entries.len();
-                            if let Some(grab_offset) = Self::scrollbar_grab_offset_for_row(
-                                sb_area,
-                                total_rows,
-                                self.right.table_state.offset(),
-                                mouse.row,
-                            ) {
-                                self.right.list_scroll_grab_offset = grab_offset;
-                                self.right.list_scroll_dragging = true;
-                                self.scroll_right_list_from_scrollbar_row(
-                                    area,
-                                    mouse.row,
-                                    self.right.list_scroll_grab_offset,
-                                );
-                                return None;
-                            }
-                        }
-                }
-
-                if let Some(sb_area) = self.main_table_scrollbar_area(area)
-                    && mouse.column >= sb_area.x
                         && mouse.column < sb_area.x + sb_area.width
                         && mouse.row >= sb_area.y
                         && mouse.row < sb_area.y + sb_area.height
                     {
-                        let total_rows = self.left.entries.len();
+                        let total_rows = self.right.entries.len();
                         if let Some(grab_offset) = Self::scrollbar_grab_offset_for_row(
                             sb_area,
                             total_rows,
-                            self.left.table_state.offset(),
+                            self.right.table_state.offset(),
                             mouse.row,
                         ) {
-                            self.left.list_scroll_grab_offset = grab_offset;
-                            self.left.list_scroll_dragging = true;
-                            self.scroll_main_list_from_scrollbar_row(
+                            self.right.list_scroll_grab_offset = grab_offset;
+                            self.right.list_scroll_dragging = true;
+                            self.scroll_right_list_from_scrollbar_row(
                                 area,
                                 mouse.row,
-                                self.left.list_scroll_grab_offset,
+                                self.right.list_scroll_grab_offset,
                             );
                             return None;
                         }
                     }
+                }
+
+                if let Some(sb_area) = self.main_table_scrollbar_area(area)
+                    && mouse.column >= sb_area.x
+                    && mouse.column < sb_area.x + sb_area.width
+                    && mouse.row >= sb_area.y
+                    && mouse.row < sb_area.y + sb_area.height
+                {
+                    let total_rows = self.left.entries.len();
+                    if let Some(grab_offset) = Self::scrollbar_grab_offset_for_row(
+                        sb_area,
+                        total_rows,
+                        self.left.table_state.offset(),
+                        mouse.row,
+                    ) {
+                        self.left.list_scroll_grab_offset = grab_offset;
+                        self.left.list_scroll_dragging = true;
+                        self.scroll_main_list_from_scrollbar_row(
+                            area,
+                            mouse.row,
+                            self.left.list_scroll_grab_offset,
+                        );
+                        return None;
+                    }
+                }
                 self.left.list_scroll_dragging = false;
                 self.right.list_scroll_dragging = false;
                 if self.handle_preview_pane_tab_click(mouse.column, mouse.row, area) {
@@ -1166,7 +1240,8 @@ impl App {
                 if self.handle_tab_click(mouse.column, mouse.row, area) {
                     return None;
                 }
-                if let Some(key) = self.clickable_key_from_tabbed_row(mouse.column, mouse.row, area) {
+                if let Some(key) = self.clickable_key_from_tabbed_row(mouse.column, mouse.row, area)
+                {
                     return Some(key);
                 }
                 let _ = self.handle_confirm_delete_click(mouse.column, mouse.row, area);

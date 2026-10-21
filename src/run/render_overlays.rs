@@ -37,7 +37,7 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
     } else if matches!(app.mode, AppMode::NewFile | AppMode::NewFolder) {
         render_new_entry_overlay(f, app, ctx);
     } else if app.mode == AppMode::Renaming {
-        let area = f.size();
+        let area = f.area();
         let selected_entry = app.left.entries.get(app.left.selected_index);
         let old_name = selected_entry
             .map(crate::util::classify::entry_name)
@@ -48,7 +48,9 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             .as_ref()
             .map(crate::util::classify::is_symlink)
             .unwrap_or(false);
-        let dialog_w = (area.width * 2 / 3).max(36).min(area.width.saturating_sub(4).max(1));
+        let dialog_w = (area.width * 2 / 3)
+            .max(36)
+            .min(area.width.saturating_sub(4).max(1));
         let dialog_h = 3u16.min(area.height.saturating_sub(2).max(1));
         let rename_area = Rect::new(
             (area.width.saturating_sub(dialog_w)) / 2,
@@ -84,7 +86,11 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
         let icon_w = UnicodeWidthStr::width(icon_prefix.as_str()) as usize;
         let avail_w = (input_area.width as usize).saturating_sub(icon_w);
         let cursor = app.input_cursor;
-        let scroll = if avail_w > 0 && cursor >= avail_w { cursor + 1 - avail_w } else { 0 };
+        let scroll = if avail_w > 0 && cursor >= avail_w {
+            cursor + 1 - avail_w
+        } else {
+            0
+        };
         let visible_text: String = app.input_buffer.chars().skip(scroll).collect();
         let mut spans = Vec::new();
         if !icon_prefix.is_empty() {
@@ -100,10 +106,23 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             + UnicodeWidthStr::width(icon_prefix.as_str()) as u16
             + (cursor - scroll) as u16;
         let cursor_y = input_area.y;
-        f.set_cursor(cursor_x.min(input_area.x + input_area.width.saturating_sub(1)), cursor_y);
-    } else if matches!(app.mode, AppMode::DownloadInput | AppMode::DownloadNaming | AppMode::PasteRenaming | AppMode::ArchiveCreate | AppMode::NoteEditing | AppMode::CommandInput | AppMode::GitCommitMessage | AppMode::GitTagInput) {
-        let area = f.size();
-        let rename_area = Rect::new(area.width/4, area.height/2 - 1, area.width/2, 3);
+        f.set_cursor_position((
+            cursor_x.min(input_area.x + input_area.width.saturating_sub(1)),
+            cursor_y,
+        ));
+    } else if matches!(
+        app.mode,
+        AppMode::DownloadInput
+            | AppMode::DownloadNaming
+            | AppMode::PasteRenaming
+            | AppMode::ArchiveCreate
+            | AppMode::NoteEditing
+            | AppMode::CommandInput
+            | AppMode::GitCommitMessage
+            | AppMode::GitTagInput
+    ) {
+        let area = f.area();
+        let rename_area = Rect::new(area.width / 4, area.height / 2 - 1, area.width / 2, 3);
         f.render_widget(Clear, rename_area);
         let title = match app.mode {
             AppMode::DownloadInput => " Download URL (w: URL [name], quote URL if needed) ",
@@ -114,38 +133,63 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             AppMode::ArchiveCreate => " Create Archive (Enter=Confirm, Esc=Cancel) ",
             AppMode::NoteEditing => " Note (Enter=Save, Esc=Cancel) ",
             AppMode::CommandInput => " Command (; Enter=Run, Esc=Cancel) ",
-            AppMode::GitCommitMessage => " Commit Message (Enter=Commit+Push, Ctrl+G=AI, Esc=Cancel) ",
+            AppMode::GitCommitMessage => {
+                " Commit Message (Enter=Commit+Push, Ctrl+G=AI, Esc=Cancel) "
+            }
             AppMode::GitTagInput => " Tag (Enter=Create+Push Tag, Esc=Cancel) ",
             _ => " New Name ",
         };
         app.clamp_input_cursor();
         let avail_w = (rename_area.width as usize).saturating_sub(2);
         let cursor = app.input_cursor;
-        let scroll = if avail_w > 0 && cursor >= avail_w { cursor + 1 - avail_w } else { 0 };
+        let scroll = if avail_w > 0 && cursor >= avail_w {
+            cursor + 1 - avail_w
+        } else {
+            0
+        };
         let visible_text: String = app.input_buffer.chars().skip(scroll).collect();
-        f.render_widget(Paragraph::new(visible_text).block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title).title_style(Style::default().fg(active_theme.text_normal))), rename_area);
+        f.render_widget(
+            Paragraph::new(visible_text).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .title(title)
+                    .title_style(Style::default().fg(active_theme.text_normal)),
+            ),
+            rename_area,
+        );
         let cursor_x = rename_area.x + 1 + (cursor - scroll) as u16;
         let cursor_y = rename_area.y + 1;
-        f.set_cursor(cursor_x.min(rename_area.x + rename_area.width.saturating_sub(1)), cursor_y);
+        f.set_cursor_position((
+            cursor_x.min(rename_area.x + rename_area.width.saturating_sub(1)),
+            cursor_y,
+        ));
     } else if app.mode == AppMode::ConfirmDownloadOverwrite {
-        let area = f.size();
+        let area = f.area();
         let file_name = app
-            .transfer.download_pending_name
+            .transfer
+            .download_pending_name
             .as_deref()
             .unwrap_or("download");
-        let lines = ["Overwrite existing file?".to_string(),
+        let lines = [
+            "Overwrite existing file?".to_string(),
             String::new(),
             format!(" {}", file_name),
             String::new(),
-            " y / Enter = overwrite    n / Esc = cancel".to_string()];
+            " y / Enter = overwrite    n / Esc = cancel".to_string(),
+        ];
         let msg = lines.join("\n");
         let content_w = lines
             .iter()
             .map(|line| line.chars().count() as u16)
             .max()
             .unwrap_or(28);
-        let dialog_w = (content_w + 2).max(40).min(area.width.saturating_sub(4).max(1));
-        let dialog_h = (lines.len() as u16 + 2).max(7).min(area.height.saturating_sub(4).max(1));
+        let dialog_w = (content_w + 2)
+            .max(40)
+            .min(area.width.saturating_sub(4).max(1));
+        let dialog_h = (lines.len() as u16 + 2)
+            .max(7)
+            .min(area.height.saturating_sub(4).max(1));
         let confirm_area = Rect::new(
             (area.width.saturating_sub(dialog_w)) / 2,
             (area.height.saturating_sub(dialog_h)) / 2,
@@ -166,7 +210,10 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
                 ),
             confirm_area,
         );
-    } else if app.mode == AppMode::Bookmarks || app.mode == AppMode::BookmarkEditing || app.mode == AppMode::ConfirmDeleteBookmark {
+    } else if app.mode == AppMode::Bookmarks
+        || app.mode == AppMode::BookmarkEditing
+        || app.mode == AppMode::ConfirmDeleteBookmark
+    {
         let bookmarks = app.bookmarks().to_vec();
         if !bookmarks.is_empty() && app.bookmarks.selected >= bookmarks.len() {
             app.bookmarks.selected = bookmarks.len() - 1;
@@ -184,14 +231,21 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             &mut app.footer_shortcut_zones,
         );
         if app.mode == AppMode::BookmarkEditing {
-            let area = f.size();
+            let area = f.area();
             let rename_area = Rect::new(area.width / 4, area.height / 2 - 1, area.width / 2, 3);
             f.render_widget(Clear, rename_area);
-            let title = format!(" Set Bookmark {} (Enter=Save, Esc=Cancel) ", app.bookmarks.edit_idx);
+            let title = format!(
+                " Set Bookmark {} (Enter=Save, Esc=Cancel) ",
+                app.bookmarks.edit_idx
+            );
             app.clamp_input_cursor();
             let avail_w = (rename_area.width as usize).saturating_sub(2);
             let cursor = app.input_cursor;
-            let scroll = if avail_w > 0 && cursor >= avail_w { cursor + 1 - avail_w } else { 0 };
+            let scroll = if avail_w > 0 && cursor >= avail_w {
+                cursor + 1 - avail_w
+            } else {
+                0
+            };
             let visible_text: String = app.input_buffer.chars().skip(scroll).collect();
             f.render_widget(
                 Paragraph::new(visible_text).block(
@@ -204,12 +258,12 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
                 rename_area,
             );
             let cursor_x = rename_area.x + 1 + (cursor - scroll) as u16;
-            f.set_cursor(
+            f.set_cursor_position((
                 cursor_x.min(rename_area.x + rename_area.width.saturating_sub(1)),
                 rename_area.y + 1,
-            );
+            ));
         } else if app.mode == AppMode::ConfirmDeleteBookmark {
-            let area = f.size();
+            let area = f.area();
             let bm_idx = app.bookmarks.delete_idx;
             let path_str = app
                 .bookmarks()
@@ -233,7 +287,7 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             );
         }
     } else if app.mode == AppMode::Integrations {
-        let area = f.size();
+        let area = f.area();
         if !app.integration.rows_cache.is_empty()
             && app.integration.selected >= app.integration.rows_cache.len()
         {
@@ -303,7 +357,10 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
         };
         let key_value = if !app.ai.api_key.trim().is_empty() {
             "•".repeat(app.ai.api_key.chars().count().min(24))
-        } else if std::env::var(provider.env_var).map(|v| !v.trim().is_empty()).unwrap_or(false) {
+        } else if std::env::var(provider.env_var)
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false)
+        {
             format!("(from ${})", provider.env_var)
         } else {
             "(not set)".to_string()
@@ -322,10 +379,30 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
         };
         use ui::panels::SettingsRowStatus;
         let rows = [
-            ui::panels::SettingsRow { label: "Provider", value: provider.label, dim_value: false, status: SettingsRowStatus::None },
-            ui::panels::SettingsRow { label: "Model", value: &model_value, dim_value: model_is_default, status: SettingsRowStatus::None },
-            ui::panels::SettingsRow { label: "API Key", value: &key_value, dim_value: key_is_fallback, status: key_status },
-            ui::panels::SettingsRow { label: "Auto AI commit message", value: if app.ai.auto_commit { "On" } else { "Off" }, dim_value: !app.ai.auto_commit, status: SettingsRowStatus::None },
+            ui::panels::SettingsRow {
+                label: "Provider",
+                value: provider.label,
+                dim_value: false,
+                status: SettingsRowStatus::None,
+            },
+            ui::panels::SettingsRow {
+                label: "Model",
+                value: &model_value,
+                dim_value: model_is_default,
+                status: SettingsRowStatus::None,
+            },
+            ui::panels::SettingsRow {
+                label: "API Key",
+                value: &key_value,
+                dim_value: key_is_fallback,
+                status: key_status,
+            },
+            ui::panels::SettingsRow {
+                label: "Auto AI commit message",
+                value: if app.ai.auto_commit { "On" } else { "Off" },
+                dim_value: !app.ai.auto_commit,
+                status: SettingsRowStatus::None,
+            },
         ];
         ui::panels::render_settings_overlay(
             f,
@@ -371,9 +448,10 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
     } else if app.mode == AppMode::SshPicker {
         render_ssh_picker_overlay(f, app, ctx, tab_overlay_anchor);
     } else if app.mode == AppMode::ConfirmExtract {
-        let area = f.size();
+        let area = f.area();
         let to_extract = &app.archive.extract_targets;
-        let mut msg_lines: Vec<String> = vec!["Extract selected archives?".to_string(), String::new()];
+        let mut msg_lines: Vec<String> =
+            vec!["Extract selected archives?".to_string(), String::new()];
         let max_list_rows = (area.height.saturating_sub(10) as usize).clamp(1, 14);
         for (idx, path) in to_extract.iter().enumerate() {
             if idx >= max_list_rows {
@@ -399,12 +477,8 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
         let content_h = msg_lines.len() as u16;
         let max_w = area.width.saturating_sub(4).max(1);
         let max_h = area.height.saturating_sub(4).max(1);
-        let dialog_w = (content_w + 2)
-            .max(40)
-            .min(max_w);
-        let dialog_h = (content_h + 2)
-            .max(7)
-            .min(max_h);
+        let dialog_w = (content_w + 2).max(40).min(max_w);
+        let dialog_h = (content_h + 2).max(7).min(max_h);
         let confirm_area = Rect::new(
             (area.width.saturating_sub(dialog_w)) / 2,
             (area.height.saturating_sub(dialog_h)) / 2,
@@ -416,11 +490,17 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             Paragraph::new(msg)
                 .wrap(Wrap { trim: true })
                 .style(Style::default().fg(active_theme.overlay_section))
-                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(" Confirm Extract ").title_style(Style::default().fg(active_theme.text_normal))),
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .title(" Confirm Extract ")
+                        .title_style(Style::default().fg(active_theme.text_normal)),
+                ),
             confirm_area,
         );
     } else if app.mode == AppMode::ConfirmIntegrationInstall {
-        let area = f.size();
+        let area = f.area();
         let msg_lines = app.confirm_integration_install_msg_lines();
         let confirm_area = app.confirm_integration_install_dialog_area(area);
         ui::dialogs::render_confirm_integration_install_dialog(
@@ -432,7 +512,7 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             &active_theme,
         );
     } else if app.mode == AppMode::ConfirmDelete {
-        let area = f.size();
+        let area = f.area();
         let to_delete = &app.confirm_delete.targets;
         let folder_count = to_delete.iter().filter(|t| t.is_dir).count();
         let file_count = to_delete.len() - folder_count;
@@ -450,13 +530,19 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
                 theme: &active_theme,
             },
             |path, path_is_symlink| {
-                App::icon_for_path(path, app.show_icons, app.nerd_font_active, path_is_symlink, app.active_theme)
+                App::icon_for_path(
+                    path,
+                    app.show_icons,
+                    app.nerd_font_active,
+                    path_is_symlink,
+                    app.active_theme,
+                )
             },
         );
         app.confirm_delete.max_offset = delete_state.max_offset;
         app.confirm_delete.scroll_offset = delete_state.clamped_offset;
     } else if app.mode == AppMode::Organize {
-        let area = f.size();
+        let area = f.area();
         match &app.organize.plan {
             Some(plan) => {
                 let title = format!(
@@ -483,7 +569,9 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             None => {
                 let title = " Organize ";
                 let msg = "Generating organize plan...";
-                let dialog_w = (msg.len() as u16 + 6).max(36).min(area.width.saturating_sub(4));
+                let dialog_w = (msg.len() as u16 + 6)
+                    .max(36)
+                    .min(area.width.saturating_sub(4));
                 let dialog_h = 5u16.min(area.height.saturating_sub(4));
                 let box_area = Rect::new(
                     (area.width.saturating_sub(dialog_w)) / 2,
@@ -500,13 +588,8 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
                     .border_style(Style::default().fg(active_theme.accent_primary));
                 let inner = block.inner(box_area);
                 f.render_widget(block, box_area);
-                f.render_widget(
-                    Paragraph::new(msg).alignment(Alignment::Center),
-                    inner,
-                );
+                f.render_widget(Paragraph::new(msg).alignment(Alignment::Center), inner);
             }
         }
     }
-
 }
-

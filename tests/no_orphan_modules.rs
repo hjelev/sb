@@ -31,9 +31,10 @@ fn collect_mod_declarations(src: &Path) -> HashSet<String> {
                         .strip_prefix("pub(crate) mod ")
                         .or_else(|| line.strip_prefix("pub mod "))
                         .or_else(|| line.strip_prefix("mod "))
-                        && let Some(name) = rest.strip_suffix(';') {
-                            decls.insert(name.trim().to_string());
-                        }
+                        && let Some(name) = rest.strip_suffix(';')
+                    {
+                        decls.insert(name.trim().to_string());
+                    }
                 }
             }
         }

@@ -3,7 +3,8 @@ use ratatui::{prelude::*, widgets::Cell};
 
 pub(crate) fn panel_size_width(cache: &[EntryRenderCache], show_size: bool) -> usize {
     if show_size {
-        cache.iter()
+        cache
+            .iter()
             .map(|entry| entry.size_col.trim().chars().count())
             .max()
             .unwrap_or(1)
@@ -16,7 +17,8 @@ pub(crate) fn panel_size_width(cache: &[EntryRenderCache], show_size: bool) -> u
 pub(crate) fn panel_percent_total(cache: &[EntryRenderCache], show_pct: bool) -> Option<u64> {
     if show_pct && cache.iter().all(|entry| entry.size_bytes.is_some()) {
         Some(
-            cache.iter()
+            cache
+                .iter()
                 .filter_map(|entry| entry.size_bytes)
                 .fold(0u64, |acc, size| acc.saturating_add(size)),
         )
@@ -25,7 +27,11 @@ pub(crate) fn panel_percent_total(cache: &[EntryRenderCache], show_pct: bool) ->
     }
 }
 
-pub(crate) fn format_percent_col(total_bytes: Option<u64>, entry_bytes: Option<u64>, width: usize) -> String {
+pub(crate) fn format_percent_col(
+    total_bytes: Option<u64>,
+    entry_bytes: Option<u64>,
+    width: usize,
+) -> String {
     match (total_bytes, entry_bytes) {
         (Some(total), Some(entry_size)) if total > 0 => {
             let pct = (entry_size as f64 * 100.0) / (total as f64);
@@ -67,9 +73,17 @@ pub(crate) struct MetricColumns {
     pub(crate) date: Option<Style>,
 }
 
-pub(crate) fn push_metric_cells(cells: &mut Vec<Cell>, entry_cache: &EntryRenderCache, cols: &MetricColumns) {
+pub(crate) fn push_metric_cells(
+    cells: &mut Vec<Cell>,
+    entry_cache: &EntryRenderCache,
+    cols: &MetricColumns,
+) {
     if let Some((size_width, size_style)) = cols.size {
-        let size_col = format!("{:>width$}", entry_cache.size_col.trim(), width = size_width);
+        let size_col = format!(
+            "{:>width$}",
+            entry_cache.size_col.trim(),
+            width = size_width
+        );
         cells.push(Cell::from(Span::styled(size_col, size_style)));
         if let Some((pct_width, total_for_pct)) = cols.pct {
             let pct_col = format_percent_col(total_for_pct, entry_cache.size_bytes, pct_width);
@@ -77,7 +91,10 @@ pub(crate) fn push_metric_cells(cells: &mut Vec<Cell>, entry_cache: &EntryRender
         }
     }
     if let Some(date_style) = cols.date {
-        cells.push(Cell::from(Span::styled(entry_cache.date_col.clone(), date_style)));
+        cells.push(Cell::from(Span::styled(
+            entry_cache.date_col.clone(),
+            date_style,
+        )));
     }
 }
 

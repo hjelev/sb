@@ -103,9 +103,19 @@ pub(crate) struct SshHost {
 #[derive(Clone)]
 pub(crate) enum RemoteEntry {
     Ssh(SshHost),
-    Rclone { name: String, rtype: String },
-    ArchiveMount { archive_name: String, mount_path: PathBuf },
-    LocalMount { name: String, mount_path: PathBuf, source: String },
+    Rclone {
+        name: String,
+        rtype: String,
+    },
+    ArchiveMount {
+        archive_name: String,
+        mount_path: PathBuf,
+    },
+    LocalMount {
+        name: String,
+        mount_path: PathBuf,
+        source: String,
+    },
 }
 
 impl RemoteEntry {

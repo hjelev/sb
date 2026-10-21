@@ -3,8 +3,8 @@ use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{
-        disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType, EnterAlternateScreen,
-        LeaveAlternateScreen,
+        Clear as TermClear, ClearType, EnterAlternateScreen, LeaveAlternateScreen,
+        disable_raw_mode, enable_raw_mode,
     },
 };
 use std::io;
@@ -87,7 +87,10 @@ impl Drop for TuiGuard {
 /// Suspend the TUI, returning a [`TuiGuard`] that resumes with `mode` on drop.
 pub fn suspend(mode: ResumeMode) -> io::Result<TuiGuard> {
     suspend_tui()?;
-    Ok(TuiGuard { mode, cursor: false })
+    Ok(TuiGuard {
+        mode,
+        cursor: false,
+    })
 }
 
 /// Like [`suspend`], but shows the cursor while the TUI is suspended (for

@@ -13,7 +13,12 @@ pub fn render_directory_preview_line(line: &str, kind: Option<PreviewLineKind>) 
             line.to_string(),
             Style::default().fg(Palette::TEXT_NORMAL),
         )),
-        PreviewLineKind::Styled { fg, bold, dim, icon } => {
+        PreviewLineKind::Styled {
+            fg,
+            bold,
+            dim,
+            icon,
+        } => {
             let modify = |mut style: Style| {
                 if bold {
                     style = style.add_modifier(Modifier::BOLD);

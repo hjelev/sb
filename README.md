@@ -393,7 +393,7 @@ The `sb` API available to `entry()`, hooks, and `sb.spawn` callbacks:
 | `sb.clipboard_set(paths)` | fill the app clipboard (for `v`/`m` paste) |
 | `sb.edit(path)` / `sb.view(path)` | open in `$EDITOR` / the pager (suspends the TUI) |
 | `sb.run(cmd)` | run a shell command in the foreground (suspends the TUI) |
-| `sb.spawn(cmd, on_done?)` | run a shell command in the background; `on_done({status, stdout, stderr})` fires later without blocking the UI |
+| `sb.spawn(cmd, on_done?)` | run a shell command in the background; `on_done({status, stdout, stderr})` fires later without blocking the UI. Jobs are killed after 10 minutes (`status = -1`). Plugins run with your full user permissions — only install ones you trust |
 | `sb.confirm(prompt) -> bool` | suspend the TUI, ask a yes/no question on plain stdio, return the answer (entry() only) |
 | `sb.input(prompt, prefill?) -> string\|nil` | suspend the TUI, prompt for a line of text on plain stdio, return it, or `prefill`/`nil` if left empty (entry() only) |
 | `sb.confirm_shell(cmd, question) -> bool` | suspend the TUI, run `cmd` with a real inherited terminal (so pagers/colorizers like `delta` work), then ask a yes/no question on the same screen and return the answer (entry() only) |

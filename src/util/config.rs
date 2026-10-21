@@ -57,9 +57,7 @@ impl AppConfig {
                 .map(|v| v == "1")
                 .unwrap_or(false),
             no_color: env_flag_true(&["NO_COLOR"]),
-            show_icons: env::var("TERMINAL_ICONS")
-                .map(|v| v != "0")
-                .unwrap_or(true),
+            show_icons: env::var("TERMINAL_ICONS").map(|v| v != "0").unwrap_or(true),
             editor: crate::util::command::editor_command(),
             preview_line_limit: 1000,
             dir_list_limit: 10000,
@@ -284,10 +282,8 @@ impl SbPersistConfig {
                         cfg.filename_color_mode = FilenameColorMode::from_key(val);
                     }
                     "folder_size_enabled" => {
-                        cfg.folder_size_enabled = matches!(
-                            val.to_ascii_lowercase().as_str(),
-                            "1" | "true"
-                        );
+                        cfg.folder_size_enabled =
+                            matches!(val.to_ascii_lowercase().as_str(), "1" | "true");
                     }
                     "disabled_integrations" => {
                         cfg.disabled_integrations = val
@@ -309,14 +305,13 @@ impl SbPersistConfig {
                     k if k.starts_with("ai_api_key_") => {
                         let provider = &k["ai_api_key_".len()..];
                         if !provider.is_empty() && !val.is_empty() {
-                            cfg.ai_api_keys.insert(provider.to_string(), val.to_string());
+                            cfg.ai_api_keys
+                                .insert(provider.to_string(), val.to_string());
                         }
                     }
                     "ai_auto_commit" => {
-                        cfg.ai_auto_commit = matches!(
-                            val.to_ascii_lowercase().as_str(),
-                            "1" | "true"
-                        );
+                        cfg.ai_auto_commit =
+                            matches!(val.to_ascii_lowercase().as_str(), "1" | "true");
                     }
                     k if k.starts_with("shortcut_") => {
                         let id = &k["shortcut_".len()..];
@@ -335,14 +330,17 @@ impl SbPersistConfig {
                     k if k.starts_with("plugin_key_") => {
                         let name = &k["plugin_key_".len()..];
                         if !name.is_empty() && !val.is_empty() {
-                            cfg.plugin_bindings.insert(name.to_string(), val.to_string());
+                            cfg.plugin_bindings
+                                .insert(name.to_string(), val.to_string());
                         }
                     }
                     k if k.starts_with("bookmark_") => {
                         if let Ok(n) = k["bookmark_".len()..].parse::<u8>()
-                            && n <= 9 && !val.is_empty() {
-                                cfg.bookmarks.insert(n, val.to_string());
-                            }
+                            && n <= 9
+                            && !val.is_empty()
+                        {
+                            cfg.bookmarks.insert(n, val.to_string());
+                        }
                     }
                     _ => {
                         cfg.unknown.insert(key.to_string(), val.to_string());
@@ -353,17 +351,19 @@ impl SbPersistConfig {
         // Migrate a legacy single key/model into the active provider's slot,
         // unless that provider already has a per-provider value.
         if let Some(key) = legacy_ai_api_key
-            && !key.is_empty() {
-                cfg.ai_api_keys
-                    .entry(cfg.ai_provider.clone())
-                    .or_insert(key);
-            }
+            && !key.is_empty()
+        {
+            cfg.ai_api_keys
+                .entry(cfg.ai_provider.clone())
+                .or_insert(key);
+        }
         if let Some(model) = legacy_ai_model
-            && !model.is_empty() {
-                cfg.ai_models
-                    .entry(cfg.ai_provider.clone())
-                    .or_insert(model);
-            }
+            && !model.is_empty()
+        {
+            cfg.ai_models
+                .entry(cfg.ai_provider.clone())
+                .or_insert(model);
+        }
         cfg
     }
 
@@ -383,8 +383,14 @@ impl SbPersistConfig {
         if let Some(dc) = self.disable_clock {
             lines.push(format!("disable_clock = {}", dc));
         }
-        lines.push(format!("filename_colors = {}", self.filename_color_mode.as_key()));
-        lines.push(format!("folder_size_enabled = {}", self.folder_size_enabled));
+        lines.push(format!(
+            "filename_colors = {}",
+            self.filename_color_mode.as_key()
+        ));
+        lines.push(format!(
+            "folder_size_enabled = {}",
+            self.folder_size_enabled
+        ));
         if !self.disabled_integrations.is_empty() {
             lines.push(format!(
                 "disabled_integrations = {}",
@@ -394,21 +400,21 @@ impl SbPersistConfig {
         lines.push(format!("ai_provider = {}", self.ai_provider));
         lines.push(format!("ai_auto_commit = {}", self.ai_auto_commit));
         let mut sorted_models: Vec<(&String, &String)> = self.ai_models.iter().collect();
-        sorted_models.sort_by(|(a, _), (b, _)| a.cmp(b));
+        sorted_models.sort_by_key(|(k, _)| *k);
         for (provider, model) in sorted_models {
             if !model.is_empty() {
                 lines.push(format!("ai_model_{} = {}", provider, model));
             }
         }
         let mut sorted_keys: Vec<(&String, &String)> = self.ai_api_keys.iter().collect();
-        sorted_keys.sort_by(|(a, _), (b, _)| a.cmp(b));
+        sorted_keys.sort_by_key(|(k, _)| *k);
         for (provider, key) in sorted_keys {
             if !key.is_empty() {
                 lines.push(format!("ai_api_key_{} = {}", provider, key));
             }
         }
         let mut sorted_shortcuts: Vec<(&String, &String)> = self.shortcuts.iter().collect();
-        sorted_shortcuts.sort_by(|(a, _), (b, _)| a.cmp(b));
+        sorted_shortcuts.sort_by_key(|(k, _)| *k);
         for (id, combo) in sorted_shortcuts {
             if !combo.is_empty() {
                 lines.push(format!("shortcut_{} = {}", id, combo));
@@ -422,7 +428,7 @@ impl SbPersistConfig {
         }
         let mut sorted_plugin_bindings: Vec<(&String, &String)> =
             self.plugin_bindings.iter().collect();
-        sorted_plugin_bindings.sort_by(|(a, _), (b, _)| a.cmp(b));
+        sorted_plugin_bindings.sort_by_key(|(k, _)| *k);
         for (name, combo) in sorted_plugin_bindings {
             if !combo.is_empty() {
                 lines.push(format!("plugin_key_{} = {}", name, combo));
@@ -492,10 +498,16 @@ mod tests {
             assert_eq!(FilenameColorMode::from_key(mode.as_key()), mode);
         }
         // Unknown / legacy values fall back to Full.
-        assert_eq!(FilenameColorMode::from_key("bogus"), FilenameColorMode::Full);
+        assert_eq!(
+            FilenameColorMode::from_key("bogus"),
+            FilenameColorMode::Full
+        );
         assert_eq!(FilenameColorMode::from_key(""), FilenameColorMode::Full);
         // Default config uses Full.
-        assert_eq!(SbPersistConfig::default().filename_color_mode, FilenameColorMode::Full);
+        assert_eq!(
+            SbPersistConfig::default().filename_color_mode,
+            FilenameColorMode::Full
+        );
     }
 
     #[test]
@@ -522,20 +534,32 @@ mod tests {
         std::fs::write(&path, &content).unwrap();
 
         // Parse it back
-        let loaded = content.lines().fold(SbPersistConfig::default(), |mut c, line| {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') { return c; }
-            if let Some((k, v)) = line.split_once('=') {
-                let k = k.trim(); let v = v.trim();
-                if k.starts_with("bookmark_")
-                    && let Ok(n) = k["bookmark_".len()..].parse::<u8>()
-                        && n <= 9 && !v.is_empty() { c.bookmarks.insert(n, v.to_string()); }
-            }
-            c
-        });
+        let loaded = content
+            .lines()
+            .fold(SbPersistConfig::default(), |mut c, line| {
+                let line = line.trim();
+                if line.is_empty() || line.starts_with('#') {
+                    return c;
+                }
+                if let Some((k, v)) = line.split_once('=') {
+                    let k = k.trim();
+                    let v = v.trim();
+                    if k.starts_with("bookmark_")
+                        && let Ok(n) = k["bookmark_".len()..].parse::<u8>()
+                        && n <= 9
+                        && !v.is_empty()
+                    {
+                        c.bookmarks.insert(n, v.to_string());
+                    }
+                }
+                c
+            });
 
         assert_eq!(loaded.bookmarks.get(&0), Some(&"/tmp/test0".to_string()));
-        assert_eq!(loaded.bookmarks.get(&3), Some(&"/home/user/projects".to_string()));
+        assert_eq!(
+            loaded.bookmarks.get(&3),
+            Some(&"/home/user/projects".to_string())
+        );
         assert_eq!(loaded.bookmarks.get(&9), Some(&"/var/log".to_string()));
     }
 
@@ -543,11 +567,12 @@ mod tests {
     fn test_shortcut_serialization_round_trip() {
         let mut cfg = SbPersistConfig::default();
         cfg.shortcuts.insert("rename".to_string(), "u".to_string());
-        cfg.shortcuts.insert("sort_menu".to_string(), "ctrl+t".to_string());
+        cfg.shortcuts
+            .insert("sort_menu".to_string(), "ctrl+t".to_string());
 
         // Simulate what save() writes for shortcuts (sorted by id).
         let mut sorted: Vec<(&String, &String)> = cfg.shortcuts.iter().collect();
-        sorted.sort_by(|(a, _), (b, _)| a.cmp(b));
+        sorted.sort_by_key(|(k, _)| *k);
         let content = sorted
             .iter()
             .map(|(id, combo)| format!("shortcut_{} = {}", id, combo))
@@ -556,24 +581,33 @@ mod tests {
         assert_eq!(content, "shortcut_rename = u\nshortcut_sort_menu = ctrl+t");
 
         // Parse it back with load()'s prefix logic.
-        let loaded = content.lines().fold(SbPersistConfig::default(), |mut c, line| {
-            if let Some((k, v)) = line.split_once('=') {
-                let (k, v) = (k.trim(), v.trim());
-                if let Some(id) = k.strip_prefix("shortcut_")
-                    && !id.is_empty() && !v.is_empty() {
+        let loaded = content
+            .lines()
+            .fold(SbPersistConfig::default(), |mut c, line| {
+                if let Some((k, v)) = line.split_once('=') {
+                    let (k, v) = (k.trim(), v.trim());
+                    if let Some(id) = k.strip_prefix("shortcut_")
+                        && !id.is_empty()
+                        && !v.is_empty()
+                    {
                         c.shortcuts.insert(id.to_string(), v.to_string());
                     }
-            }
-            c
-        });
+                }
+                c
+            });
         assert_eq!(loaded.shortcuts.get("rename"), Some(&"u".to_string()));
-        assert_eq!(loaded.shortcuts.get("sort_menu"), Some(&"ctrl+t".to_string()));
+        assert_eq!(
+            loaded.shortcuts.get("sort_menu"),
+            Some(&"ctrl+t".to_string())
+        );
     }
 
     #[test]
     fn test_plugin_settings_round_trip() {
-        let mut cfg = SbPersistConfig::default();
-        cfg.disabled_plugins = vec!["cdlog".to_string(), "linecount".to_string()];
+        let mut cfg = SbPersistConfig {
+            disabled_plugins: vec!["cdlog".to_string(), "linecount".to_string()],
+            ..Default::default()
+        };
         cfg.plugin_bindings
             .insert("touch-notify".to_string(), "ctrl+t".to_string());
 
@@ -584,7 +618,7 @@ mod tests {
             cfg.disabled_plugins.join(",")
         ));
         let mut sorted: Vec<(&String, &String)> = cfg.plugin_bindings.iter().collect();
-        sorted.sort_by(|(a, _), (b, _)| a.cmp(b));
+        sorted.sort_by_key(|(k, _)| *k);
         for (name, combo) in sorted {
             lines.push(format!("plugin_key_{} = {}", name, combo));
         }
@@ -595,23 +629,27 @@ mod tests {
         );
 
         // Parse it back with load()'s prefix logic.
-        let loaded = content.lines().fold(SbPersistConfig::default(), |mut c, line| {
-            if let Some((k, v)) = line.split_once('=') {
-                let (k, v) = (k.trim(), v.trim());
-                if k == "disabled_plugins" {
-                    c.disabled_plugins = v
-                        .split(',')
-                        .map(str::trim)
-                        .filter(|s| !s.is_empty())
-                        .map(String::from)
-                        .collect();
-                } else if let Some(name) = k.strip_prefix("plugin_key_")
-                    && !name.is_empty() && !v.is_empty() {
+        let loaded = content
+            .lines()
+            .fold(SbPersistConfig::default(), |mut c, line| {
+                if let Some((k, v)) = line.split_once('=') {
+                    let (k, v) = (k.trim(), v.trim());
+                    if k == "disabled_plugins" {
+                        c.disabled_plugins = v
+                            .split(',')
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
+                            .map(String::from)
+                            .collect();
+                    } else if let Some(name) = k.strip_prefix("plugin_key_")
+                        && !name.is_empty()
+                        && !v.is_empty()
+                    {
                         c.plugin_bindings.insert(name.to_string(), v.to_string());
                     }
-            }
-            c
-        });
+                }
+                c
+            });
         assert_eq!(loaded.disabled_plugins, vec!["cdlog", "linecount"]);
         assert_eq!(
             loaded.plugin_bindings.get("touch-notify"),
@@ -652,8 +690,7 @@ mod tests {
                     }
                 }
                 "ai_auto_commit" => {
-                    c.ai_auto_commit =
-                        matches!(v.to_ascii_lowercase().as_str(), "1" | "true");
+                    c.ai_auto_commit = matches!(v.to_ascii_lowercase().as_str(), "1" | "true");
                 }
                 _ => {}
             }
@@ -675,10 +712,14 @@ mod tests {
             ai_provider: "github".to_string(),
             ..Default::default()
         };
-        cfg.ai_models.insert("groq".to_string(), "llama-3.3-70b-versatile".to_string());
-        cfg.ai_models.insert("github".to_string(), "openai/gpt-4o-mini".to_string());
-        cfg.ai_api_keys.insert("groq".to_string(), "groq-secret".to_string());
-        cfg.ai_api_keys.insert("github".to_string(), "github-secret".to_string());
+        cfg.ai_models
+            .insert("groq".to_string(), "llama-3.3-70b-versatile".to_string());
+        cfg.ai_models
+            .insert("github".to_string(), "openai/gpt-4o-mini".to_string());
+        cfg.ai_api_keys
+            .insert("groq".to_string(), "groq-secret".to_string());
+        cfg.ai_api_keys
+            .insert("github".to_string(), "github-secret".to_string());
         cfg.ai_auto_commit = true;
 
         let content = {
@@ -686,12 +727,12 @@ mod tests {
             lines.push(format!("ai_provider = {}", cfg.ai_provider));
             lines.push(format!("ai_auto_commit = {}", cfg.ai_auto_commit));
             let mut sorted_models: Vec<(&String, &String)> = cfg.ai_models.iter().collect();
-            sorted_models.sort_by(|(a, _), (b, _)| a.cmp(b));
+            sorted_models.sort_by_key(|(k, _)| *k);
             for (provider, model) in sorted_models {
                 lines.push(format!("ai_model_{} = {}", provider, model));
             }
             let mut sorted: Vec<(&String, &String)> = cfg.ai_api_keys.iter().collect();
-            sorted.sort_by(|(a, _), (b, _)| a.cmp(b));
+            sorted.sort_by_key(|(k, _)| *k);
             for (provider, key) in sorted {
                 lines.push(format!("ai_api_key_{} = {}", provider, key));
             }
@@ -700,11 +741,9 @@ mod tests {
 
         let mut legacy_key = None;
         let mut legacy_model = None;
-        let loaded = content
-            .lines()
-            .fold(SbPersistConfig::default(), |c, line| {
-                parse_line_into(c, line, &mut legacy_key, &mut legacy_model)
-            });
+        let loaded = content.lines().fold(SbPersistConfig::default(), |c, line| {
+            parse_line_into(c, line, &mut legacy_key, &mut legacy_model)
+        });
 
         assert_eq!(loaded.ai_provider, "github");
         assert_eq!(
@@ -715,7 +754,10 @@ mod tests {
             loaded.ai_models.get("github"),
             Some(&"openai/gpt-4o-mini".to_string())
         );
-        assert_eq!(loaded.ai_api_keys.get("groq"), Some(&"groq-secret".to_string()));
+        assert_eq!(
+            loaded.ai_api_keys.get("groq"),
+            Some(&"groq-secret".to_string())
+        );
         assert_eq!(
             loaded.ai_api_keys.get("github"),
             Some(&"github-secret".to_string())
@@ -730,19 +772,18 @@ mod tests {
         let content = "ai_provider = github\nai_api_key = old-token\n";
         let mut legacy_key = None;
         let mut legacy_model = None;
-        let mut loaded = content
-            .lines()
-            .fold(SbPersistConfig::default(), |c, line| {
-                parse_line_into(c, line, &mut legacy_key, &mut legacy_model)
-            });
+        let mut loaded = content.lines().fold(SbPersistConfig::default(), |c, line| {
+            parse_line_into(c, line, &mut legacy_key, &mut legacy_model)
+        });
         // Apply the same post-loop migration as load().
         if let Some(key) = legacy_key
-            && !key.is_empty() {
-                loaded
-                    .ai_api_keys
-                    .entry(loaded.ai_provider.clone())
-                    .or_insert(key);
-            }
+            && !key.is_empty()
+        {
+            loaded
+                .ai_api_keys
+                .entry(loaded.ai_provider.clone())
+                .or_insert(key);
+        }
         assert_eq!(
             loaded.ai_api_keys.get("github"),
             Some(&"old-token".to_string())
@@ -756,19 +797,18 @@ mod tests {
         let content = "ai_provider = github\nai_model = openai/gpt-4o-mini\n";
         let mut legacy_key = None;
         let mut legacy_model = None;
-        let mut loaded = content
-            .lines()
-            .fold(SbPersistConfig::default(), |c, line| {
-                parse_line_into(c, line, &mut legacy_key, &mut legacy_model)
-            });
+        let mut loaded = content.lines().fold(SbPersistConfig::default(), |c, line| {
+            parse_line_into(c, line, &mut legacy_key, &mut legacy_model)
+        });
         // Apply the same post-loop migration as load().
         if let Some(model) = legacy_model
-            && !model.is_empty() {
-                loaded
-                    .ai_models
-                    .entry(loaded.ai_provider.clone())
-                    .or_insert(model);
-            }
+            && !model.is_empty()
+        {
+            loaded
+                .ai_models
+                .entry(loaded.ai_provider.clone())
+                .or_insert(model);
+        }
         assert_eq!(
             loaded.ai_models.get("github"),
             Some(&"openai/gpt-4o-mini".to_string())

@@ -14,38 +14,36 @@ impl App {
 
 const MAIN_LIST_DOUBLE_CLICK_WINDOW_MS: u64 = 320;
 
+use chrono::Local;
 use crossterm::{
     cursor::MoveTo,
-    event::{
-        DisableMouseCapture, EnableMouseCapture, KeyCode, KeyEvent,
-    },
+    event::{DisableMouseCapture, EnableMouseCapture, KeyCode, KeyEvent},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, Clear as TermClear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{
+        Clear as TermClear, ClearType, EnterAlternateScreen, LeaveAlternateScreen,
+        disable_raw_mode, enable_raw_mode,
+    },
 };
-use chrono::Local;
-use regex::Regex;
 use ratatui::{prelude::*, widgets::*};
+use regex::Regex;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    env,
-    fs,
-    io,
+    env, fs, io,
     path::PathBuf,
     process::Command,
     sync::mpsc::{self, Receiver},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
-mod integration;
 mod app_ai;
 mod app_archive;
 mod app_core;
 mod app_download;
 mod app_entry_iter;
+mod app_files;
 mod app_git;
 mod app_images;
 mod app_init;
 mod app_input;
-mod app_files;
 mod app_meta;
 mod app_mouse;
 mod app_notes;
@@ -53,23 +51,24 @@ mod app_organize;
 mod app_plugins;
 mod app_preview;
 mod app_remote;
-mod app_rendering;
 mod app_render_cache;
+mod app_rendering;
+mod integration;
 pub(crate) use app_render_cache::{EntryRenderCache, EntryRenderConfig, ListAggregates};
 mod app_model;
 pub(crate) use app_model::*;
 mod app_search;
-mod app_sizes;
-mod app_sort;
 mod app_shell;
 mod app_shortcuts;
+mod app_sizes;
+mod app_sort;
 mod app_sqlite;
 mod app_transfer;
 mod app_video;
 mod plugin;
+mod run;
 mod ui;
 mod util;
-mod run;
 
 use integration::rows::IntegrationRow;
 use util::background::AsyncJobState;
@@ -499,9 +498,9 @@ struct App {
 }
 
 const ZIP_BASED_EXTENSIONS: &[&str] = &[
-    "zip", "jar", "war", "ear", "apk", "xpi", "crx", "cbz", "epub", "ipa",
-    "odt", "ods", "odp", "odg", "odf", "ott", "ots", "otp", "sxw", "sxc",
-    "sxi", "docx", "xlsx", "pptx", "vsix", "nupkg", "kmz", "whl",
+    "zip", "jar", "war", "ear", "apk", "xpi", "crx", "cbz", "epub", "ipa", "odt", "ods", "odp",
+    "odg", "odf", "ott", "ots", "otp", "sxw", "sxc", "sxi", "docx", "xlsx", "pptx", "vsix",
+    "nupkg", "kmz", "whl",
 ];
 
 fn env_flag_true(names: &[&str]) -> bool {
@@ -524,7 +523,6 @@ fn env_flag_true(names: &[&str]) -> bool {
     false
 }
 
-
 /// Returns (glyph, (r, g, b)) for well-known directory names, or None for generic folders.
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -542,13 +540,15 @@ fn main() -> io::Result<()> {
         return Ok(());
     }
     if let Some(list_args) = ui::cli::parse_list_mode_args(&args) {
-        if !list_args.include_hidden && list_args.tree_depth.is_none()
-            && let Some(path) = list_args.path {
-                let target = PathBuf::from(path);
-                if target.is_file() {
-                    return App::open_path_in_view_mode(&target, true);
-                }
+        if !list_args.include_hidden
+            && list_args.tree_depth.is_none()
+            && let Some(path) = list_args.path
+        {
+            let target = PathBuf::from(path);
+            if target.is_file() {
+                return App::open_path_in_view_mode(&target, true);
             }
+        }
         return ui::cli::list_current_directory(
             list_args.include_hidden,
             list_args.include_total_size,
@@ -562,7 +562,9 @@ fn main() -> io::Result<()> {
         if target.is_file() {
             return match mode {
                 ui::cli::DirectFileMode::ViewNoPager => App::open_path_in_view_mode(&target, false),
-                ui::cli::DirectFileMode::ViewWithPager => App::open_path_in_view_mode(&target, true),
+                ui::cli::DirectFileMode::ViewWithPager => {
+                    App::open_path_in_view_mode(&target, true)
+                }
                 ui::cli::DirectFileMode::Edit => App::open_path_in_editor_cli(&target),
             };
         } else if target.is_dir() && matches!(mode, ui::cli::DirectFileMode::Edit) {
@@ -572,11 +574,13 @@ fn main() -> io::Result<()> {
     }
 
     // If a single argument is provided that is a directory, list it like -l
-    if args.len() == 1 && !args[0].starts_with('-')
+    if args.len() == 1
+        && !args[0].starts_with('-')
         && let Ok(target) = PathBuf::from(&args[0]).canonicalize()
-            && target.is_dir() {
-                return ui::cli::list_current_directory(false, false, None, Some(&args[0]));
-            }
+        && target.is_dir()
+    {
+        return ui::cli::list_current_directory(false, false, None, Some(&args[0]));
+    }
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -594,12 +598,14 @@ fn main() -> io::Result<()> {
     }
     app.cleanup_archive_mounts();
     app.cleanup_ssh_mounts();
+    util::tmp::cleanup_session_cache();
     // Best-effort: exiting matters more than persisting cosmetic view state.
     let _ = util::config::SbPersistConfig::update(|persist| {
         persist.view_mode = format!("{:?}", app.view_mode);
         persist.current_theme = ui::theme::theme_name(app.active_theme).to_string();
         persist.disabled_integrations = app
-            .integration.overrides
+            .integration
+            .overrides
             .iter()
             .filter_map(|(k, &v)| if !v { Some(k.clone()) } else { None })
             .collect();
@@ -621,7 +627,12 @@ fn main() -> io::Result<()> {
     if let Some(parent) = last_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    if std::fs::write(&last_path, app.active_panel_dir().to_string_lossy().as_bytes()).is_ok() {
+    if std::fs::write(
+        &last_path,
+        app.active_panel_dir().to_string_lossy().as_bytes(),
+    )
+    .is_ok()
+    {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

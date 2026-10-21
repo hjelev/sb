@@ -1,5 +1,5 @@
 use crate::integration::rows::IntegrationRow;
-use crate::ui::theme::{theme_spec, ThemeId};
+use crate::ui::theme::{ThemeId, theme_spec};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     prelude::*,
@@ -85,8 +85,7 @@ pub fn panel_tab_bar_line(
         .bg(pill_bg)
         .add_modifier(Modifier::BOLD);
 
-    let (lo, hi, more_left, more_right) =
-        visible_tab_window(active as usize, avail_width as usize);
+    let (lo, hi, more_left, more_right) = visible_tab_window(active as usize, avail_width as usize);
 
     let mut spans: Vec<Span<'static>> = Vec::new();
     if more_left {
@@ -132,7 +131,12 @@ pub(crate) fn render_overlay_block(
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .title(panel_tab_bar_line(panel_tab, theme_id, nerd_font, area.width.saturating_sub(3)))
+        .title(panel_tab_bar_line(
+            panel_tab,
+            theme_id,
+            nerd_font,
+            area.width.saturating_sub(3),
+        ))
         .title_style(Style::default().fg(spec.text_normal))
         .style(Style::default().bg(spec.bg_panel).fg(spec.text_normal))
         .border_style(Style::default().fg(spec.divider));
@@ -180,8 +184,7 @@ pub(crate) fn indent_lines<'a>(lines: &[Line<'a>]) -> Vec<Line<'a>> {
 }
 
 pub fn panel_tab_hit_test(relative_x: u16, active: u8, avail_width: u16) -> Option<u8> {
-    let (lo, hi, more_left, more_right) =
-        visible_tab_window(active as usize, avail_width as usize);
+    let (lo, hi, more_left, more_right) = visible_tab_window(active as usize, avail_width as usize);
 
     let mut cursor = 0u16;
 
@@ -313,7 +316,10 @@ pub fn shortcut_footer_lines(
     theme_id: ThemeId,
     nerd_font: bool,
 ) -> Vec<Line<'static>> {
-    vec![Line::from(""), shortcut_footer_line(entries, theme_id, nerd_font)]
+    vec![
+        Line::from(""),
+        shortcut_footer_line(entries, theme_id, nerd_font),
+    ]
 }
 
 /// Map a footer key label (as shown in the pill) to the key event a click
@@ -386,18 +392,16 @@ pub fn footer_shortcut_zones(
     zones
 }
 
-pub(crate) fn selector_edge_spans(is_selected: bool, spec: &crate::ui::theme::ThemeSpec, nerd_font: bool) -> (Span<'static>, Span<'static>) {
+pub(crate) fn selector_edge_spans(
+    is_selected: bool,
+    spec: &crate::ui::theme::ThemeSpec,
+    nerd_font: bool,
+) -> (Span<'static>, Span<'static>) {
     if is_selected {
         if nerd_font {
             (
-                Span::styled(
-                    "",
-                    Style::default().fg(spec.bg_selected).bg(spec.bg_panel),
-                ),
-                Span::styled(
-                    "",
-                    Style::default().fg(spec.bg_selected).bg(spec.bg_panel),
-                ),
+                Span::styled("", Style::default().fg(spec.bg_selected).bg(spec.bg_panel)),
+                Span::styled("", Style::default().fg(spec.bg_selected).bg(spec.bg_panel)),
             )
         } else {
             (
@@ -430,7 +434,6 @@ pub struct IntegrationsOverlayState<'a> {
     pub search_query: &'a str,
     pub show_icons: bool,
 }
-
 
 // Overlay renderers live in panels_overlays.rs; re-exported so `ui::panels::*` paths hold.
 pub use super::panels_overlays::*;

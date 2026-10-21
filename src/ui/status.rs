@@ -62,7 +62,10 @@ pub fn decorate_footer_message(msg: &str, nerd_font_active: bool) -> String {
     }
 
     let trimmed = msg.trim_start();
-    if KNOWN_STATUS_ICONS.iter().any(|icon| trimmed.starts_with(icon)) {
+    if KNOWN_STATUS_ICONS
+        .iter()
+        .any(|icon| trimmed.starts_with(icon))
+    {
         return msg.to_string();
     }
 

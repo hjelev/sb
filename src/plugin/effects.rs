@@ -17,7 +17,11 @@ impl App {
         let cwd = self.active_panel_dir();
         let selected = self.active_selected_entry_path();
         let on_right = self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right;
-        let panel = if on_right { (&self.right, "right") } else { (&self.left, "left") };
+        let panel = if on_right {
+            (&self.right, "right")
+        } else {
+            (&self.left, "left")
+        };
         let mut files: Vec<PathBuf> = panel
             .0
             .entries
@@ -94,7 +98,11 @@ impl App {
             PluginEffect::MarkNames(names) => {
                 let on_right =
                     self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right;
-                let panel = if on_right { &mut self.right } else { &mut self.left };
+                let panel = if on_right {
+                    &mut self.right
+                } else {
+                    &mut self.left
+                };
                 for name in names {
                     if let Some(index) = panel
                         .entries
@@ -109,7 +117,11 @@ impl App {
             PluginEffect::ClearMarks => {
                 let on_right =
                     self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right;
-                let panel = if on_right { &mut self.right } else { &mut self.left };
+                let panel = if on_right {
+                    &mut self.right
+                } else {
+                    &mut self.left
+                };
                 panel.marked_indices.clear();
             }
             PluginEffect::ClipboardSet(paths) => {
@@ -122,7 +134,9 @@ impl App {
                 self.set_status(format!("plugin: {} item(s) in clipboard", count));
             }
             // Terminal effects are filtered out by apply_plugin_effects.
-            PluginEffect::EditPath(_) | PluginEffect::ViewPath(_) | PluginEffect::RunShellWait(_) => {}
+            PluginEffect::EditPath(_)
+            | PluginEffect::ViewPath(_)
+            | PluginEffect::RunShellWait(_) => {}
         }
     }
 

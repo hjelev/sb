@@ -32,7 +32,8 @@ impl App {
     }
 
     fn entry_extension_key(entry: &fs::DirEntry) -> String {
-        entry.path()
+        entry
+            .path()
             .extension()
             .and_then(|ext| ext.to_str())
             .unwrap_or("")
@@ -50,12 +51,14 @@ impl App {
         // Pre-collect all sort keys in O(n) — eliminates O(n log n) stat() calls that
         // the previous sort_by comparator incurred by calling is_file()/metadata() per pair.
         let metas: Vec<Option<fs::Metadata>> = entries.iter().map(|e| e.metadata().ok()).collect();
-        let is_dirs: Vec<bool> = metas.iter()
+        let is_dirs: Vec<bool> = metas
+            .iter()
             .map(|m| m.as_ref().map(|m| m.is_dir()).unwrap_or(false))
             .collect();
         let names: Vec<String> = entries.iter().map(Self::entry_name_key).collect();
         let paths: Vec<PathBuf> = entries.iter().map(|e| e.path()).collect();
-        let sizes: Vec<u64>    = metas.iter()
+        let sizes: Vec<u64> = metas
+            .iter()
             .enumerate()
             .map(|(idx, m)| {
                 let default_size = m.as_ref().map(|m| m.len()).unwrap_or(0);
@@ -72,14 +75,17 @@ impl App {
                 }
             })
             .collect();
-        let times: Vec<u64>    = metas.iter().map(|m| {
-            m.as_ref()
-                .and_then(|m| m.modified().ok())
-                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                .map(|d| d.as_secs())
-                .unwrap_or(0)
-        }).collect();
-        let exts: Vec<String>  = entries.iter().map(Self::entry_extension_key).collect();
+        let times: Vec<u64> = metas
+            .iter()
+            .map(|m| {
+                m.as_ref()
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0)
+            })
+            .collect();
+        let exts: Vec<String> = entries.iter().map(Self::entry_extension_key).collect();
 
         let mut indices: Vec<usize> = (0..entries.len()).collect();
         indices.sort_by(|&a, &b| {
@@ -89,34 +95,57 @@ impl App {
                 return type_ord;
             }
             match mode {
-                SortMode::NameAsc        => names[a].cmp(&names[b]),
-                SortMode::NameDesc       => names[b].cmp(&names[a]),
-                SortMode::ExtensionAsc   => exts[a].cmp(&exts[b]).then_with(|| names[a].cmp(&names[b])),
-                SortMode::SizeAsc        => sizes[a].cmp(&sizes[b]).then_with(|| names[a].cmp(&names[b])),
-                SortMode::SizeDesc       => sizes[b].cmp(&sizes[a]).then_with(|| names[a].cmp(&names[b])),
-                SortMode::ModifiedNewest => times[b].cmp(&times[a]).then_with(|| names[a].cmp(&names[b])),
-                SortMode::ModifiedOldest => times[a].cmp(&times[b]).then_with(|| names[a].cmp(&names[b])),
+                SortMode::NameAsc => names[a].cmp(&names[b]),
+                SortMode::NameDesc => names[b].cmp(&names[a]),
+                SortMode::ExtensionAsc => {
+                    exts[a].cmp(&exts[b]).then_with(|| names[a].cmp(&names[b]))
+                }
+                SortMode::SizeAsc => sizes[a]
+                    .cmp(&sizes[b])
+                    .then_with(|| names[a].cmp(&names[b])),
+                SortMode::SizeDesc => sizes[b]
+                    .cmp(&sizes[a])
+                    .then_with(|| names[a].cmp(&names[b])),
+                SortMode::ModifiedNewest => times[b]
+                    .cmp(&times[a])
+                    .then_with(|| names[a].cmp(&names[b])),
+                SortMode::ModifiedOldest => times[a]
+                    .cmp(&times[b])
+                    .then_with(|| names[a].cmp(&names[b])),
             }
         });
 
         // Rearrange entries in-place to match the sorted index permutation.
         let mut tmp: Vec<Option<fs::DirEntry>> = entries.drain(..).map(Some).collect();
-        *entries = indices.into_iter().map(|i| tmp[i].take().unwrap()).collect();
+        *entries = indices
+            .into_iter()
+            .map(|i| tmp[i].take().unwrap())
+            .collect();
     }
 
     pub(crate) fn apply_sort_to_current_entries(&mut self) {
         if !self.tree.expansion_levels.is_empty() {
-            let selected_path = self.left.entries.get(self.left.selected_index).map(|e| e.path());
+            let selected_path = self
+                .left
+                .entries
+                .get(self.left.selected_index)
+                .map(|e| e.path());
             let _ = self.refresh_entries();
             if let Some(path) = selected_path
-                && let Some(idx) = self.left.entries.iter().position(|e| e.path() == path) {
-                    self.left.selected_index = idx;
-                    self.left.table_state.select(Some(idx));
-                }
+                && let Some(idx) = self.left.entries.iter().position(|e| e.path() == path)
+            {
+                self.left.selected_index = idx;
+                self.left.table_state.select(Some(idx));
+            }
             return;
         }
-        let selected_path = self.left.entries.get(self.left.selected_index).map(|e| e.path());
-        let marked_paths: HashSet<PathBuf> = self.left
+        let selected_path = self
+            .left
+            .entries
+            .get(self.left.selected_index)
+            .map(|e| e.path());
+        let marked_paths: HashSet<PathBuf> = self
+            .left
             .marked_indices
             .iter()
             .filter_map(|idx| self.left.entries.get(*idx).map(|e| e.path()))
@@ -127,7 +156,11 @@ impl App {
         } else {
             None
         };
-        Self::sort_entries_by_mode(&mut self.left.entries, self.left.sort_mode, folder_size_cache);
+        Self::sort_entries_by_mode(
+            &mut self.left.entries,
+            self.left.sort_mode,
+            folder_size_cache,
+        );
 
         let config = EntryRenderConfig {
             nerd_font_active: self.nerd_font_active,
@@ -137,13 +170,17 @@ impl App {
         };
         let uid_cache = App::build_uid_cache(&self.left.entries);
         let gid_cache = App::build_gid_cache(&self.left.entries);
-            self.left.entry_render_cache = self.left.entries.iter()
+        self.left.entry_render_cache = self
+            .left
+            .entries
+            .iter()
             .map(|entry| App::build_entry_render_cache(entry, config, &uid_cache, &gid_cache))
             .collect();
         self.apply_cached_folder_size_columns();
         self.refresh_meta_identity_widths();
 
-        self.left.marked_indices = self.left
+        self.left.marked_indices = self
+            .left
             .entries
             .iter()
             .enumerate()

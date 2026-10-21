@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent};
 
-use crate::util::keymap::{KeyCombo, KeyMap, ACTIONS};
 use crate::App;
+use crate::util::keymap::{ACTIONS, KeyCombo, KeyMap};
 
 impl App {
     /// Handle the key pressed while the Shortcuts panel is capturing a new
@@ -20,7 +20,10 @@ impl App {
             return;
         };
         if KeyMap::is_reserved(combo) {
-            self.set_status(format!("{} is reserved — press another key (Esc cancels)", combo.label()));
+            self.set_status(format!(
+                "{} is reserved — press another key (Esc cancels)",
+                combo.label()
+            ));
             return;
         }
         if let Some(other) = self.keymap.conflict(combo, idx) {
@@ -67,7 +70,8 @@ impl App {
             if combo == spec.default {
                 cfg.shortcuts.remove(spec.id);
             } else {
-                cfg.shortcuts.insert(spec.id.to_string(), combo.to_config_string());
+                cfg.shortcuts
+                    .insert(spec.id.to_string(), combo.to_config_string());
             }
         });
         if let Err(e) = result {

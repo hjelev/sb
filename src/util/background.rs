@@ -1,6 +1,6 @@
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
-use std::sync::Arc;
 
 /// Spawn a background worker thread wired to a fresh channel.
 ///
@@ -41,7 +41,9 @@ where
 /// }
 /// ```
 pub fn drain_channel<T>(rx: &mut Option<Receiver<T>>) -> Vec<T> {
-    let Some(taken) = rx.take() else { return vec![] };
+    let Some(taken) = rx.take() else {
+        return vec![];
+    };
     let mut messages = Vec::new();
     let mut channel_open = true;
     loop {

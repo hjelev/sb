@@ -56,7 +56,13 @@ impl App {
         let mut had_work = false;
         while let Some(msg) = self.plugins.poll_spawn() {
             had_work = true;
-            let PluginMsg::SpawnDone { token, plugin, status, stdout, stderr } = msg;
+            let PluginMsg::SpawnDone {
+                token,
+                plugin,
+                status,
+                stdout,
+                stderr,
+            } = msg;
             match self
                 .plugins
                 .run_spawn_callback(token, &plugin, status, &stdout, &stderr)
@@ -244,7 +250,8 @@ impl App {
         let name = name.to_string();
         let result = crate::util::config::SbPersistConfig::update(|cfg| match combo {
             Some(c) => {
-                cfg.plugin_bindings.insert(name.clone(), c.to_config_string());
+                cfg.plugin_bindings
+                    .insert(name.clone(), c.to_config_string());
             }
             None => {
                 cfg.plugin_bindings.remove(&name);

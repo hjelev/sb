@@ -67,25 +67,27 @@ impl App {
             .unwrap_or_default();
         let host_port = authority.rsplit('@').next().unwrap_or(authority);
         let host = if let Some(rest) = host_port.strip_prefix('[') {
-            rest.split(']').next().unwrap_or_default().trim().to_string()
+            rest.split(']')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_string()
         } else {
-            host_port.split(':').next().unwrap_or_default().trim().to_string()
+            host_port
+                .split(':')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_string()
         };
 
-        if host.is_empty() {
-            None
-        } else {
-            Some(host)
-        }
+        if host.is_empty() { None } else { Some(host) }
     }
 
     fn download_url_file_name(url: &str) -> Option<String> {
         let authority_and_path = url.split_once("://")?.1;
         let path_and_more = authority_and_path.split_once('/').map(|(_, tail)| tail)?;
-        let path = path_and_more
-            .split(['?', '#'])
-            .next()
-            .unwrap_or_default();
+        let path = path_and_more.split(['?', '#']).next().unwrap_or_default();
         let name = path.rsplit('/').find(|segment| !segment.is_empty())?;
         if name == "." || name == ".." {
             None
@@ -179,7 +181,11 @@ impl App {
     }
 
     pub(crate) fn cancel_download_overwrite(&mut self) {
-        let resume_input = self.transfer.download_resume_input.clone().unwrap_or_default();
+        let resume_input = self
+            .transfer
+            .download_resume_input
+            .clone()
+            .unwrap_or_default();
         self.begin_input_edit(AppMode::DownloadInput, resume_input);
         self.transfer.download_pending_name = None;
         self.set_status("download overwrite cancelled");
@@ -216,9 +222,14 @@ impl App {
         self.set_status(format!("downloading {} via {}", file_name, tool));
 
         self.transfer.download_rx = Some(util::background::spawn_worker(move |tx| {
-            let result = util::command::CommandBuilder::download_with_progress(tool, &url, &output_path, |hint| {
-                let _ = tx.send(DownloadProgressMsg::Status(hint.to_string()));
-            });
+            let result = util::command::CommandBuilder::download_with_progress(
+                tool,
+                &url,
+                &output_path,
+                |hint| {
+                    let _ = tx.send(DownloadProgressMsg::Status(hint.to_string()));
+                },
+            );
 
             let _ = tx.send(DownloadProgressMsg::Finished { file_name, result });
         }));

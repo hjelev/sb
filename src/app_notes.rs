@@ -1,8 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    env,
-    fs,
-    io,
+    env, fs, io,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -12,7 +10,6 @@ use crate::util::tui::{self, ResumeMode};
 use crate::{App, AppMode, DualPanelSide, NotesLoadMsg};
 
 impl App {
-
     pub(crate) fn notes_file_path(dir: &Path) -> PathBuf {
         dir.join(".sb")
     }
@@ -89,7 +86,8 @@ impl App {
             return;
         }
         if self
-            .notes.loaded_for
+            .notes
+            .loaded_for
             .as_ref()
             .map(|p| p == &self.left.dir)
             .unwrap_or(false)
@@ -183,7 +181,11 @@ impl App {
         names
     }
 
-    pub(crate) fn write_notes_map(dir: &Path, notes: &HashMap<String, String>, scan_id: u64) -> io::Result<()> {
+    pub(crate) fn write_notes_map(
+        dir: &Path,
+        notes: &HashMap<String, String>,
+        scan_id: u64,
+    ) -> io::Result<()> {
         let notes_path = Self::notes_file_path(dir);
         if notes.is_empty() {
             match fs::remove_file(&notes_path) {
@@ -213,7 +215,8 @@ impl App {
 
     pub(crate) fn save_notes_for_current_dir(&mut self) -> io::Result<()> {
         let existing = Self::entry_names_in_dir(&self.left.dir);
-        self.notes.by_name
+        self.notes
+            .by_name
             .retain(|name, note| existing.contains(name) && !note.trim().is_empty());
         Self::write_notes_map(&self.left.dir, &self.notes.by_name, self.notes.scan_id)?;
         self.notes.loaded_for = Some(self.left.dir.clone());
@@ -300,10 +303,10 @@ impl App {
                 .write(true)
                 .create_new(true)
                 .open(&todo_path)
-            {
-                self.set_status(format!("failed to create ~/.todo: {}", e));
-                return Ok(());
-            }
+        {
+            self.set_status(format!("failed to create ~/.todo: {}", e));
+            return Ok(());
+        }
 
         let editor = crate::util::command::editor_command();
         {

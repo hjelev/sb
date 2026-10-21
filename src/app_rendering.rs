@@ -22,9 +22,8 @@ impl App {
             .iter()
             .position(|theme| theme.id == theme_id)
             .unwrap_or(0);
-        self.os_icon = ui::icons::os_nerd_icon().map(|(glyph, _)| {
-            (glyph, ui::theme::theme_spec(theme_id).icon_os)
-        });
+        self.os_icon = ui::icons::os_nerd_icon()
+            .map(|(glyph, _)| (glyph, ui::theme::theme_spec(theme_id).icon_os));
         self.rebuild_render_caches();
     }
 
@@ -37,16 +36,22 @@ impl App {
         };
         let uid_cache = App::build_uid_cache(&self.left.entries);
         let gid_cache = App::build_gid_cache(&self.left.entries);
-        self.left.entry_render_cache = self.left.entries
+        self.left.entry_render_cache = self
+            .left
+            .entries
             .iter()
             .map(|entry| App::build_entry_render_cache(entry, config, &uid_cache, &gid_cache))
             .collect();
         if !self.right.entries.is_empty() {
             let uid_cache_r = App::build_uid_cache(&self.right.entries);
             let gid_cache_r = App::build_gid_cache(&self.right.entries);
-            self.right.entry_render_cache = self.right.entries
+            self.right.entry_render_cache = self
+                .right
+                .entries
                 .iter()
-                .map(|entry| App::build_entry_render_cache(entry, config, &uid_cache_r, &gid_cache_r))
+                .map(|entry| {
+                    App::build_entry_render_cache(entry, config, &uid_cache_r, &gid_cache_r)
+                })
                 .collect();
         }
         self.recompute_list_aggregates();
@@ -133,11 +138,7 @@ impl App {
             DualPanelSide::Right => self.right_status_message.as_str(),
         };
 
-        if msg.is_empty() {
-            None
-        } else {
-            Some(msg)
-        }
+        if msg.is_empty() { None } else { Some(msg) }
     }
 
     pub(crate) fn decorate_footer_message(&self, msg: &str) -> String {

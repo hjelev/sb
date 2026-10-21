@@ -40,7 +40,7 @@ impl App {
                 if let Ok(meta) = entry.metadata() {
                     let uid = meta.uid();
                     map.entry(uid).or_insert_with(|| {
-                        users::get_user_by_uid(uid)
+                        uzers::get_user_by_uid(uid)
                             .map(|u| u.name().to_string_lossy().into_owned())
                             .unwrap_or_else(|| uid.to_string())
                     });
@@ -68,7 +68,7 @@ impl App {
                 if let Ok(meta) = entry.metadata() {
                     let gid = meta.gid();
                     map.entry(gid).or_insert_with(|| {
-                        users::get_group_by_gid(gid)
+                        uzers::get_group_by_gid(gid)
                             .map(|g| g.name().to_string_lossy().into_owned())
                             .unwrap_or_else(|| gid.to_string())
                     });

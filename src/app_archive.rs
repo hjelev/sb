@@ -1,28 +1,24 @@
+use crate::util::background::{drain_channel, spawn_worker};
 use std::{
     fs, io,
     path::PathBuf,
     process::{Command, Stdio},
     thread,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
-use crate::util::background::{drain_channel, spawn_worker};
 
 use crossterm::{
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 
-use crate::{App, AppMode, ArchiveKind, ArchiveMount, ArchiveProgressMsg};
-use crate::util::command::CommandBuilder;
 use crate::util::cleanup::safe_cleanup_path;
+use crate::util::command::CommandBuilder;
+use crate::{App, AppMode, ArchiveKind, ArchiveMount, ArchiveProgressMsg};
 
 impl App {
-    pub(crate) fn create_archive_mount_path(&self) -> PathBuf {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        std::env::temp_dir().join(format!("sbrs_zip_{}_{}", std::process::id(), stamp))
+    pub(crate) fn create_archive_mount_path(&self) -> io::Result<PathBuf> {
+        crate::util::tmp::private_dir("sbrs_zip_")
     }
 
     pub(crate) fn try_mount_archive(&mut self, archive_path: PathBuf) -> bool {
@@ -48,13 +44,16 @@ impl App {
             return true;
         }
 
-        let mount_path = self.create_archive_mount_path();
-        if fs::create_dir_all(&mount_path).is_err() {
+        let Ok(mount_path) = self.create_archive_mount_path() else {
             self.set_status("failed to create archive mount directory");
             return false;
-        }
+        };
 
-        match Command::new(tool).arg(&archive_path).arg(&mount_path).status() {
+        match Command::new(tool)
+            .arg(&archive_path)
+            .arg(&mount_path)
+            .status()
+        {
             Ok(status) if status.success() => {
                 let archive_name = crate::util::classify::display_name(&archive_path);
                 let return_dir = self.active_panel_dir();
@@ -216,7 +215,8 @@ impl App {
         };
 
         let mount = self.archive_mounts.remove(idx);
-        let was_inside = self.left.dir == mount.mount_path || self.left.dir.starts_with(&mount.mount_path);
+        let was_inside =
+            self.left.dir == mount.mount_path || self.left.dir.starts_with(&mount.mount_path);
         if was_inside {
             self.left.dir = mount.return_dir.clone();
             if self.refresh_entries_or_status() {
@@ -231,28 +231,32 @@ impl App {
     pub(crate) fn archive_targets(&self) -> Vec<PathBuf> {
         if self.is_dual_panel_mode() && self.active_panel == crate::DualPanelSide::Right {
             if !self.right.marked_indices.is_empty() {
-                self.right.entries
+                self.right
+                    .entries
                     .iter()
                     .enumerate()
                     .filter(|(i, _)| self.right.marked_indices.contains(i))
                     .map(|(_, e)| e.path())
                     .collect()
             } else {
-                self.right.entries
+                self.right
+                    .entries
                     .get(self.right.selected_index)
                     .map(|e| e.path())
                     .into_iter()
                     .collect()
             }
         } else if !self.left.marked_indices.is_empty() {
-            self.left.entries
+            self.left
+                .entries
                 .iter()
                 .enumerate()
                 .filter(|(i, _)| self.left.marked_indices.contains(i))
                 .map(|(_, e)| e.path())
                 .collect()
         } else {
-            self.left.entries
+            self.left
+                .entries
                 .get(self.left.selected_index)
                 .map(|e| e.path())
                 .into_iter()
@@ -480,7 +484,8 @@ impl App {
         let bar = crate::util::format::progress_bar(percent, 20);
 
         let elapsed = self
-            .archive.started_at
+            .archive
+            .started_at
             .map(|t| t.elapsed().as_secs_f64())
             .unwrap_or(0.0)
             .max(0.001);
@@ -560,7 +565,8 @@ impl App {
                     match child.try_wait() {
                         Ok(Some(status)) => {
                             if status.success() {
-                                let _ = tx.send(ArchiveProgressMsg::Finished(Ok(archive_name.clone())));
+                                let _ =
+                                    tx.send(ArchiveProgressMsg::Finished(Ok(archive_name.clone())));
                             } else {
                                 let _ = tx.send(ArchiveProgressMsg::Finished(Err(
                                     "zip command failed".to_string(),

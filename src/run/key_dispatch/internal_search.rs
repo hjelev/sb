@@ -1,6 +1,9 @@
 use super::*;
 
-pub(crate) fn handle_internal_search_key(app: &mut App, key: KeyEvent) -> io::Result<KeyDispatchOutcome> {
+pub(crate) fn handle_internal_search_key(
+    app: &mut App,
+    key: KeyEvent,
+) -> io::Result<KeyDispatchOutcome> {
     match key.code {
         KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             if app.search.scope == InternalSearchScope::Content {
@@ -20,33 +23,49 @@ pub(crate) fn handle_internal_search_key(app: &mut App, key: KeyEvent) -> io::Re
             app.search.limits_selected = (app.search.limits_selected + 1).min(2);
         }
         KeyCode::Left if app.search.limits_menu_open => {
-            app.adjust_internal_search_content_limit(false, key.modifiers.contains(KeyModifiers::SHIFT));
+            app.adjust_internal_search_content_limit(
+                false,
+                key.modifiers.contains(KeyModifiers::SHIFT),
+            );
         }
         KeyCode::Right if app.search.limits_menu_open => {
-            app.adjust_internal_search_content_limit(true, key.modifiers.contains(KeyModifiers::SHIFT));
+            app.adjust_internal_search_content_limit(
+                true,
+                key.modifiers.contains(KeyModifiers::SHIFT),
+            );
         }
         KeyCode::Char('-') if app.search.limits_menu_open => {
-            app.adjust_internal_search_content_limit(false, key.modifiers.contains(KeyModifiers::SHIFT));
+            app.adjust_internal_search_content_limit(
+                false,
+                key.modifiers.contains(KeyModifiers::SHIFT),
+            );
         }
         KeyCode::Char('+') if app.search.limits_menu_open => {
-            app.adjust_internal_search_content_limit(true, key.modifiers.contains(KeyModifiers::SHIFT));
+            app.adjust_internal_search_content_limit(
+                true,
+                key.modifiers.contains(KeyModifiers::SHIFT),
+            );
         }
         KeyCode::Char('=') if app.search.limits_menu_open => {
-            app.adjust_internal_search_content_limit(true, key.modifiers.contains(KeyModifiers::SHIFT));
+            app.adjust_internal_search_content_limit(
+                true,
+                key.modifiers.contains(KeyModifiers::SHIFT),
+            );
         }
         KeyCode::Char('r') if app.search.limits_menu_open => {
             app.reset_internal_search_content_limits_to_defaults();
         }
-        KeyCode::Backspace | KeyCode::Delete | KeyCode::PageUp | KeyCode::PageDown | KeyCode::Home | KeyCode::End
-            if app.search.limits_menu_open =>
-        {
-        }
+        KeyCode::Backspace
+        | KeyCode::Delete
+        | KeyCode::PageUp
+        | KeyCode::PageDown
+        | KeyCode::Home
+        | KeyCode::End
+            if app.search.limits_menu_open => {}
         KeyCode::Char(_)
             if app.search.limits_menu_open
                 && !key.modifiers.contains(KeyModifiers::CONTROL)
-                && !key.modifiers.contains(KeyModifiers::ALT) =>
-        {
-        }
+                && !key.modifiers.contains(KeyModifiers::ALT) => {}
         KeyCode::Esc => {
             app.cancel_internal_search_candidate_scan();
             app.cancel_internal_search_content_request();
@@ -74,12 +93,13 @@ pub(crate) fn handle_internal_search_key(app: &mut App, key: KeyEvent) -> io::Re
             app.clear_input_edit();
             app.mode = AppMode::Browsing;
             if let Some(path) = selected_path
-                && let Some(parent) = path.parent() {
-                    app.try_enter_dir(parent.to_path_buf());
-                    if let Some(name) = path.file_name() {
-                        app.select_entry_named(&name.to_string_lossy());
-                    }
+                && let Some(parent) = path.parent()
+            {
+                app.try_enter_dir(parent.to_path_buf());
+                if let Some(name) = path.file_name() {
+                    app.select_entry_named(&name.to_string_lossy());
                 }
+            }
         }
         KeyCode::Up => {
             app.search.selected = app.search.selected.saturating_sub(1);
@@ -125,4 +145,3 @@ pub(crate) fn handle_internal_search_key(app: &mut App, key: KeyEvent) -> io::Re
     }
     Ok(KeyDispatchOutcome::Ok)
 }
-

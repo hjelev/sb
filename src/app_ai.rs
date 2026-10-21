@@ -201,16 +201,11 @@ fn generate_commit_message(
     let mut result = post_chat_completions(endpoint, api_key, build_request_body(model, diff));
     // A custom model that no longer exists comes back as a 404; retry once
     // with the provider default so generation keeps working.
-    if model != default_model {
-        if let Err(e) = &result {
-            if e.starts_with("AI API error 404") {
-                result = post_chat_completions(
-                    endpoint,
-                    api_key,
-                    build_request_body(default_model, diff),
-                );
-            }
-        }
+    if model != default_model
+        && let Err(e) = &result
+        && e.starts_with("AI API error 404")
+    {
+        result = post_chat_completions(endpoint, api_key, build_request_body(default_model, diff));
     }
     parse_commit_message(&result?)
 }
@@ -265,9 +260,13 @@ impl App {
         let endpoint = provider.endpoint.to_string();
         let model = self.resolve_ai_model();
         let default_model = provider.default_model.to_string();
-        self.set_status(format!("generating commit message via {}...", provider.label));
+        self.set_status(format!(
+            "generating commit message via {}...",
+            provider.label
+        ));
         self.ai.commit_rx = Some(spawn_worker(move |tx| {
-            let result = generate_commit_message(&endpoint, &api_key, &model, &default_model, &diff);
+            let result =
+                generate_commit_message(&endpoint, &api_key, &model, &default_model, &diff);
             let _ = tx.send(match result {
                 Ok(msg) => AiCommitMsg::Ok(msg),
                 Err(err) => AiCommitMsg::Err(err),
@@ -282,22 +281,30 @@ impl App {
             .iter()
             .position(|p| p.key == self.ai.provider)
             .unwrap_or(0);
-        let next = if forward { (idx + 1) % n } else { (idx + n - 1) % n };
+        let next = if forward {
+            (idx + 1) % n
+        } else {
+            (idx + n - 1) % n
+        };
         // Save the current provider's model + key, then switch and load the
         // new provider's model + key into the live buffers so the Settings
         // fields show them.
-        self.ai.models
+        self.ai
+            .models
             .insert(self.ai.provider.clone(), self.ai.model.clone());
-        self.ai.api_keys
+        self.ai
+            .api_keys
             .insert(self.ai.provider.clone(), self.ai.api_key.clone());
         self.ai.provider = AI_PROVIDERS[next].key.to_string();
         self.ai.model = self
-            .ai.models
+            .ai
+            .models
             .get(&self.ai.provider)
             .cloned()
             .unwrap_or_default();
         self.ai.api_key = self
-            .ai.api_keys
+            .ai
+            .api_keys
             .get(&self.ai.provider)
             .cloned()
             .unwrap_or_default();
@@ -347,14 +354,16 @@ impl App {
     /// Mirror the live model buffer into the active provider's slot so the
     /// per-provider store stays authoritative between provider switches.
     fn sync_active_model(&mut self) {
-        self.ai.models
+        self.ai
+            .models
             .insert(self.ai.provider.clone(), self.ai.model.clone());
     }
 
     /// Mirror the live API-key buffer into the active provider's slot so the
     /// per-provider store stays authoritative between provider switches.
     fn sync_active_api_key(&mut self) {
-        self.ai.api_keys
+        self.ai
+            .api_keys
             .insert(self.ai.provider.clone(), self.ai.api_key.clone());
     }
 
@@ -401,23 +410,23 @@ impl App {
     /// validation channel. Results for a since-changed key are discarded.
     pub(crate) fn pump_ai_key_check(&mut self) {
         if let Some(edited) = self.ai.key_edit_at
-            && edited.elapsed() >= KEY_CHECK_DEBOUNCE {
-                self.maybe_check_api_key();
-            }
+            && edited.elapsed() >= KEY_CHECK_DEBOUNCE
+        {
+            self.maybe_check_api_key();
+        }
         match pump_once(&mut self.ai.key_check_rx) {
-            Some(AiKeyCheckMsg::Result { key, valid }) => {
-                if self.ai.api_key.trim() == key {
-                    self.ai.key_status =
-                        if valid { AiKeyStatus::Valid } else { AiKeyStatus::Invalid };
-                }
+            Some(AiKeyCheckMsg::Result { key, valid }) if self.ai.api_key.trim() == key => {
+                self.ai.key_status = if valid {
+                    AiKeyStatus::Valid
+                } else {
+                    AiKeyStatus::Invalid
+                };
             }
-            Some(AiKeyCheckMsg::Error { key, message }) => {
-                if self.ai.api_key.trim() == key {
-                    self.ai.key_status = AiKeyStatus::Unknown;
-                    self.set_status(message);
-                }
+            Some(AiKeyCheckMsg::Error { key, message }) if self.ai.api_key.trim() == key => {
+                self.ai.key_status = AiKeyStatus::Unknown;
+                self.set_status(message);
             }
-            None => {}
+            _ => {}
         }
     }
 
@@ -459,7 +468,9 @@ impl App {
             Some(AiCommitMsg::Ok(text)) => {
                 if self.mode == AppMode::GitCommitMessage {
                     self.begin_input_edit(AppMode::GitCommitMessage, text);
-                    self.set_status("AI message ready — edit and Enter to commit, or Ctrl+G to retry");
+                    self.set_status(
+                        "AI message ready — edit and Enter to commit, or Ctrl+G to retry",
+                    );
                 }
             }
             Some(AiCommitMsg::Err(err)) => {
