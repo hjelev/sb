@@ -1,13 +1,8 @@
-use crossterm::{
-    event::{self, Event, KeyCode},
-    terminal::{disable_raw_mode, enable_raw_mode},
-};
 use std::{
     fs,
     io::{self, Read},
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    time::Duration,
 };
 
 use crate::util::classify::has_ext;
@@ -379,21 +374,7 @@ impl App {
                 if let Ok(ref mut proc) = child {
                     println!("Playing decrypted audio: {}", input.display());
                     println!("Press q, Esc, or Left to stop playback.");
-                    enable_raw_mode()?;
-                    loop {
-                        if proc.try_wait()?.is_some() {
-                            break;
-                        }
-                        if event::poll(Duration::from_millis(120))?
-                            && let Event::Key(k) = event::read()?
-                            && matches!(k.code, KeyCode::Char('q') | KeyCode::Esc | KeyCode::Left)
-                        {
-                            let _ = proc.kill();
-                            let _ = proc.wait();
-                            break;
-                        }
-                    }
-                    disable_raw_mode()?;
+                    tui::wait_child_or_stop_key(proc)?;
                     shown = true;
                 }
             } else if Self::is_cast_file(&tmp_path) && self.integration_active("asciinema") {
@@ -431,7 +412,8 @@ impl App {
                     .unwrap_or(false);
             } else {
                 shown = Command::new("less")
-                    .args(["-R", tmp_path.to_str().unwrap_or_default()])
+                    .arg("-R")
+                    .arg(&tmp_path)
                     .status()
                     .map(|s| s.success())
                     .unwrap_or(false);
@@ -469,7 +451,7 @@ impl App {
         }
 
         let editor = crate::util::command::editor_command();
-        let _ = Command::new(editor).arg(&tmp_path).status();
+        let edited = crate::util::command::run_interactive(Command::new(editor).arg(&tmp_path));
 
         let result = Self::age_encrypt_file_interactive(&tmp_path, input);
         drop(_tui);
@@ -477,7 +459,10 @@ impl App {
         let _ = fs::remove_file(&tmp_path);
         let _ = fs::remove_dir_all(&tmp_dir);
         match result {
-            Ok(()) => self.set_status("protected file updated"),
+            Ok(()) => match edited {
+                Ok(()) => self.set_status("protected file updated"),
+                Err(msg) => self.set_status(msg),
+            },
             Err(e) => self.set_status(format!("re-protect failed: {}", e)),
         }
         self.refresh_entries_or_status();

@@ -130,7 +130,7 @@ impl App {
                 .entries
                 .get(self.left.selected_index)
                 .map(|e| e.path());
-            let _ = self.refresh_entries();
+            self.refresh_entries_or_report();
             if let Some(path) = selected_path
                 && let Some(idx) = self.left.entries.iter().position(|e| e.path() == path)
             {

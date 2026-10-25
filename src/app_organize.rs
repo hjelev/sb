@@ -247,6 +247,7 @@ impl App {
     /// Poll the AI organize-plan channel. On success, stores the plan for
     /// review; on failure, drops back to browsing with a status message.
     pub(crate) fn pump_ai_organize(&mut self) {
+        let was_running = self.organize.rx.is_some();
         match pump_once(&mut self.organize.rx) {
             Some(OrganizePlanMsg::Ok(plan)) => {
                 if self.mode == AppMode::Organize {
@@ -259,6 +260,15 @@ impl App {
             Some(OrganizePlanMsg::Err(err)) => {
                 self.set_status(err);
                 if self.mode == AppMode::Organize {
+                    self.mode = AppMode::Browsing;
+                }
+                self.organize.work_dir = None;
+            }
+            // Worker disconnected without sending: drop out of the dialog
+            // instead of waiting on a plan that will never arrive.
+            None if was_running && self.organize.rx.is_none() => {
+                self.set_status("organize failed: worker stopped unexpectedly");
+                if self.mode == AppMode::Organize && self.organize.plan.is_none() {
                     self.mode = AppMode::Browsing;
                 }
                 self.organize.work_dir = None;
@@ -348,7 +358,7 @@ impl App {
         self.mode = AppMode::Browsing;
         self.refresh_entries_or_status();
         if self.is_dual_panel_mode() {
-            let _ = self.refresh_right_panel_entries();
+            self.refresh_right_panel_or_report();
         }
         if failed == 0 {
             self.set_status(format!("organize complete: {} item(s) moved", ok));

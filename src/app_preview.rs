@@ -40,7 +40,7 @@ impl App {
                     }
                     self.clear_input_edit();
                     if self.left.folder_filter.take().is_some() {
-                        let _ = self.refresh_entries();
+                        self.refresh_entries_or_report();
                     }
                 }
                 self.view_mode = ViewMode::DualPanel;
@@ -50,7 +50,7 @@ impl App {
                 self.right.sort_mode = self.left.sort_mode;
                 self.right.show_hidden = self.left.show_hidden;
                 self.active_panel = DualPanelSide::Left;
-                let _ = self.refresh_right_panel_entries();
+                self.refresh_right_panel_or_report();
             }
             ViewMode::DualPanel => {
                 // Preserve the active panel's directory when returning to normal mode
@@ -67,7 +67,7 @@ impl App {
                 self.right.table_state = ratatui::widgets::TableState::default();
                 self.active_panel = DualPanelSide::Left;
                 // Refresh entries to match the new current_dir
-                let _ = self.refresh_entries();
+                self.refresh_entries_or_report();
             }
         }
     }

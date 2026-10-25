@@ -8,7 +8,8 @@ impl App {
         if Self::is_binary_file(path) {
             // Try hexedit first (interactive binary editor)
             if Self::integration_probe("hexedit").0 {
-                let _ = Command::new("hexedit").arg(path).status();
+                Command::new("hexedit").arg(path).status()?;
+                return Ok(());
             }
             // Fall back to hexyl with less paging if hexedit is not available
             if Self::integration_probe("hexyl").0 {
@@ -21,7 +22,7 @@ impl App {
 
         // For text files or if no binary editors available, use regular editor
         let editor = crate::util::command::editor_command();
-        let _ = Command::new(editor).arg(path).status()?;
+        Command::new(editor).arg(path).status()?;
         Ok(())
     }
 
@@ -296,6 +297,31 @@ impl App {
             }
             Err(e) => {
                 self.set_status(format!("refresh failed: {}", e));
+                false
+            }
+        }
+    }
+
+    /// Refresh the left panel, reporting a failure on its status line but
+    /// leaving the status untouched on success (unlike
+    /// [`Self::refresh_entries_or_status`]) — for callers that keep or just
+    /// set their own message, e.g. "copied 3 items".
+    pub(crate) fn refresh_entries_or_report(&mut self) -> bool {
+        match self.refresh_entries() {
+            Ok(()) => true,
+            Err(e) => {
+                self.status_message = format!("refresh failed: {e}");
+                false
+            }
+        }
+    }
+
+    /// Right-panel counterpart of [`Self::refresh_entries_or_report`].
+    pub(crate) fn refresh_right_panel_or_report(&mut self) -> bool {
+        match self.refresh_right_panel_entries() {
+            Ok(()) => true,
+            Err(e) => {
+                self.right_status_message = format!("refresh failed: {e}");
                 false
             }
         }

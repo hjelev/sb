@@ -414,6 +414,7 @@ impl App {
         {
             self.maybe_check_api_key();
         }
+        let was_checking = self.ai.key_check_rx.is_some();
         match pump_once(&mut self.ai.key_check_rx) {
             Some(AiKeyCheckMsg::Result { key, valid }) if self.ai.api_key.trim() == key => {
                 self.ai.key_status = if valid {
@@ -425,6 +426,13 @@ impl App {
             Some(AiKeyCheckMsg::Error { key, message }) if self.ai.api_key.trim() == key => {
                 self.ai.key_status = AiKeyStatus::Unknown;
                 self.set_status(message);
+            }
+            // Worker disconnected without sending: leave "checking" state.
+            None if was_checking
+                && self.ai.key_check_rx.is_none()
+                && self.ai.key_status == AiKeyStatus::Checking =>
+            {
+                self.ai.key_status = AiKeyStatus::Unknown;
             }
             _ => {}
         }
@@ -464,6 +472,7 @@ impl App {
     /// Poll the AI commit-message channel. On success, prefill the (still
     /// editable) commit-message input if the user is still entering one.
     pub(crate) fn pump_ai_commit(&mut self) {
+        let was_running = self.ai.commit_rx.is_some();
         match pump_once(&mut self.ai.commit_rx) {
             Some(AiCommitMsg::Ok(text)) => {
                 if self.mode == AppMode::GitCommitMessage {
@@ -475,6 +484,11 @@ impl App {
             }
             Some(AiCommitMsg::Err(err)) => {
                 self.set_status(err);
+            }
+            // Worker disconnected without sending: don't leave the status on
+            // "generating..." forever.
+            None if was_running && self.ai.commit_rx.is_none() => {
+                self.set_status("AI commit message failed: worker stopped unexpectedly");
             }
             None => {}
         }

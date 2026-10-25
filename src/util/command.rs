@@ -226,6 +226,33 @@ pub fn editor_command() -> String {
     std::env::var("EDITOR").unwrap_or_else(|_| "nano".to_string())
 }
 
+/// Run an interactive program (viewer, pager, editor) to completion on the
+/// inherited terminal.
+///
+/// The program's own stderr is wiped when the TUI resumes, so failures are
+/// returned as a short message for the status line instead: missing binary,
+/// spawn error, or non-zero exit.
+pub fn run_interactive(cmd: &mut Command) -> Result<(), String> {
+    let tool = Path::new(cmd.get_program())
+        .file_name()
+        .unwrap_or(cmd.get_program())
+        .to_string_lossy()
+        .into_owned();
+    describe_exit(&tool, cmd.status())
+}
+
+fn describe_exit(tool: &str, status: io::Result<std::process::ExitStatus>) -> Result<(), String> {
+    match status {
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => Err(match s.code() {
+            Some(code) => format!("{tool} exited with status {code}"),
+            None => format!("{tool} was terminated by a signal"),
+        }),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Err(format!("{tool} not found in PATH")),
+        Err(e) => Err(format!("{tool} failed to start: {e}")),
+    }
+}
+
 /// Builder for executing external commands with consistent error handling.
 pub struct CommandBuilder;
 
@@ -471,5 +498,24 @@ mod timeout_tests {
         let err = output_with_timeout(slow, Duration::from_millis(200)).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::TimedOut);
         assert!(start.elapsed() < Duration::from_secs(5));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_interactive_reports_missing_binary() {
+        let err = run_interactive(&mut Command::new("/nonexistent/sbrs-no-such-tool")).unwrap_err();
+        assert_eq!(err, "sbrs-no-such-tool not found in PATH");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_interactive_reports_exit_status() {
+        assert!(run_interactive(&mut Command::new("true")).is_ok());
+        let err = run_interactive(Command::new("sh").args(["-c", "exit 3"])).unwrap_err();
+        assert_eq!(err, "sh exited with status 3");
     }
 }

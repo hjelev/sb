@@ -265,19 +265,15 @@ impl App {
         fs::create_dir_all(&mount_dir)?;
         let remote_spec = format!("{}:", name);
         let status = Command::new("rclone")
-            .args([
-                "mount",
-                &remote_spec,
-                mount_dir.to_str().unwrap_or(""),
-                "--daemon",
-                "--vfs-cache-mode",
-                "writes",
-            ])
+            .args(["mount", &remote_spec])
+            .arg(&mount_dir)
+            .args(["--daemon", "--vfs-cache-mode", "writes"])
             .status()?;
         if status.success() {
             Self::wait_for_mount_ready(&mount_dir);
             let remote_os_icon = ui::icons::remote_os_nerd_icon(&mount_dir)
                 .map(|(g, _)| (g, ui::theme::theme_spec(self.active_theme).icon_os));
+            crate::util::cleanup::register_mount(&mount_dir);
             self.remote.ssh_mounts.push(SshMount {
                 host_alias: name.to_string(),
                 mount_path: mount_dir.clone(),
@@ -388,6 +384,7 @@ impl App {
             let remote_os_icon = ui::icons::remote_os_nerd_icon(&mount_dir)
                 .map(|(g, _)| (g, ui::theme::theme_spec(self.active_theme).icon_os))
                 .or_else(|| Self::detect_ssh_remote_os_icon(host, self.active_theme));
+            crate::util::cleanup::register_mount(&mount_dir);
             self.remote.ssh_mounts.push(SshMount {
                 host_alias: host.alias.clone(),
                 mount_path: mount_dir.clone(),
@@ -431,6 +428,7 @@ impl App {
             }
         }
         while let Some(mount) = self.remote.ssh_mounts.pop() {
+            crate::util::cleanup::unregister_mount(&mount.mount_path);
             // Best-effort unmount via fusermount/umount fallback variants; proceed regardless.
             let _ = CommandBuilder::unmount_archive(&mount.mount_path);
             let _ = fs::remove_dir(&mount.mount_path);
@@ -448,6 +446,7 @@ impl App {
         };
 
         let mount = self.remote.ssh_mounts.remove(idx);
+        crate::util::cleanup::unregister_mount(&mount.mount_path);
         if self.left.dir == mount.mount_path || self.left.dir.starts_with(&mount.mount_path) {
             self.left.dir = mount.return_dir.clone();
             self.refresh_entries_or_status();

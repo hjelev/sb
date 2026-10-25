@@ -270,13 +270,21 @@ impl App {
 
         let edit_result = {
             let _tui = tui::suspend_showing_cursor(ResumeMode::Plain)?;
-            let _ = Command::new(crate::util::command::editor_command())
-                .arg(&tmp)
-                .status();
-            fs::read_to_string(&tmp)
+            crate::util::command::run_interactive(
+                Command::new(crate::util::command::editor_command()).arg(&tmp),
+            )
+            .map(|()| fs::read_to_string(&tmp))
         };
 
         let _ = fs::remove_file(&tmp);
+        // Don't overwrite the clipboard if the editor failed to run/exited non-zero.
+        let edit_result = match edit_result {
+            Ok(read) => read,
+            Err(msg) => {
+                self.set_status(msg);
+                return Ok(());
+            }
+        };
 
         match edit_result {
             Ok(updated_text) => {
@@ -469,9 +477,9 @@ impl App {
                             self.copy.done_before_job = self.copy.done_bytes;
                             self.copy.item_name.clear();
                             self.copy.from_remote = false;
-                            let _ = self.refresh_entries();
+                            self.refresh_entries_or_report();
                             if self.is_dual_panel_mode() {
-                                let _ = self.refresh_right_panel_entries();
+                                self.refresh_right_panel_or_report();
                             }
                             self.advance_paste_queue();
                             return;
@@ -493,9 +501,9 @@ impl App {
             self.copy.item_name.clear();
             self.copy.current_src = None;
             self.copy.from_remote = false;
-            let _ = self.refresh_entries();
+            self.refresh_entries_or_report();
             if self.is_dual_panel_mode() {
-                let _ = self.refresh_right_panel_entries();
+                self.refresh_right_panel_or_report();
             }
             self.advance_paste_queue();
         } else {
@@ -532,9 +540,9 @@ impl App {
 
             if self.transfer.paste_move_mode && fs::rename(&src, &dest).is_ok() {
                 self.transfer.paste_ok_items += 1;
-                let _ = self.refresh_entries();
+                self.refresh_entries_or_report();
                 if self.is_dual_panel_mode() {
-                    let _ = self.refresh_right_panel_entries();
+                    self.refresh_right_panel_or_report();
                 }
                 continue;
             }
@@ -553,7 +561,7 @@ impl App {
         self.copy.current_src = None;
         self.refresh_entries_or_status();
         if self.is_dual_panel_mode() {
-            let _ = self.refresh_right_panel_entries();
+            self.refresh_right_panel_or_report();
         }
         if self.transfer.paste_failed_items == 0 && self.transfer.paste_ok_items > 0 {
             self.set_status(format!(

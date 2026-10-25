@@ -399,9 +399,7 @@ impl App {
                 cmd.args(["-layout", "-nopgbrk"]).arg(path).arg("-");
                 let shown = crate::util::command::pipe_to_pager(cmd);
                 if !shown {
-                    let _ = Command::new("less")
-                        .args(["-R", path.to_str().unwrap_or_default()])
-                        .status();
+                    let _ = Command::new("less").arg("-R").arg(path).status();
                 }
             } else {
                 let _ = Command::new("pdftotext")
@@ -454,9 +452,7 @@ impl App {
         }
 
         if use_pager {
-            let _ = Command::new("less")
-                .args(["-R", path.to_str().unwrap_or_default()])
-                .status();
+            let _ = Command::new("less").arg("-R").arg(path).status();
         } else {
             let _ = Command::new("cat").arg(path).status();
         }

@@ -235,7 +235,7 @@ pub(crate) fn handle_app_key_event_body(
                         app.mode = AppMode::Browsing;
                         if app.transfer.paste_move_mode && fs::rename(&src, &dest).is_ok() {
                             app.transfer.paste_ok_items += 1;
-                            let _ = app.refresh_entries();
+                            app.refresh_entries_or_report();
                             app.sync_inactive_panel_if_same_dir();
                             app.advance_paste_queue();
                             return Ok(KeyDispatchOutcome::ContinueLoop);
@@ -339,9 +339,11 @@ pub(crate) fn handle_app_key_event_body(
                 app.mode = AppMode::Browsing;
                 {
                     let _tui = tui::suspend_showing_cursor(ResumeMode::Plain)?;
-                    let _ = Command::new(crate::util::command::editor_command())
-                        .arg(&config_path)
-                        .status();
+                    if let Err(msg) = crate::util::command::run_interactive(
+                        Command::new(crate::util::command::editor_command()).arg(&config_path),
+                    ) {
+                        app.set_status(msg);
+                    }
                 }
                 terminal.clear()?;
             }

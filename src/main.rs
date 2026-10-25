@@ -17,12 +17,9 @@ const MAIN_LIST_DOUBLE_CLICK_WINDOW_MS: u64 = 320;
 use chrono::Local;
 use crossterm::{
     cursor::MoveTo,
-    event::{DisableMouseCapture, EnableMouseCapture, KeyCode, KeyEvent},
+    event::{KeyCode, KeyEvent},
     execute,
-    terminal::{
-        Clear as TermClear, ClearType, EnterAlternateScreen, LeaveAlternateScreen,
-        disable_raw_mode, enable_raw_mode,
-    },
+    terminal::{Clear as TermClear, ClearType},
 };
 use ratatui::{prelude::*, widgets::*};
 use regex::Regex;
@@ -537,7 +534,8 @@ fn main() -> io::Result<()> {
     if let Err(message) = ui::cli::validate_cli_args(&args) {
         eprintln!("Error: {}", message);
         eprintln!("Run with --help to see supported usage.");
-        return Ok(());
+        // Usage errors exit 2 (like getopt/clap) so scripts can detect them.
+        std::process::exit(2);
     }
     if let Some(list_args) = ui::cli::parse_list_mode_args(&args) {
         if !list_args.include_hidden
@@ -582,44 +580,21 @@ fn main() -> io::Result<()> {
         return ui::cli::list_current_directory(false, false, None, Some(&args[0]));
     }
 
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    util::title::save();
-    let mut terminal = Terminal::new(CrosstermBackend::new(stdout))?;
+    util::tui::install_panic_hook();
+    let session = util::tui::enter_session()?;
+    let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
 
     let mut app = App::new()?;
 
-    run::run_tui(&mut terminal, &mut app)?;
-    // Fire plugin on_quit hooks; the UI is going away, so their effects are
-    // discarded (side effects like writing files still happen in Lua).
-    if app.plugins.wants_hook(plugin::runtime::Hook::Quit) {
-        let ctx = app.plugin_ctx();
-        let _ = app.plugins.run_hook(plugin::runtime::Hook::Quit, &ctx);
+    // Don't `?` here: mounts, plugin hooks and persisted state must be handled
+    // even when the loop fails; the error is returned after the terminal is
+    // restored so it prints on the normal screen.
+    let result = run::run_tui(&mut terminal, &mut app);
+    shutdown_app(&mut app);
+    session.leave()?;
+    if result.is_ok() {
+        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
     }
-    app.cleanup_archive_mounts();
-    app.cleanup_ssh_mounts();
-    util::tmp::cleanup_session_cache();
-    // Best-effort: exiting matters more than persisting cosmetic view state.
-    let _ = util::config::SbPersistConfig::update(|persist| {
-        persist.view_mode = format!("{:?}", app.view_mode);
-        persist.current_theme = ui::theme::theme_name(app.active_theme).to_string();
-        persist.disabled_integrations = app
-            .integration
-            .overrides
-            .iter()
-            .filter_map(|(k, &v)| if !v { Some(k.clone()) } else { None })
-            .collect();
-    });
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        DisableMouseCapture,
-        LeaveAlternateScreen,
-        TermClear(ClearType::All),
-        MoveTo(0, 0)
-    )?;
-    util::title::restore();
     // Best-effort: the optional shell `cd`-on-exit snippet (see README) reads this
     // path. Intentionally fire-and-forget — the app is already exiting and a
     // failed write only means the shell won't follow us into the last directory.
@@ -641,5 +616,30 @@ fn main() -> io::Result<()> {
             let _ = std::fs::set_permissions(&last_path, std::fs::Permissions::from_mode(0o600));
         }
     }
-    Ok(())
+    result
+}
+
+/// Exit-time cleanup that must run whether the event loop ended normally or
+/// with an error: plugin quit hooks, unmounting, and persisting view state.
+fn shutdown_app(app: &mut App) {
+    // Fire plugin on_quit hooks; the UI is going away, so their effects are
+    // discarded (side effects like writing files still happen in Lua).
+    if app.plugins.wants_hook(plugin::runtime::Hook::Quit) {
+        let ctx = app.plugin_ctx();
+        let _ = app.plugins.run_hook(plugin::runtime::Hook::Quit, &ctx);
+    }
+    app.cleanup_archive_mounts();
+    app.cleanup_ssh_mounts();
+    util::tmp::cleanup_session_cache();
+    // Best-effort: exiting matters more than persisting cosmetic view state.
+    let _ = util::config::SbPersistConfig::update(|persist| {
+        persist.view_mode = format!("{:?}", app.view_mode);
+        persist.current_theme = ui::theme::theme_name(app.active_theme).to_string();
+        persist.disabled_integrations = app
+            .integration
+            .overrides
+            .iter()
+            .filter_map(|(k, &v)| if !v { Some(k.clone()) } else { None })
+            .collect();
+    });
 }

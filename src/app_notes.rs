@@ -309,12 +309,15 @@ impl App {
         }
 
         let editor = crate::util::command::editor_command();
-        {
+        let edited = {
             let _tui = tui::suspend_showing_cursor(ResumeMode::Plain)?;
-            let _ = Command::new(editor).arg(&todo_path).status();
-        }
+            crate::util::command::run_interactive(Command::new(editor).arg(&todo_path))
+        };
         self.refresh_entries_or_status();
-        self.set_status("opened ~/.todo");
+        match edited {
+            Ok(()) => self.set_status("opened ~/.todo"),
+            Err(msg) => self.set_status(msg),
+        }
         Ok(())
     }
 }

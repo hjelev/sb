@@ -44,9 +44,9 @@ impl App {
         // Use the non-status-setting refreshers so the mutation's own status
         // message (e.g. a delete-failure notice) is preserved.
         if self.active_panel == DualPanelSide::Right {
-            let _ = self.refresh_entries();
+            self.refresh_entries_or_report();
         } else {
-            let _ = self.refresh_right_panel_entries();
+            self.refresh_right_panel_or_report();
         }
     }
 

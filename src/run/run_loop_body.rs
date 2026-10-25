@@ -349,10 +349,23 @@ pub(crate) fn run_tui_body(
         if let Some(key) = next_key {
             // Any dispatched key may mutate state; repaint on the next iteration.
             app.needs_redraw = true;
-            match key_dispatch::handle_app_key_event(terminal, app, key, &mut deferred_key)? {
-                key_dispatch::KeyDispatchOutcome::Quit => break,
-                key_dispatch::KeyDispatchOutcome::ContinueLoop => continue,
-                key_dispatch::KeyDispatchOutcome::Ok => {}
+            match key_dispatch::handle_app_key_event(terminal, app, key, &mut deferred_key) {
+                Ok(key_dispatch::KeyDispatchOutcome::Quit) => break,
+                Ok(key_dispatch::KeyDispatchOutcome::ContinueLoop) => continue,
+                Ok(key_dispatch::KeyDispatchOutcome::Ok) => {}
+                // A failed action (external tool, file I/O, ...) must not end
+                // the session. Report it, make sure we're back in the TUI in
+                // case the action bailed while suspended, and force a full
+                // repaint. Genuinely broken terminals still surface through
+                // the `?` on the next draw.
+                Err(err) => {
+                    if !crossterm::terminal::is_raw_mode_enabled().unwrap_or(true) {
+                        crate::util::tui::resume_tui_cleared()?;
+                        crossterm::terminal::enable_raw_mode()?;
+                    }
+                    terminal.clear()?;
+                    app.set_status(format!("error: {err}"));
+                }
             }
         }
     }

@@ -142,7 +142,7 @@ pub(crate) fn handle_browsing_key(
                     && let Some(parent) = app.right.dir.parent()
                 {
                     app.right.dir = parent.to_path_buf();
-                    let _ = app.refresh_right_panel_entries();
+                    app.refresh_right_panel_or_report();
                 }
                 return Ok(KeyDispatchOutcome::ContinueLoop);
             }
@@ -192,14 +192,17 @@ pub(crate) fn run_plugin_entry(
                     }
                     PluginEffect::EditPath(path) => {
                         let path = app.resolve_plugin_path(path);
-                        {
+                        let edited = {
                             let _tui = tui::suspend_showing_cursor(ResumeMode::Plain)?;
-                            let _ = Command::new(crate::util::command::editor_command())
-                                .arg(&path)
-                                .status();
-                        }
+                            crate::util::command::run_interactive(
+                                Command::new(crate::util::command::editor_command()).arg(&path),
+                            )
+                        };
                         terminal.clear()?;
                         app.refresh_entries_or_status();
+                        if let Err(msg) = edited {
+                            app.set_status(msg);
+                        }
                     }
                     PluginEffect::ViewPath(path) => {
                         let path = app.resolve_plugin_path(path);
@@ -387,9 +390,11 @@ fn dispatch_action(
                         hexyl.arg(&selected_path);
                         crate::util::command::pipe_to_pager_or_less(hexyl, &selected_path);
                     } else {
-                        let _ = Command::new("less")
-                            .args(["-R", selected_path.to_str().unwrap_or_default()])
-                            .status();
+                        if let Err(msg) = crate::util::command::run_interactive(
+                            Command::new("less").arg("-R").arg(&selected_path),
+                        ) {
+                            app.set_status(msg);
+                        }
                     }
                 }
                 terminal.clear()?;
@@ -736,13 +741,21 @@ fn handle_enter_or_right(
         } else if App::is_excel_file(&selected_path) && app.integration_active("xleak") {
             {
                 let _tui = tui::suspend(ResumeMode::Plain)?;
-                let _ = Command::new("xleak").arg("-i").arg(&selected_path).status();
+                if let Err(msg) = crate::util::command::run_interactive(
+                    Command::new("xleak").arg("-i").arg(&selected_path),
+                ) {
+                    app.set_status(msg);
+                }
             }
             terminal.clear()?;
         } else if App::is_docx_file(&selected_path) && app.integration_active("doxx") {
             {
                 let _tui = tui::suspend(ResumeMode::Plain)?;
-                let _ = Command::new("doxx").arg(&selected_path).status();
+                if let Err(msg) =
+                    crate::util::command::run_interactive(Command::new("doxx").arg(&selected_path))
+                {
+                    app.set_status(msg);
+                }
             }
             terminal.clear()?;
         } else if App::is_fuse_zip_archive(&selected_path) && app.integration_active("fuse-zip") {
@@ -789,7 +802,11 @@ fn handle_enter_or_right(
         } else if App::is_markdown_file(&selected_path) && app.integration_active("glow") {
             {
                 let _tui = tui::suspend(ResumeMode::Plain)?;
-                let _ = Command::new("glow").arg("-p").arg(&selected_path).status();
+                if let Err(msg) = crate::util::command::run_interactive(
+                    Command::new("glow").arg("-p").arg(&selected_path),
+                ) {
+                    app.set_status(msg);
+                }
             }
             terminal.clear()?;
         } else if App::is_mermaid_file(&selected_path) && app.integration_active("mmdflux") {
@@ -805,7 +822,11 @@ fn handle_enter_or_right(
         } else if App::is_html_file(&selected_path) && app.integration_active("links") {
             {
                 let _tui = tui::suspend(ResumeMode::Plain)?;
-                let _ = Command::new("links").arg(&selected_path).status();
+                if let Err(msg) =
+                    crate::util::command::run_interactive(Command::new("links").arg(&selected_path))
+                {
+                    app.set_status(msg);
+                }
             }
             terminal.clear()?;
         } else if App::is_json_file(&selected_path) && app.integration_active("jnv") {
@@ -818,7 +839,11 @@ fn handle_enter_or_right(
         } else if App::is_delimited_text_file(&selected_path) && app.integration_active("csvlens") {
             {
                 let _tui = tui::suspend(ResumeMode::Plain)?;
-                let _ = Command::new("csvlens").arg(&selected_path).status();
+                if let Err(msg) = crate::util::command::run_interactive(
+                    Command::new("csvlens").arg(&selected_path),
+                ) {
+                    app.set_status(msg);
+                }
             }
             terminal.clear()?;
         } else if App::is_sqlite_db_file(&selected_path) {
@@ -842,21 +867,7 @@ fn handle_enter_or_right(
                 if let Ok(ref mut proc) = child {
                     println!("Playing: {}", selected_path.display());
                     println!("Press q, Esc, or Left to stop playback.");
-                    enable_raw_mode()?;
-                    loop {
-                        if proc.try_wait()?.is_some() {
-                            break;
-                        }
-                        if event::poll(Duration::from_millis(120))?
-                            && let Event::Key(k) = event::read()?
-                            && matches!(k.code, KeyCode::Char('q') | KeyCode::Esc | KeyCode::Left)
-                        {
-                            let _ = proc.kill();
-                            let _ = proc.wait();
-                            break;
-                        }
-                    }
-                    disable_raw_mode()?;
+                    tui::wait_child_or_stop_key(proc)?;
                 }
             }
 
@@ -889,12 +900,19 @@ fn handle_enter_or_right(
                     let _ = crate::util::command::pipe_to_pager(cmd);
                 } else if app.integration_active("bat") {
                     let bat_cmd = App::bat_tool().unwrap_or_else(|| "bat".to_string());
-                    let _ = Command::new(bat_cmd)
-                        .args(["--paging=always", "--style=full", "--color=always"])
-                        .arg(&selected_path)
-                        .status();
+                    if let Err(msg) = crate::util::command::run_interactive(
+                        Command::new(bat_cmd)
+                            .args(["--paging=always", "--style=full", "--color=always"])
+                            .arg(&selected_path),
+                    ) {
+                        app.set_status(msg);
+                    }
                 } else {
-                    let _ = Command::new("less").arg("-R").arg(&selected_path).status();
+                    if let Err(msg) = crate::util::command::run_interactive(
+                        Command::new("less").arg("-R").arg(&selected_path),
+                    ) {
+                        app.set_status(msg);
+                    }
                 }
             }
             terminal.clear()?;
@@ -1001,19 +1019,24 @@ fn handle_edit_key(
                 terminal.clear()?;
             }
         } else {
-            {
+            let edited = {
                 let _tui = tui::suspend_showing_cursor(ResumeMode::Plain)?;
-                if !path.is_dir() && App::is_binary_file(&path) && app.integration_active("hexedit")
+                let mut cmd = if !path.is_dir()
+                    && App::is_binary_file(&path)
+                    && app.integration_active("hexedit")
                 {
-                    let _ = Command::new("hexedit").arg(&path).status();
+                    Command::new("hexedit")
                 } else {
-                    let _ = Command::new(crate::util::command::editor_command())
-                        .arg(&path)
-                        .status();
-                }
-            }
+                    Command::new(crate::util::command::editor_command())
+                };
+                crate::util::command::run_interactive(cmd.arg(&path))
+            };
             terminal.clear()?;
+            // Refresh first: on success it clears the status line.
             app.refresh_entries_or_status();
+            if let Err(msg) = edited {
+                app.set_status(msg);
+            }
         }
     }
     Ok(KeyDispatchOutcome::Ok)

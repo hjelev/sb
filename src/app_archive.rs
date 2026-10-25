@@ -57,6 +57,7 @@ impl App {
             Ok(status) if status.success() => {
                 let archive_name = crate::util::classify::display_name(&archive_path);
                 let return_dir = self.active_panel_dir();
+                crate::util::cleanup::register_mount(&mount_path);
                 self.archive_mounts.push(ArchiveMount {
                     archive_path,
                     mount_path: mount_path.clone(),
@@ -200,6 +201,7 @@ impl App {
 
         while let Some(mount) = self.archive_mounts.pop() {
             let _ = mount.archive_path;
+            crate::util::cleanup::unregister_mount(&mount.mount_path);
             Self::unmount_archive_path(&mount.mount_path);
             let _ = safe_cleanup_path(&mount.mount_path);
         }
@@ -215,6 +217,7 @@ impl App {
         };
 
         let mount = self.archive_mounts.remove(idx);
+        crate::util::cleanup::unregister_mount(&mount.mount_path);
         let was_inside =
             self.left.dir == mount.mount_path || self.left.dir.starts_with(&mount.mount_path);
         if was_inside {
