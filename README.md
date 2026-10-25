@@ -413,6 +413,8 @@ Ready-to-copy samples live in [`examples/plugins/`](examples/plugins): `touch-no
 - `NO_COLOR=1`: disable file name colors (modifiers like bold/dim still apply)
 - `TERMINAL_ICONS=0`: hide all file icons (Nerd Font glyphs and emoji)
 - `EDITOR`: editor command used by `e`/`F4`, `E`, `Ctrl+e`, and `t`
+- `SB_TITLE_ICON`: glyph shown before the terminal tab/window title (default: `📂`; empty for none)
+- `SB_TERM_TITLE=0`: don't set the terminal tab/window title
 - `SB_BOOKMARK_0` ... `SB_BOOKMARK_9`: bookmark directories
 - `SB_SEARCH_CONTENT_MAX_FILES`: built-in Search content-mode max files scanned (default: `20000`)
 - `SB_SEARCH_CONTENT_MAX_HITS`: built-in Search content-mode max matches returned (default: `2000`)

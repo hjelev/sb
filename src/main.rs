@@ -585,6 +585,7 @@ fn main() -> io::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    util::title::save();
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout))?;
 
     let mut app = App::new()?;
@@ -618,6 +619,7 @@ fn main() -> io::Result<()> {
         TermClear(ClearType::All),
         MoveTo(0, 0)
     )?;
+    util::title::restore();
     // Best-effort: the optional shell `cd`-on-exit snippet (see README) reads this
     // path. Intentionally fire-and-forget — the app is already exiting and a
     // failed write only means the shell won't follow us into the last directory.

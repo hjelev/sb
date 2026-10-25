@@ -6,5 +6,6 @@ pub mod config;
 pub mod format;
 pub mod keymap;
 pub mod list;
+pub mod title;
 pub mod tmp;
 pub mod tui;

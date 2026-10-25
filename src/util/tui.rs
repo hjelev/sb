@@ -18,6 +18,7 @@ pub fn suspend_tui() -> io::Result<()> {
 
 /// Re-enter the TUI after an external process has finished.
 pub fn resume_tui() -> io::Result<()> {
+    super::title::invalidate();
     execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
     enable_raw_mode()?;
     Ok(())
@@ -33,6 +34,7 @@ pub fn resume_tui() -> io::Result<()> {
 /// Note: this does not toggle raw mode; callers that need it continue to call
 /// `enable_raw_mode()` themselves (the surrounding sites vary in ordering).
 pub fn resume_tui_cleared() -> io::Result<()> {
+    super::title::invalidate();
     execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
     execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
     Ok(())

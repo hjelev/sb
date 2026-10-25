@@ -37,6 +37,7 @@ pub(crate) fn run_tui_body(
         app.pump_plugins();
         app.plugin_tick();
         app.request_preview_for_selected();
+        crate::util::title::update(&app.active_panel_dir());
         let text_input_cursor = matches!(
             app.mode,
             AppMode::PathEditing
