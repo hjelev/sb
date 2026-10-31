@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-10-31
+
+### Fixed
+- macOS build: `openpty` is called with pointer types that match both the macOS and Linux `libc` signatures (the 0.12.0 release failed to compile on macOS, so 0.12.0 was tagged but never published)
+- Removed an import that was unused on macOS
+- `Cargo.lock` is now tracked so CI's `--locked` checks work and release builds use pinned dependencies
+
 ## [0.12.0] - 2026-10-31
 
 ### Added
@@ -215,7 +222,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Keyboard-driven file manager with no runtime config files
 - CI setup with `cargo-dist`
 
-[Unreleased]: https://github.com/hjelev/sb/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/hjelev/sb/compare/v0.12.1...HEAD
+[0.12.1]: https://github.com/hjelev/sb/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/hjelev/sb/compare/v0.11.1...v0.12.0
 [0.11]: https://github.com/hjelev/sb/compare/v0.10.3...v0.11.1
 [0.10]: https://github.com/hjelev/sb/compare/v0.9.1...v0.10.3
