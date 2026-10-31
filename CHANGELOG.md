@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-10-31
+
+### Fixed
+- Overlapping external commands no longer race on the process-wide SIGINT disposition: the ignore is reference-counted, so one command finishing can't re-arm `Ctrl+C` against sb while another is still running (this caused intermittent CI test failures)
+- Release builds for `aarch64-apple-darwin` now run on the `macos-15` runner; GitHub is retiring macOS 14 images, which cancelled the 0.12.1 release build (0.12.1 was tagged but never published)
+
 ## [0.12.1] - 2026-10-31
 
 ### Fixed
@@ -222,7 +228,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Keyboard-driven file manager with no runtime config files
 - CI setup with `cargo-dist`
 
-[Unreleased]: https://github.com/hjelev/sb/compare/v0.12.1...HEAD
+[Unreleased]: https://github.com/hjelev/sb/compare/v0.12.2...HEAD
+[0.12.2]: https://github.com/hjelev/sb/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/hjelev/sb/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/hjelev/sb/compare/v0.11.1...v0.12.0
 [0.11]: https://github.com/hjelev/sb/compare/v0.10.3...v0.11.1
