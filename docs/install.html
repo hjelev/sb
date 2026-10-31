@@ -4,175 +4,166 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Install — Shell Buddy</title>
-  <meta name="description" content="Install Shell Buddy (sb) via crates.io, Homebrew, from source, or prebuilt releases — plus shell integration and the list of optional integrations." />
+  <meta name="description" content="Install Shell Buddy (sb) via cargo, Homebrew, prebuilt releases or from source, and set up shell integration." />
   <meta property="og:title" content="Shell Buddy — Install" />
-  <meta property="og:description" content="Install Shell Buddy via crates.io, Homebrew, source, or releases, and set up shell integration." />
+  <meta property="og:description" content="Install via cargo, Homebrew, releases or from source." />
   <meta property="og:image" content="images/screenshot-2.png" />
   <meta property="og:type" content="website" />
+  <meta name="theme-color" content="#0e1316" />
   <link rel="icon" type="image/png" href="images/favicon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
-<script defer src="https://m.masoko.net/core-util" data-website-id="f03cc21a-8b0b-4889-b126-84c312a94e0c"></script>
+  <script defer src="https://m.masoko.net/core-util" data-website-id="f03cc21a-8b0b-4889-b126-84c312a94e0c"></script>
 </head>
 <body>
-  <!-- NAV -->
   <header class="nav">
-    <a class="nav__brand" href="index.html" aria-label="Shell Buddy — home">
+    <a class="nav__brand" href="index.html" aria-label="Shell Buddy home">
       <img src="images/favicon.png" alt="" />
       <span class="nav__brand-name"><span class="brand-shell">Shell</span> <span class="brand-buddy">Buddy</span></span>
     </a>
-    <nav class="nav__links">
+    <nav class="nav__links" aria-label="Main">
       <a href="index.html">Home</a>
       <a href="screenshots.html">Screenshots</a>
       <a href="install.html" class="active" aria-current="page">Install</a>
       <a href="controls.html">Controls</a>
-      <a class="nav__gh" href="https://github.com/hjelev/sb" target="_blank" rel="noopener">
-        <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
-        <span>GitHub</span>
-      </a>
+      <a class="nav__gh" href="https://github.com/hjelev/sb" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg><span>GitHub</span></a>
     </nav>
     <button class="nav__toggle" aria-label="Menu" aria-expanded="false" aria-controls="mobileNav">
       <span></span><span></span><span></span>
     </button>
   </header>
   <div class="nav__backdrop" id="navBackdrop" hidden></div>
-  <nav class="nav__drawer" id="mobileNav" aria-hidden="true">
-    <a href="index.html">Home</a>
-    <a href="screenshots.html">Screenshots</a>
-    <a href="install.html" class="active" aria-current="page">Install</a>
-    <a href="controls.html">Controls</a>
-    <a href="https://github.com/hjelev/sb" target="_blank" rel="noopener">GitHub ↗</a>
+  <nav class="nav__drawer" id="mobileNav" aria-hidden="true" aria-label="Mobile">
+      <a href="index.html">Home</a>
+      <a href="screenshots.html">Screenshots</a>
+      <a href="install.html" class="active" aria-current="page">Install</a>
+      <a href="controls.html">Controls</a>
+      <a href="https://github.com/hjelev/sb" target="_blank" rel="noopener">GitHub ↗</a>
   </nav>
 
-  <!-- INSTALL -->
-  <section class="section" id="install">
-    <div class="section__head">
-      <span class="eyebrow">Installation</span>
-      <h2>Get Shell Buddy</h2>
-      <p>Pick whichever route fits your setup.</p>
-    </div>
+  <main>
+    <header class="page-head">
+      <h1>Install Shell Buddy</h1>
+      <p>Pick whichever route fits your setup. The binary is called <code>sb</code>.</p>
+    </header>
 
-    <div class="install-grid">
-      <div class="install-card">
-        <h3><span class="tag">crates.io</span></h3>
-        <div class="code-block">
-          <code><span class="prompt">$</span> cargo install shell-buddy</code>
-          <button class="copy-btn" data-copy="cargo install shell-buddy">copy</button>
+    <section class="section section--tight" id="install">
+      <div class="methods">
+        <div class="method">
+          <h3>Cargo<small>from crates.io</small></h3>
+          <div class="code-block">
+            <code><span class="prompt">$</span>cargo install shell-buddy</code>
+            <button class="copy-btn" data-copy="cargo install shell-buddy">copy</button>
+          </div>
         </div>
-      </div>
-
-      <div class="install-card">
-        <h3><span class="tag">Homebrew</span></h3>
-        <div class="code-block">
-          <code><span class="prompt">$</span> brew install hjelev/tap/sb</code>
-          <button class="copy-btn" data-copy="brew install hjelev/tap/sb">copy</button>
+        <div class="method">
+          <h3>Homebrew<small>macOS and Linux</small></h3>
+          <div class="code-block">
+            <code><span class="prompt">$</span>brew install hjelev/tap/sb</code>
+            <button class="copy-btn" data-copy="brew install hjelev/tap/sb">copy</button>
+          </div>
         </div>
-      </div>
-
-      <div class="install-card">
-        <h3><span class="tag">From source</span></h3>
-        <div class="code-block">
-          <code><span class="prompt">$</span> git clone https://github.com/hjelev/sb.git
-<span class="prompt">$</span> cd sb
-<span class="prompt">$</span> cargo install --path .</code>
-          <button class="copy-btn" data-copy="git clone https://github.com/hjelev/sb.git
+        <div class="method">
+          <h3>Prebuilt binary<small>no Rust toolchain needed</small></h3>
+          <div>
+            <p style="margin-top:.45rem">Download a binary or use the installer script from
+              <a href="https://github.com/hjelev/sb/releases" target="_blank" rel="noopener">GitHub Releases</a>.</p>
+          </div>
+        </div>
+        <div class="method">
+          <h3>From source</h3>
+          <div class="code-block">
+            <pre><code><span class="prompt">$</span>git clone https://github.com/hjelev/sb.git
+<span class="prompt">$</span>cd sb
+<span class="prompt">$</span>cargo install --path .</code></pre>
+            <button class="copy-btn" data-copy="git clone https://github.com/hjelev/sb.git
 cd sb
 cargo install --path .">copy</button>
+          </div>
         </div>
       </div>
+    </section>
 
-      <div class="install-card">
-        <h3><span class="tag">Releases</span></h3>
-        <p class="install-note">Prebuilt binaries and an auto-installer script are available in
-          <a href="https://github.com/hjelev/sb/releases" target="_blank" rel="noopener">GitHub Releases</a> —
-          the fastest setup without building from source.</p>
-      </div>
-    </div>
-
-    <div class="shell-integration">
-      <h3>Shell integration <span class="muted">— change directory on exit</span></h3>
-      <p>Add this function to your <code>~/.bashrc</code> or <code>~/.zshrc</code> so your shell follows wherever you navigate:</p>
-      <div class="code-block code-block--wide">
-        <pre><code>sb() {
+    <section class="section section--alt" id="shell">
+      <div class="shell-integration">
+        <div class="section__head">
+          <h2>Stay in the folder you left</h2>
+          <p>Add this function to <code>~/.bashrc</code> or <code>~/.zshrc</code>. When you quit sb, your shell changes to the directory you were last in.</p>
+        </div>
+        <div class="code-block">
+          <pre><code>sb() {
     "$HOME/.cargo/bin/sb" "$@"
-    if [ -f /tmp/sb_path ]
+    sb_last_path="${XDG_RUNTIME_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}}/sb/last_path"
+    if [ -f "$sb_last_path" ]
     then
-        cd "$(cat /tmp/sb_path)"
-        rm -i -f /tmp/sb_path
+        cd "$(cat "$sb_last_path")"
+        rm -i -f "$sb_last_path"
     fi
 }</code></pre>
-        <button class="copy-btn" data-copy='sb() {
+          <button class="copy-btn" data-copy='sb() {
     "$HOME/.cargo/bin/sb" "$@"
-    if [ -f /tmp/sb_path ]
+    sb_last_path="${XDG_RUNTIME_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}}/sb/last_path"
+    if [ -f "$sb_last_path" ]
     then
-        cd "$(cat /tmp/sb_path)"
-        rm -i -f /tmp/sb_path
+        cd "$(cat "$sb_last_path")"
+        rm -i -f "$sb_last_path"
     fi
 }'>copy</button>
+        </div>
+        <p>Then reload your shell with <code>source ~/.zshrc</code> (or <code>~/.bashrc</code>).</p>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- INTEGRATIONS -->
-  <section class="section section--alt" id="integrations">
-    <div class="section__head">
-      <span class="eyebrow">Integrations</span>
-      <h2>Optional tools, auto-detected</h2>
-      <p>Only two requirements — <code>less</code> and <code>$EDITOR</code>. Everything else is optional and degrades gracefully.</p>
-    </div>
-    <div class="chips">
-      <span class="chip chip--req">less</span>
-      <span class="chip chip--req">$EDITOR</span>
-      <span class="chip">git</span>
-      <span class="chip">bat</span>
-      <span class="chip">glow</span>
-      <span class="chip">mmdflux</span>
-      <span class="chip">jnv</span>
-      <span class="chip">csvlens</span>
-      <span class="chip">hexyl</span>
-      <span class="chip">chafa</span>
-      <span class="chip">viu</span>
-      <span class="chip">sox</span>
-      <span class="chip">pdftotext</span>
-      <span class="chip">asciinema</span>
-      <span class="chip">links</span>
-      <span class="chip">delta</span>
-      <span class="chip">hexedit</span>
-      <span class="chip">vidir</span>
-      <span class="chip">tmux</span>
-      <span class="chip">zellij</span>
-      <span class="chip">zip / unzip</span>
-      <span class="chip">tar</span>
-      <span class="chip">7z</span>
-      <span class="chip">rar / unrar</span>
-      <span class="chip">fuse-zip</span>
-      <span class="chip">archivemount</span>
-      <span class="chip">age</span>
-      <span class="chip">sshfs</span>
-      <span class="chip">rclone</span>
-      <span class="chip">rg</span>
-      <span class="chip">fzf</span>
-      <span class="chip">xclip / wl-copy</span>
-    </div>
-  </section>
+    <section class="section" id="integrations">
+      <div class="section__head">
+        <h2>Optional tools, detected automatically</h2>
+        <p>sb only needs <code>less</code> and an <code>$EDITOR</code>. Everything else is picked up when it's on your <code>PATH</code>, and features that need a missing tool are simply skipped. Press <kbd>I</kbd> in sb to see what's installed.</p>
+      </div>
+      <div class="tools">
+        <div class="tools--req">
+          <h3>Required</h3>
+          <ul><li>less</li><li>$EDITOR</li></ul>
+        </div>
+        <div>
+          <h3>Previews and viewers</h3>
+          <ul><li>bat</li><li>glow</li><li>mmdflux</li><li>jnv</li><li>csvlens</li><li>hexyl</li><li>chafa</li><li>viu</li><li>sox</li><li>pdftotext</li><li>asciinema</li><li>links</li></ul>
+        </div>
+        <div>
+          <h3>Git and editing</h3>
+          <ul><li>git</li><li>delta</li><li>hexedit</li><li>vidir</li></ul>
+        </div>
+        <div>
+          <h3>Archives and encryption</h3>
+          <ul><li>zip / unzip</li><li>tar</li><li>7z</li><li>rar / unrar</li><li>fuse-zip</li><li>archivemount</li><li>age</li></ul>
+        </div>
+        <div>
+          <h3>Search and remotes</h3>
+          <ul><li>rg</li><li>fzf</li><li>sshfs</li><li>rclone</li></ul>
+        </div>
+        <div>
+          <h3>Terminal and clipboard</h3>
+          <ul><li>tmux</li><li>zellij</li><li>xclip / wl-copy</li></ul>
+        </div>
+      </div>
+    </section>
+  </main>
 
   <footer class="footer">
     <a class="footer__brand" href="index.html">
       <img src="images/favicon.png" alt="" />
       <span class="footer__brand-name"><span class="brand-shell">Shell</span> <span class="brand-buddy">Buddy</span></span>
     </a>
-    <p>Shell Buddy (<code>sb</code>) — a terminal file manager written in Rust with <code>ratatui</code> + <code>crossterm</code>.</p>
-    <p class="footer__links">
-      <a href="https://github.com/hjelev/sb" target="_blank" rel="noopener">GitHub</a> ·
-      <a href="https://crates.io/crates/shell-buddy" target="_blank" rel="noopener">crates.io</a> ·
-      <a href="https://github.com/hjelev/sb/releases" target="_blank" rel="noopener">Releases</a> ·
-      <a href="https://github.com/hjelev/sb/blob/master/LICENSE" target="_blank" rel="noopener">License</a>
-    </p>
+    <ul class="footer__links">
+      <li><a href="https://github.com/hjelev/sb" target="_blank" rel="noopener">GitHub</a></li>
+      <li><a href="https://crates.io/crates/shell-buddy" target="_blank" rel="noopener">crates.io</a></li>
+      <li><a href="https://github.com/hjelev/sb/releases" target="_blank" rel="noopener">Releases</a></li>
+      <li><a href="https://github.com/hjelev/sb/blob/master/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a></li>
+      <li><a href="https://github.com/hjelev/sb/blob/master/LICENSE" target="_blank" rel="noopener">License</a></li>
+    </ul>
   </footer>
 
-  <!-- LIGHTBOX -->
   <div class="lightbox" id="lightbox" aria-hidden="true">
     <button class="lightbox__close" aria-label="Close">&times;</button>
     <img src="" alt="" />

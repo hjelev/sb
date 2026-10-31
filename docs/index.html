@@ -3,176 +3,173 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Shell Buddy — A keyboard-driven terminal file manager</title>
+  <title>Shell Buddy — a keyboard-driven terminal file manager</title>
   <meta name="description" content="Shell Buddy (sb) is a fast, keyboard-driven terminal file manager written in Rust with ratatui + crossterm. Previews, archives, search, remote mounts, and in-TUI Git." />
   <meta property="og:title" content="Shell Buddy — terminal file manager" />
   <meta property="og:description" content="A fast, keyboard-driven terminal file manager written in Rust." />
   <meta property="og:image" content="images/screenshot-2.png" />
   <meta property="og:type" content="website" />
+  <meta name="theme-color" content="#0e1316" />
   <link rel="icon" type="image/png" href="images/favicon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
-<script defer src="https://m.masoko.net/core-util" data-website-id="f03cc21a-8b0b-4889-b126-84c312a94e0c"></script>
+  <script defer src="https://m.masoko.net/core-util" data-website-id="f03cc21a-8b0b-4889-b126-84c312a94e0c"></script>
 </head>
 <body>
-  <!-- NAV -->
   <header class="nav">
-    <a class="nav__brand" href="index.html" aria-label="Shell Buddy — home">
+    <a class="nav__brand" href="index.html" aria-label="Shell Buddy home">
       <img src="images/favicon.png" alt="" />
       <span class="nav__brand-name"><span class="brand-shell">Shell</span> <span class="brand-buddy">Buddy</span></span>
     </a>
-    <nav class="nav__links">
+    <nav class="nav__links" aria-label="Main">
       <a href="index.html" class="active" aria-current="page">Home</a>
       <a href="screenshots.html">Screenshots</a>
       <a href="install.html">Install</a>
       <a href="controls.html">Controls</a>
-      <a class="nav__gh" href="https://github.com/hjelev/sb" target="_blank" rel="noopener">
-        <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
-        <span>GitHub</span>
-      </a>
+      <a class="nav__gh" href="https://github.com/hjelev/sb" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg><span>GitHub</span></a>
     </nav>
     <button class="nav__toggle" aria-label="Menu" aria-expanded="false" aria-controls="mobileNav">
       <span></span><span></span><span></span>
     </button>
   </header>
   <div class="nav__backdrop" id="navBackdrop" hidden></div>
-  <nav class="nav__drawer" id="mobileNav" aria-hidden="true">
-    <a href="index.html" class="active" aria-current="page">Home</a>
-    <a href="screenshots.html">Screenshots</a>
-    <a href="install.html">Install</a>
-    <a href="controls.html">Controls</a>
-    <a href="https://github.com/hjelev/sb" target="_blank" rel="noopener">GitHub ↗</a>
+  <nav class="nav__drawer" id="mobileNav" aria-hidden="true" aria-label="Mobile">
+      <a href="index.html" class="active" aria-current="page">Home</a>
+      <a href="screenshots.html">Screenshots</a>
+      <a href="install.html">Install</a>
+      <a href="controls.html">Controls</a>
+      <a href="https://github.com/hjelev/sb" target="_blank" rel="noopener">GitHub ↗</a>
   </nav>
 
-  <!-- HERO -->
-  <section class="hero" id="top">
-    <div class="hero__glow"></div>
-    <div class="hero__inner">
-      <img class="hero__logo" src="images/logo.png" alt="Shell Buddy logo" />
-      <p class="hero__tagline">A keyboard-driven terminal file manager written in Rust</p>
-      <p class="hero__sub">
-        <strong>sb</strong> is a fast, single-binary TUI built on <code>ratatui</code> + <code>crossterm</code> — focused on
-        snappy local navigation with optional integrations for previews, archives, search, remote mounts, and lightweight Git workflows.
-      </p>
+  <main>
+    <section class="hero">
+      <div class="hero__inner">
+        <div>
+          <img class="hero__mark" src="images/favicon.png" alt="" width="64" height="64" />
+          <h1 class="hero__title"><span class="brand-shell">Shell</span> <span class="brand-buddy">Buddy</span></h1>
+        </div>
+        <div class="hero__aside">
+          <p class="hero__sub"><strong>A keyboard-driven terminal file manager, written in Rust.</strong>
+            One small binary for fast local navigation, with previews, archives, search, remote mounts and Git
+            whenever you need them.</p>
+          <div class="install-line">
+            <code><span class="prompt">$</span>cargo install shell-buddy<span class="cursor-blink" aria-hidden="true"></span></code>
+            <button class="copy-btn" data-copy="cargo install shell-buddy">copy</button>
+          </div>
+          <div class="hero__cta">
+            <a class="btn btn--primary" href="install.html">Install</a>
+            <a class="btn btn--ghost" href="https://github.com/hjelev/sb" target="_blank" rel="noopener">View on GitHub</a>
+          </div>
+        </div>
+      </div>
+
+      <figure class="term">
+        <div class="term__bar" aria-hidden="true"><i></i><i></i><i></i><span>sb ~/Downloads</span></div>
+        <img src="images/screenshot-1.png" width="926" height="546" alt="Shell Buddy listing ~/Downloads, with three files selected and the status bar showing key hints" />
+      </figure>
 
       <div class="badges">
-        <a href="https://crates.io/crates/shell-buddy"><img src="https://img.shields.io/crates/v/shell-buddy.svg?style=flat-square&color=orange" alt="Crates.io Version" /></a>
-        <a href="https://crates.io/crates/shell-buddy"><img src="https://img.shields.io/crates/d/shell-buddy.svg?style=flat-square&color=blue&label=crates%20downloads" alt="Crates.io Downloads" /></a>
-        <a href="https://github.com/hjelev/sb/releases"><img src="https://img.shields.io/github/downloads/hjelev/sb/total.svg?style=flat-square&color=brightgreen&label=github%20downloads&kill_cache=1" alt="GitHub Downloads" /></a>
+        <a href="https://crates.io/crates/shell-buddy"><img src="https://img.shields.io/crates/v/shell-buddy.svg?style=flat-square&color=orange" alt="Crates.io version" /></a>
+        <a href="https://crates.io/crates/shell-buddy"><img src="https://img.shields.io/crates/d/shell-buddy.svg?style=flat-square&color=blue&label=crates%20downloads" alt="Crates.io downloads" /></a>
+        <a href="https://github.com/hjelev/sb/releases"><img src="https://img.shields.io/github/downloads/hjelev/sb/total.svg?style=flat-square&color=brightgreen&label=github%20downloads&kill_cache=1" alt="GitHub downloads" /></a>
         <a href="https://github.com/hjelev/sb/blob/master/LICENSE"><img src="https://img.shields.io/github/license/hjelev/sb.svg?style=flat-square&color=purple" alt="License" /></a>
-        <a href="https://github.com/hjelev/sb/stargazers"><img src="https://img.shields.io/github/stars/hjelev/sb.svg?style=flat-square&color=gold" alt="GitHub Stars" /></a>
+        <a href="https://github.com/hjelev/sb/stargazers"><img src="https://img.shields.io/github/stars/hjelev/sb.svg?style=flat-square&color=gold" alt="GitHub stars" /></a>
+      </div>
+    </section>
+
+    <section class="section" id="features">
+      <div class="section__head">
+        <h2>Built for people who live in the terminal</h2>
+        <p>Every workflow is a keystroke away, so you never have to leave the file manager.</p>
       </div>
 
-      <div class="hero__cta">
-        <a class="btn btn--primary" href="install.html">Install now</a>
-        <a class="btn btn--ghost" href="https://github.com/hjelev/sb" target="_blank" rel="noopener">View on GitHub →</a>
+      <ul class="listing">
+        <li class="listing__row is-current">
+          <span class="listing__keys"><kbd>G</kbd></span>
+          <h3>Git, without leaving</h3>
+          <p>Diff preview, status review, commit, push and an optional tag, all from inside sb.</p>
+        </li>
+        <li class="listing__row">
+          <span class="listing__keys"><kbd>Ctrl+G</kbd></span>
+          <h3>AI commit messages</h3>
+          <p>Draft a commit message from the diff with one keypress (Groq or GitHub Models), then edit it before committing.</p>
+        </li>
+        <li class="listing__row">
+          <span class="listing__keys"><kbd>Tab</kbd></span>
+          <h3>Inline path filters</h3>
+          <p>Type <code>^prefix</code>, <code>suffix$</code> or <code>~contains</code> in the path bar to filter the listing as you type.</p>
+        </li>
+        <li class="listing__row">
+          <span class="listing__keys"><kbd>I</kbd></span>
+          <h3>One-key tool installs</h3>
+          <p>See which optional tools are missing and install them through Homebrew from the integrations panel.</p>
+        </li>
+        <li class="listing__row">
+          <span class="listing__keys"><kbd>p</kbd></span>
+          <h3>Age encryption</h3>
+          <p>Encrypt a file to <code>.age</code>, or decrypt one, in place.</p>
+        </li>
+        <li class="listing__row">
+          <span class="listing__keys"><kbd>Ctrl+N</kbd></span>
+          <h3>Per-file notes</h3>
+          <p>Attach a note to any file. Notes live in a hidden <code>.sb</code> file in each directory.</p>
+        </li>
+        <li class="listing__row">
+          <span class="listing__keys"><kbd>i</kbd><kbd>E</kbd></span>
+          <h3>tmux-aware splits</h3>
+          <p><code>i</code> opens a shell and preview pane, <code>E</code> a shell and editor pane. Uses <code>zellij</code> when tmux isn't installed.</p>
+        </li>
+        <li class="listing__row">
+          <span class="listing__keys"><kbd>Ctrl+E</kbd></span>
+          <h3>Edit the clipboard</h3>
+          <p>Open whatever is on the system clipboard in <code>$EDITOR</code>.</p>
+        </li>
+        <li class="listing__row">
+          <span class="listing__keys"><kbd>sb -l</kbd></span>
+          <h3>List and tree output</h3>
+          <p><code>sb -l</code>, <code>sb -t</code> and <code>sb -l2</code> print aligned columns; <code>sb &lt;file&gt;</code> opens a file in the best viewer.</p>
+        </li>
+        <li class="listing__row">
+          <span class="listing__keys"><kbd>T</kbd></span>
+          <h3>Themes</h3>
+          <p>Nord, Dracula, Gruvbox, Rosé Pine, Everforest and more, with Nerd Font icons and file colors switched live.</p>
+        </li>
+      </ul>
+    </section>
+
+    <section class="cta">
+      <div class="cta__inner">
+        <h2>Make the terminal your file manager</h2>
+        <div>
+          <div class="install-line">
+            <code><span class="prompt">$</span>cargo install shell-buddy</code>
+            <button class="copy-btn" data-copy="cargo install shell-buddy">copy</button>
+          </div>
+          <div class="hero__cta">
+            <a class="btn btn--primary" href="https://github.com/hjelev/sb" target="_blank" rel="noopener">Star on GitHub</a>
+            <a class="btn btn--ghost" href="install.html">Other install options</a>
+          </div>
+        </div>
       </div>
-
-      <div class="hero__install-hint">
-        <code><span class="prompt">$</span> cargo install shell-buddy</code>
-        <button class="copy-btn" data-copy="cargo install shell-buddy" title="Copy">copy</button>
-      </div>
-    </div>
-
-    <figure class="hero__shot">
-      <img src="images/screenshot-1.png" alt="Shell Buddy terminal file manager listing" loading="lazy" />
-    </figure>
-  </section>
-
-  <!-- WHAT SETS IT APART -->
-  <section class="section" id="features">
-    <div class="section__head">
-      <span class="eyebrow">What sets sb apart</span>
-      <h2>Built for people who live in the terminal</h2>
-      <p>Every workflow stays a keystroke away — no leaving the file manager.</p>
-    </div>
-
-    <div class="cards">
-      <article class="card">
-        <div class="card__key">G</div>
-        <h3>In-TUI Git workflow</h3>
-        <p>Diff preview → status review → commit → push → optional tag, all without leaving the file manager.</p>
-      </article>
-      <article class="card">
-        <div class="card__key">^G</div>
-        <h3>AI commit messages</h3>
-        <p>Draft a commit message from the diff with one keypress (Groq or GitHub Models), then edit before committing.</p>
-      </article>
-      <article class="card">
-        <div class="card__key">Tab</div>
-        <h3>Inline path filters</h3>
-        <p>Type <code>^prefix</code>, <code>suffix$</code>, or <code>~contains</code> right in the path bar to live-filter the listing.</p>
-      </article>
-      <article class="card">
-        <div class="card__key">I</div>
-        <h3>One-key integration installs</h3>
-        <p>See which optional tools are missing and install them via Homebrew — straight from the TUI.</p>
-      </article>
-      <article class="card">
-        <div class="card__key">p</div>
-        <h3>Age encryption</h3>
-        <p>Protect or decrypt <code>.age</code> files in-place with a single keypress.</p>
-      </article>
-      <article class="card">
-        <div class="card__key">^n</div>
-        <h3>Per-file notes</h3>
-        <p>Attach notes to any file, stored in a hidden <code>.sb</code> file per directory.</p>
-      </article>
-      <article class="card">
-        <div class="card__key">i / E</div>
-        <h3>tmux-aware splits</h3>
-        <p><code>i</code> opens a shell + preview pane; <code>E</code> opens a shell + editor pane. Falls back to <code>zellij</code> when tmux isn't installed.</p>
-      </article>
-      <article class="card">
-        <div class="card__key">^e</div>
-        <h3>Clipboard edit</h3>
-        <p>Open the current system clipboard contents in <code>$EDITOR</code> for quick manipulation.</p>
-      </article>
-      <article class="card">
-        <div class="card__key">-l</div>
-        <h3>CLI list / tree modes</h3>
-        <p><code>sb -l</code>, <code>sb -t</code>, <code>sb -l2</code> produce consistent column output; <code>sb &lt;file&gt;</code> opens with the best viewer.</p>
-      </article>
-      <article class="card">
-        <div class="card__key">T</div>
-        <h3>Themeable</h3>
-        <p>Ten-plus built-in themes (Nord, Dracula, Gruvbox, Rosé Pine, Everforest…), with Nerd Fonts and file-name colors toggled live from the Themes menu.</p>
-      </article>
-    </div>
-  </section>
-
-  <!-- CTA -->
-  <section class="cta">
-    <div class="cta__inner">
-      <h2>Ready to make the terminal your file manager?</h2>
-      <div class="hero__install-hint">
-        <code><span class="prompt">$</span> cargo install shell-buddy</code>
-        <button class="copy-btn" data-copy="cargo install shell-buddy">copy</button>
-      </div>
-      <div class="hero__cta">
-        <a class="btn btn--primary" href="https://github.com/hjelev/sb" target="_blank" rel="noopener">Star on GitHub ★</a>
-        <a class="btn btn--ghost" href="install.html">Install guide →</a>
-      </div>
-    </div>
-  </section>
+    </section>
+  </main>
 
   <footer class="footer">
     <a class="footer__brand" href="index.html">
       <img src="images/favicon.png" alt="" />
       <span class="footer__brand-name"><span class="brand-shell">Shell</span> <span class="brand-buddy">Buddy</span></span>
     </a>
-    <p>Shell Buddy (<code>sb</code>) — a terminal file manager written in Rust with <code>ratatui</code> + <code>crossterm</code>.</p>
-    <p class="footer__links">
-      <a href="https://github.com/hjelev/sb" target="_blank" rel="noopener">GitHub</a> ·
-      <a href="https://crates.io/crates/shell-buddy" target="_blank" rel="noopener">crates.io</a> ·
-      <a href="https://github.com/hjelev/sb/releases" target="_blank" rel="noopener">Releases</a> ·
-      <a href="https://github.com/hjelev/sb/blob/master/LICENSE" target="_blank" rel="noopener">License</a>
-    </p>
+    <ul class="footer__links">
+      <li><a href="https://github.com/hjelev/sb" target="_blank" rel="noopener">GitHub</a></li>
+      <li><a href="https://crates.io/crates/shell-buddy" target="_blank" rel="noopener">crates.io</a></li>
+      <li><a href="https://github.com/hjelev/sb/releases" target="_blank" rel="noopener">Releases</a></li>
+      <li><a href="https://github.com/hjelev/sb/blob/master/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a></li>
+      <li><a href="https://github.com/hjelev/sb/blob/master/LICENSE" target="_blank" rel="noopener">License</a></li>
+    </ul>
   </footer>
 
-  <!-- LIGHTBOX -->
   <div class="lightbox" id="lightbox" aria-hidden="true">
     <button class="lightbox__close" aria-label="Close">&times;</button>
     <img src="" alt="" />
