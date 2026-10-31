@@ -591,9 +591,14 @@ fn main() -> io::Result<()> {
     // restored so it prints on the normal screen.
     let result = run::run_tui(&mut terminal, &mut app);
     shutdown_app(&mut app);
-    session.leave()?;
-    if result.is_ok() {
-        execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
+    // Don't `?` the restore either: the last-path write below must still
+    // happen, and a loop error takes precedence over a restore error.
+    let leave_result = session.leave();
+    if let Err(e) = &leave_result {
+        eprintln!("sb: failed to restore terminal: {e}");
+    }
+    if result.is_ok() && leave_result.is_ok() {
+        let _ = execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0));
     }
     // Best-effort: the optional shell `cd`-on-exit snippet (see README) reads this
     // path. Intentionally fire-and-forget — the app is already exiting and a
@@ -616,7 +621,7 @@ fn main() -> io::Result<()> {
             let _ = std::fs::set_permissions(&last_path, std::fs::Permissions::from_mode(0o600));
         }
     }
-    result
+    result.and(leave_result)
 }
 
 /// Finish a CLI mode that ran an external viewer/editor, exiting with its

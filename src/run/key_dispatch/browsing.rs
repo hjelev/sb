@@ -206,13 +206,13 @@ pub(crate) fn run_plugin_entry(
                     }
                     PluginEffect::ViewPath(path) => {
                         let path = app.resolve_plugin_path(path);
-                        let code = {
+                        let viewed = {
                             let _tui = tui::suspend(ResumeMode::Plain)?;
-                            App::open_path_in_view_mode(&path, true)?
+                            App::view_path_in_tui(&path)
                         };
                         terminal.clear()?;
-                        if code != 0 {
-                            app.set_status(format!("viewer exited with status {code}"));
+                        if let Err(msg) = viewed {
+                            app.set_status(msg);
                         }
                     }
                     _ => {}

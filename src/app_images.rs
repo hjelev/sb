@@ -36,8 +36,10 @@ pub(crate) enum ImageError {
     SvgRender,
     #[error("unsupported protocol")]
     UnsupportedProtocol,
+    #[error("sixel image error: {0}")]
+    SixelImage(String),
     #[error("sixel encode error: {0}")]
-    Sixel(String),
+    SixelEncode(String),
     #[error(transparent)]
     Decode(#[from] image::ImageError),
     #[error(transparent)]
@@ -881,10 +883,10 @@ impl App {
         }
 
         let image = icy_sixel::SixelImage::try_from_rgba(rgba, w as usize, h as usize)
-            .map_err(|e| ImageError::Sixel(e.to_string()))?;
+            .map_err(|e| ImageError::SixelImage(e.to_string()))?;
         let sixel_out = image
             .encode()
-            .map_err(|e| ImageError::Sixel(e.to_string()))?;
+            .map_err(|e| ImageError::SixelEncode(e.to_string()))?;
 
         let mut out = io::stdout();
         out.write_all(sixel_out.as_bytes())?;

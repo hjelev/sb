@@ -300,27 +300,63 @@ impl App {
     }
 
     /// Show `path` with the best available viewer on the plain terminal (the
-    /// `sb FILE` / `sb -l FILE` modes, and plugin `view` effects). Returns the
-    /// viewer's exit code so the CLI can pass failures on to scripts.
+    /// `sb FILE` / `sb -l FILE` modes). Returns the viewer's exit code so the
+    /// CLI can pass failures on to scripts; launch errors go to stderr.
     pub(crate) fn open_path_in_view_mode(path: &PathBuf, use_pager: bool) -> io::Result<i32> {
-        use crate::util::command::{pipe_to_pager, run_cli};
+        Ok(Self::view_path_with(
+            path,
+            use_pager,
+            &mut crate::util::command::run_cli,
+        ))
+    }
+
+    /// TUI counterpart of [`Self::open_path_in_view_mode`] (plugin `view`
+    /// effects), always paged. stderr is wiped when the TUI resumes, so a
+    /// failure comes back as a status-line message naming the tool instead.
+    pub(crate) fn view_path_in_tui(path: &PathBuf) -> Result<(), String> {
+        let mut failure: Option<String> = None;
+        let code =
+            Self::view_path_with(
+                path,
+                true,
+                &mut |cmd| match crate::util::command::run_interactive(cmd) {
+                    Ok(()) => 0,
+                    Err(msg) => {
+                        failure = Some(msg);
+                        1
+                    }
+                },
+            );
+        match (code, failure) {
+            (0, _) => Ok(()),
+            (_, Some(msg)) => Err(msg),
+            (_, None) => Err("viewer failed".to_string()),
+        }
+    }
+
+    /// Pick the best viewer for `path` and launch it through `run`, which
+    /// returns a shell-style exit code.
+    fn view_path_with(
+        path: &PathBuf,
+        use_pager: bool,
+        run: &mut dyn FnMut(&mut Command) -> i32,
+    ) -> i32 {
+        use crate::util::command::pipe_to_pager;
         let pager_code = |shown: bool| if shown { 0 } else { 1 };
 
         if (Self::is_image_file(path) || Self::is_video_file(path))
             && Self::integration_probe("timg").0
         {
             // --loops=1: a lone animated gif would otherwise loop forever.
-            return Ok(run_cli(
-                Command::new("timg").args(["-C", "--loops=1"]).arg(path),
-            ));
+            return run(Command::new("timg").args(["-C", "--loops=1"]).arg(path));
         }
 
         if Self::is_image_file(path) {
             if Self::integration_probe("viu").0 {
-                return Ok(run_cli(Command::new("viu").arg(path)));
+                return run(Command::new("viu").arg(path));
             }
             if Self::integration_probe("chafa").0 {
-                return Ok(run_cli(Command::new("chafa").arg(path)));
+                return run(Command::new("chafa").arg(path));
             }
         }
 
@@ -329,7 +365,7 @@ impl App {
             if use_pager {
                 cmd.arg("-p");
             }
-            return Ok(run_cli(cmd.arg(path)));
+            return run(cmd.arg(path));
         }
 
         if Self::is_mermaid_file(path) && Self::integration_probe("mmdflux").0 {
@@ -338,31 +374,31 @@ impl App {
             // (the pager, sb's event loop) consumes the terminal's reply.
             let mut cmd = Command::new("mmdflux");
             cmd.args(["--color", "always"]).arg(path);
-            return Ok(if use_pager {
+            return if use_pager {
                 pager_code(pipe_to_pager(cmd))
             } else {
-                run_cli(&mut cmd)
-            });
+                run(&mut cmd)
+            };
         }
 
         if Self::is_html_file(path) && Self::integration_probe("links").0 {
-            return Ok(run_cli(Command::new("links").arg(path)));
+            return run(Command::new("links").arg(path));
         }
 
         if Self::is_json_file(path) && Self::integration_probe("jnv").0 {
-            return Ok(run_cli(Command::new("jnv").arg(path)));
+            return run(Command::new("jnv").arg(path));
         }
 
         if Self::is_delimited_text_file(path) && Self::integration_probe("csvlens").0 {
-            return Ok(run_cli(Command::new("csvlens").arg(path)));
+            return run(Command::new("csvlens").arg(path));
         }
 
         if Self::is_excel_file(path) && Self::integration_probe("xleak").0 {
-            return Ok(run_cli(Command::new("xleak").arg("-i").arg(path)));
+            return run(Command::new("xleak").arg("-i").arg(path));
         }
 
         if Self::is_docx_file(path) && Self::integration_probe("doxx").0 {
-            return Ok(run_cli(Command::new("doxx").arg(path)));
+            return run(Command::new("doxx").arg(path));
         }
 
         if Self::is_audio_file(path) && Self::integration_probe("sox").0 {
@@ -378,56 +414,52 @@ impl App {
             cmd.stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null());
-            return Ok(run_cli(&mut cmd));
+            return run(&mut cmd);
         }
 
         if Self::is_pdf_file(path) && Self::integration_probe("pdftotext").0 {
             let mut cmd = Command::new("pdftotext");
             cmd.args(["-layout", "-nopgbrk"]).arg(path).arg("-");
             if !use_pager {
-                return Ok(run_cli(&mut cmd));
+                return run(&mut cmd);
             }
             if pipe_to_pager(cmd) {
-                return Ok(0);
+                return 0;
             }
-            return Ok(run_cli(Command::new("less").arg("-R").arg(path)));
+            return run(Command::new("less").arg("-R").arg(path));
         }
 
         if Self::is_cast_file(path) && Self::integration_probe("asciinema").0 {
-            return Ok(run_cli(
-                Command::new("asciinema").args(["play", "-i"]).arg(path),
-            ));
+            return run(Command::new("asciinema").args(["play", "-i"]).arg(path));
         }
 
         if Self::is_binary_file(path) && Self::integration_probe("hexyl").0 {
             let mut cmd = Command::new("hexyl");
             cmd.arg(path);
-            return Ok(if use_pager {
+            return if use_pager {
                 pager_code(pipe_to_pager(cmd))
             } else {
-                run_cli(&mut cmd)
-            });
+                run(&mut cmd)
+            };
         }
 
         if Self::integration_probe("bat").0 {
             let bat_cmd = Self::bat_tool().unwrap_or_else(|| "bat".to_string());
             let paging = if use_pager { "always" } else { "never" };
-            return Ok(run_cli(
-                Command::new(bat_cmd)
-                    .args([
-                        &format!("--paging={}", paging),
-                        "--style=full",
-                        "--color=always",
-                    ])
-                    .arg(path),
-            ));
+            return run(Command::new(bat_cmd)
+                .args([
+                    &format!("--paging={}", paging),
+                    "--style=full",
+                    "--color=always",
+                ])
+                .arg(path));
         }
 
-        Ok(if use_pager {
-            run_cli(Command::new("less").arg("-R").arg(path))
+        if use_pager {
+            run(Command::new("less").arg("-R").arg(path))
         } else {
-            run_cli(Command::new("cat").arg(path))
-        })
+            run(Command::new("cat").arg(path))
+        }
     }
 
     pub(crate) fn run_delta_compare(&mut self) -> io::Result<()> {

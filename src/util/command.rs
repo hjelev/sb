@@ -312,9 +312,14 @@ fn split_shell_words(s: &str) -> Option<Vec<String>> {
 /// The program's own stderr is wiped when the TUI resumes, so failures are
 /// returned as a short message for the status line instead: missing binary,
 /// spawn error, or non-zero exit.
+///
+/// Runs via [`status_ignoring_sigint`]: raw mode is off while the program
+/// owns the terminal, so a Ctrl+C (e.g. in `less` or `glow -p`) would
+/// otherwise also reach sb and kill it without unmounting or restoring state.
 pub fn run_interactive(cmd: &mut Command) -> Result<(), String> {
     let tool = program_name(cmd);
-    describe_exit(&tool, cmd.status())
+    let via_path = searched_in_path(cmd);
+    describe_exit(&tool, via_path, status_ignoring_sigint(cmd))
 }
 
 /// Run `cmd` on the inherited terminal for the non-TUI CLI modes (`sb FILE`,
@@ -324,14 +329,19 @@ pub fn run_interactive(cmd: &mut Command) -> Result<(), String> {
 /// program isn't found, 126 for other spawn errors.
 pub fn run_cli(cmd: &mut Command) -> i32 {
     let tool = program_name(cmd);
-    cli_exit_code(&tool, cmd.status())
+    let via_path = searched_in_path(cmd);
+    cli_exit_code(&tool, via_path, cmd.status())
 }
 
-pub fn cli_exit_code(tool: &str, status: io::Result<std::process::ExitStatus>) -> i32 {
+fn cli_exit_code(tool: &str, via_path: bool, status: io::Result<std::process::ExitStatus>) -> i32 {
     match status {
         Ok(s) => exit_status_code(s),
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            eprintln!("sb: {tool}: command not found");
+            if via_path {
+                eprintln!("sb: {tool}: command not found");
+            } else {
+                eprintln!("sb: {tool}: No such file or directory");
+            }
             127
         }
         Err(e) => {
@@ -361,14 +371,28 @@ fn program_name(cmd: &Command) -> String {
         .into_owned()
 }
 
-fn describe_exit(tool: &str, status: io::Result<std::process::ExitStatus>) -> Result<(), String> {
+/// Whether the OS will look the program up in `PATH` (no `/` in its name),
+/// so "not found" can say where it looked.
+fn searched_in_path(cmd: &Command) -> bool {
+    !cmd.get_program().to_string_lossy().contains('/')
+}
+
+fn describe_exit(
+    tool: &str,
+    via_path: bool,
+    status: io::Result<std::process::ExitStatus>,
+) -> Result<(), String> {
     match status {
         Ok(s) if s.success() => Ok(()),
         Ok(s) => Err(match s.code() {
             Some(code) => format!("{tool} exited with status {code}"),
             None => format!("{tool} was terminated by a signal"),
         }),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Err(format!("{tool} not found in PATH")),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Err(if via_path {
+            format!("{tool} not found in PATH")
+        } else {
+            format!("{tool} not found")
+        }),
         Err(e) => Err(format!("{tool} failed to start: {e}")),
     }
 }
@@ -642,6 +666,8 @@ mod tests {
     #[test]
     fn run_interactive_reports_missing_binary() {
         let err = run_interactive(&mut Command::new("/nonexistent/sbrs-no-such-tool")).unwrap_err();
+        assert_eq!(err, "sbrs-no-such-tool not found");
+        let err = run_interactive(&mut Command::new("sbrs-no-such-tool")).unwrap_err();
         assert_eq!(err, "sbrs-no-such-tool not found in PATH");
     }
 
@@ -651,5 +677,16 @@ mod tests {
         assert!(run_interactive(&mut Command::new("true")).is_ok());
         let err = run_interactive(Command::new("sh").args(["-c", "exit 3"])).unwrap_err();
         assert_eq!(err, "sh exited with status 3");
+    }
+
+    /// A Ctrl+C while an interactive tool runs reaches sb too (same process
+    /// group, raw mode off); sb must survive it. If this regresses, the
+    /// SIGINT kills the test binary itself.
+    #[cfg(unix)]
+    #[test]
+    fn run_interactive_survives_sigint_to_parent() {
+        let err = run_interactive(Command::new("sh").args(["-c", "kill -INT $PPID; exit 4"]))
+            .unwrap_err();
+        assert_eq!(err, "sh exited with status 4");
     }
 }

@@ -9,22 +9,32 @@ use crossterm::{execute, terminal::SetTitle};
 use std::{
     env,
     io::{self, Write},
-    path::Path,
-    sync::Mutex,
+    path::{Path, PathBuf},
+    sync::{
+        Mutex, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 const DEFAULT_ICON: &str = "📂";
 
-/// Last title we emitted; `None` forces the next `update` to re-send it.
-static LAST: Mutex<Option<String>> = Mutex::new(None);
+/// Directory of the last title we emitted; `None` forces the next `update`
+/// to re-send it. Compared before formatting so the per-tick call is cheap.
+static LAST: Mutex<Option<PathBuf>> = Mutex::new(None);
 
-/// `SB_TERM_TITLE=0` leaves the terminal title untouched.
+/// Whether `save` pushed a title that `restore` still has to pop.
+static SAVED: AtomicBool = AtomicBool::new(false);
+
+/// `SB_TERM_TITLE=0` leaves the terminal title untouched. Read once.
 fn enabled() -> bool {
-    env::var("SB_TERM_TITLE").map(|v| v != "0").unwrap_or(true)
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| env::var("SB_TERM_TITLE").map(|v| v != "0").unwrap_or(true))
 }
 
-fn icon() -> String {
-    env::var("SB_TITLE_ICON").unwrap_or_else(|_| DEFAULT_ICON.to_string())
+/// Read once; `update` runs on every loop tick.
+fn icon() -> &'static str {
+    static ICON: OnceLock<String> = OnceLock::new();
+    ICON.get_or_init(|| env::var("SB_TITLE_ICON").unwrap_or_else(|_| DEFAULT_ICON.to_string()))
 }
 
 fn format_title(icon: &str, dir: &Path) -> String {
@@ -41,7 +51,7 @@ fn format_title(icon: &str, dir: &Path) -> String {
 
 /// Save the current terminal title so `restore` can put it back.
 pub fn save() {
-    if enabled() {
+    if enabled() && !SAVED.swap(true, Ordering::SeqCst) {
         let mut out = io::stdout();
         let _ = out.write_all(b"\x1b[22;0t");
         let _ = out.flush();
@@ -53,13 +63,13 @@ pub fn update(dir: &Path) {
     if !enabled() {
         return;
     }
-    let title = format_title(&icon(), dir);
     let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
-    if last.as_deref() == Some(title.as_str()) {
+    if last.as_deref() == Some(dir) {
         return;
     }
+    let title = format_title(icon(), dir);
     if execute!(io::stdout(), SetTitle(&title)).is_ok() {
-        *last = Some(title);
+        *last = Some(dir.to_path_buf());
     }
 }
 
@@ -71,7 +81,9 @@ pub fn invalidate() {
 
 /// Restore the title saved by `save`.
 pub fn restore() {
-    if enabled() {
+    // Pop only what `save` pushed, once: popping more would discard a title
+    // the shell or tmux had saved.
+    if enabled() && SAVED.swap(false, Ordering::SeqCst) {
         let mut out = io::stdout();
         let _ = out.write_all(b"\x1b[23;0t");
         let _ = out.flush();

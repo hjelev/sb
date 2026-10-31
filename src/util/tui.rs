@@ -9,6 +9,7 @@ use crossterm::{
 };
 use std::io;
 use std::process::Child;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 /// Leave the TUI (enter normal terminal mode) before running an external process.
@@ -112,25 +113,26 @@ pub fn suspend_showing_cursor(mode: ResumeMode) -> io::Result<TuiGuard> {
 /// between setup and shutdown can't leave the user's shell unusable.
 /// Call [`SessionGuard::leave`] on the normal exit path to see restore errors.
 #[must_use = "dropping the guard immediately restores the terminal"]
-pub struct SessionGuard {
-    active: bool,
-}
+pub struct SessionGuard(());
 
 impl SessionGuard {
     /// Restore the terminal now, reporting any error.
-    pub fn leave(mut self) -> io::Result<()> {
-        self.active = false;
+    pub fn leave(self) -> io::Result<()> {
+        // Drop then runs leave_session() again, which is a no-op.
         leave_session()
     }
 }
 
 impl Drop for SessionGuard {
     fn drop(&mut self) {
-        if self.active {
-            let _ = leave_session();
-        }
+        let _ = leave_session();
     }
 }
+
+/// Whether the TUI session is currently entered. Makes [`leave_session`]
+/// idempotent: the panic hook and the unwinding [`SessionGuard`] may both
+/// call it, and restoring twice would pop the xterm title stack twice.
+static SESSION_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 /// Enter raw mode + the alternate screen with mouse capture, and save the
 /// terminal title. The returned guard undoes all of it.
@@ -138,14 +140,19 @@ pub fn enter_session() -> io::Result<SessionGuard> {
     enable_raw_mode()?;
     // Construct the guard before the remaining steps so a failure below still
     // turns raw mode back off.
-    let guard = SessionGuard { active: true };
+    SESSION_ACTIVE.store(true, Ordering::SeqCst);
+    let guard = SessionGuard(());
     execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
     super::title::save();
     Ok(guard)
 }
 
 /// Best-effort full terminal restore; every step runs even if one fails.
+/// Does nothing if the session isn't active (already left, or never entered).
 fn leave_session() -> io::Result<()> {
+    if !SESSION_ACTIVE.swap(false, Ordering::SeqCst) {
+        return Ok(());
+    }
     let raw = disable_raw_mode();
     let screen = execute!(
         io::stdout(),
@@ -164,12 +171,24 @@ fn leave_session() -> io::Result<()> {
 /// [`SessionGuard`]) run on panic — in any thread. Without this hook a panic
 /// leaves the shell in raw mode on the alternate screen, with the message
 /// printed where nobody can see it, and archive/remote mounts left behind.
+///
+/// The teardown only runs when the panic actually ends the session: always
+/// under `panic = "abort"`, but with unwinding (dev builds) only for the
+/// main thread. A panicking background worker there just drops its channel
+/// sender — the app reports "worker stopped unexpectedly" and keeps running,
+/// so tearing down the terminal and its mounts would break a live session.
 pub fn install_panic_hook() {
     let default_hook = std::panic::take_hook();
+    let main_thread = std::thread::current().id();
     std::panic::set_hook(Box::new(move |info| {
-        let _ = leave_session();
+        let fatal = cfg!(panic = "abort") || std::thread::current().id() == main_thread;
+        if fatal {
+            let _ = leave_session();
+        }
         default_hook(info);
-        super::cleanup::unmount_registered_on_crash();
+        if fatal {
+            super::cleanup::unmount_registered_on_crash();
+        }
     }));
 }
 
