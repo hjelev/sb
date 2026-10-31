@@ -107,6 +107,43 @@ pub fn detach_from_tty(cmd: &mut Command) {
     }
 }
 
+/// Signal dispositions are process-wide, so overlapping callers (e.g. from
+/// different threads) must not each save/restore independently: a caller
+/// restoring `SIG_DFL` while another child is still running would leave sb
+/// killable by that child's Ctrl+C. The first acquirer saves the previous
+/// handler and installs `SIG_IGN`; the last one to drop restores it.
+#[cfg(unix)]
+struct SigintIgnoreGuard;
+
+#[cfg(unix)]
+static SIGINT_IGNORE: std::sync::Mutex<(usize, libc::sighandler_t)> =
+    std::sync::Mutex::new((0, libc::SIG_DFL));
+
+#[cfg(unix)]
+impl SigintIgnoreGuard {
+    fn acquire() -> Self {
+        let mut state = SIGINT_IGNORE.lock().unwrap_or_else(|e| e.into_inner());
+        if state.0 == 0 {
+            state.1 = unsafe { libc::signal(libc::SIGINT, libc::SIG_IGN) };
+        }
+        state.0 += 1;
+        SigintIgnoreGuard
+    }
+}
+
+#[cfg(unix)]
+impl Drop for SigintIgnoreGuard {
+    fn drop(&mut self) {
+        let mut state = SIGINT_IGNORE.lock().unwrap_or_else(|e| e.into_inner());
+        state.0 -= 1;
+        if state.0 == 0 {
+            unsafe {
+                libc::signal(libc::SIGINT, state.1);
+            }
+        }
+    }
+}
+
 /// Run `cmd` to completion while this process ignores SIGINT, so a Ctrl+C
 /// aimed at a full-screen child (image slideshow, video playback) kills only
 /// the child and not sb, whose raw mode is suspended while the child runs.
@@ -123,12 +160,8 @@ pub fn status_ignoring_sigint(cmd: &mut Command) -> io::Result<std::process::Exi
                 Ok(())
             });
         }
-        let prev = unsafe { libc::signal(libc::SIGINT, libc::SIG_IGN) };
-        let result = cmd.status();
-        unsafe {
-            libc::signal(libc::SIGINT, prev);
-        }
-        result
+        let _guard = SigintIgnoreGuard::acquire();
+        cmd.status()
     }
     #[cfg(not(unix))]
     {
