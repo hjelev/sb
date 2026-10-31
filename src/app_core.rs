@@ -445,9 +445,15 @@ impl App {
             if let Err(e) = self.refresh_right_panel_entries() {
                 self.set_status(format!("refresh failed: {e}"));
             }
+            self.right.selected_index = 0;
+            self.right.table_state = TableState::default().with_selected(Some(0));
         } else {
             self.left.folder_filter = new_filter;
             self.refresh_entries_or_status();
+            // Park the cursor on the first match so leaving the box with
+            // Down lands there instead of wherever the cursor was before.
+            self.left.selected_index = 0;
+            self.left.table_state = TableState::default().with_selected(Some(0));
         }
     }
 

@@ -142,6 +142,10 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
             active_theme.bg_selected
         };
 
+    // While typing in the folder-filter box the list has no focus, so don't
+    // highlight a row; Down then visibly lands on the first match.
+    let hide_selection = app.mode == AppMode::FolderFilter && app.folder_filter_on_left();
+
     let rows: Vec<Row> = app
         .left
         .entry_render_cache
@@ -149,7 +153,7 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
         .enumerate()
         .map(|(idx, entry_cache)| {
             let is_marked = app.left.marked_indices.contains(&idx);
-            let is_selected = idx == app.left.selected_index;
+            let is_selected = !hide_selection && idx == app.left.selected_index;
             let pill_mode = use_main_pill;
             let pill_selected = is_selected && pill_mode;
             let (icon_style, name_style) =
@@ -436,7 +440,8 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
 
     // If the selected item is truncated, temporarily hide its metadata and
     // render its full name across the whole row width.
-    if let Some(selected_idx) = app.left.table_state.selected()
+    if !hide_selection
+        && let Some(selected_idx) = app.left.table_state.selected()
         && let Some(entry_cache) = app.left.entry_render_cache.get(selected_idx)
     {
         let tree_prefix = app
