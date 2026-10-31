@@ -435,6 +435,24 @@ pub(crate) enum InternalSearchCandidatesMsg {
 
 /// Loaded preview text, styled line kinds, and an optional footer, as cached
 /// per-path in [`crate::App`]'s preview cache.
+/// Cheap change detector for a previewed path: modification time + size.
+/// Editing a file (or adding/removing entries in a directory) changes it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct FileStamp {
+    pub modified: Option<std::time::SystemTime>,
+    pub len: u64,
+}
+
+impl FileStamp {
+    pub(crate) fn of(path: &std::path::Path) -> Option<Self> {
+        let meta = std::fs::metadata(path).ok()?;
+        Some(Self {
+            modified: meta.modified().ok(),
+            len: meta.len(),
+        })
+    }
+}
+
 pub(crate) type PreviewCacheEntry = (Vec<String>, Vec<PreviewLineKind>, Option<String>);
 
 pub(crate) enum PreviewContentMsg {

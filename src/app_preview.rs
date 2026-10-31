@@ -238,7 +238,9 @@ impl App {
             return;
         };
 
+        let stamp = crate::app_model::FileStamp::of(&path);
         if self.preview.target_path.as_ref() == Some(&path)
+            && self.preview.target_stamp == stamp
             && (self.preview.pending
                 || !self.preview.lines.is_empty()
                 || self.preview.image_rgb.is_some())
@@ -253,9 +255,12 @@ impl App {
         // on the pane size (timg / in-process scaling), not just the path.
         if !Self::is_image_file(&path)
             && !Self::is_video_file(&path)
-            && let Some(cached) = self.preview.cache.get(&path).cloned()
+            && let Some(stamp) = stamp
+            && let Some((cached_stamp, cached)) = self.preview.cache.get(&path).cloned()
+            && cached_stamp == stamp
         {
             self.preview.target_path = Some(path);
+            self.preview.target_stamp = Some(stamp);
             self.preview.lines = cached.0;
             self.preview.line_kinds = cached.1;
             self.preview.footer = cached.2;
@@ -267,6 +272,7 @@ impl App {
         self.preview.request_id = self.preview.request_id.saturating_add(1);
         let request_id = self.preview.request_id;
         self.preview.target_path = Some(path.clone());
+        self.preview.target_stamp = stamp;
         self.preview.pending = true;
         self.preview.scroll_offset = 0;
         self.preview.lines = vec!["Loading preview...".to_string()];
@@ -341,13 +347,17 @@ impl App {
             }) => {
                 if request_id == self.preview.request_id {
                     self.preview.target_path = Some(path.clone());
+                    // Cache under the stamp taken when the request was made: if
+                    // the file changed while building, the entry is already
+                    // stale and the next lookup rebuilds it.
                     if image_rgb.is_none()
                         && !Self::is_image_file(&path)
                         && !Self::is_video_file(&path)
+                        && let Some(stamp) = self.preview.target_stamp
                     {
                         self.preview.cache.insert(
                             path.clone(),
-                            (lines.clone(), line_kinds.clone(), footer.clone()),
+                            (stamp, (lines.clone(), line_kinds.clone(), footer.clone())),
                         );
                     }
                     self.preview.lines = lines;

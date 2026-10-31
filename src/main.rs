@@ -265,13 +265,17 @@ struct NotesState {
 struct PreviewState {
     scroll_offset: usize,
     target_path: Option<PathBuf>,
+    /// File stamp of `target_path` when its preview was requested; a mismatch
+    /// with the file's current stamp means it changed on disk and the preview
+    /// must be rebuilt.
+    target_stamp: Option<crate::app_model::FileStamp>,
     lines: Vec<String>,
     line_kinds: Vec<PreviewLineKind>,
     footer: Option<String>,
     rx: Option<Receiver<PreviewContentMsg>>,
     request_id: u64,
     pending: bool,
-    cache: HashMap<PathBuf, PreviewCacheEntry>,
+    cache: HashMap<PathBuf, (crate::app_model::FileStamp, PreviewCacheEntry)>,
     native_area: Option<Rect>,
     native_last_key: Option<String>,
     image_rgb: Option<(Vec<u8>, u32, u32)>,
