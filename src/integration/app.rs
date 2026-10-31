@@ -1,5 +1,4 @@
 use std::{
-    env,
     io::{self, Write},
     path::PathBuf,
     process::Command,
@@ -34,7 +33,7 @@ impl App {
         #[cfg(target_os = "linux")]
         {
             candidates.push(PathBuf::from("/home/linuxbrew/.linuxbrew/bin/brew"));
-            if let Ok(home) = env::var("HOME") {
+            if let Ok(home) = std::env::var("HOME") {
                 candidates.push(PathBuf::from(home).join(".linuxbrew/bin/brew"));
             }
         }

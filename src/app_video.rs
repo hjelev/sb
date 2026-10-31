@@ -296,7 +296,7 @@ impl App {
 
         let mut master: libc::c_int = 0;
         let mut slave: libc::c_int = 0;
-        let winsize = libc::winsize {
+        let mut winsize = libc::winsize {
             ws_row: rows,
             ws_col: cols,
             ws_xpixel: xpixel,
@@ -307,8 +307,10 @@ impl App {
                 &mut master,
                 &mut slave,
                 std::ptr::null_mut(),
-                std::ptr::null(),
-                &winsize,
+                // macOS declares termp/winp as *mut, Linux as *const;
+                // *mut coerces to both.
+                std::ptr::null_mut(),
+                &raw mut winsize,
             ) == 0
         };
         if !ok {
