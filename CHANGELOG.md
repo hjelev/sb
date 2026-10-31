@@ -7,10 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-31
+
+### Added
+- Terminal tab/window title shows `📂 sb: <dir>` and updates as you navigate; the previous title is saved and restored on exit (`SB_TITLE_ICON` changes the glyph, `SB_TERM_TITLE=0` disables it)
+
+### Changed
+- AI commit messages: models are stored per provider, requests retry on a 404 model error, and the max token limit is raised
+- Preview cache is invalidated when a file's size or modification time changes, so edited files no longer show stale previews
+- Clearer error messages, e.g. a missing viewer now says whether the command is not on `PATH` or the absolute path does not exist
+- Large internal rework of error handling, image rendering errors, viewer launching and session cleanup
+
+### Fixed
+- `Ctrl+C` inside an external viewer (`less`, `bat`, `glow`, `links`, ...) no longer kills sb
+- Terminal state, title and archive mounts are restored exactly once on exit or panic, and a panic in a background worker no longer tears down the session
+- The last-directory file for shell integration is written even if leaving the TUI session reports an error
+
+## [0.11] - 2026-07-19
+
+### Added
+- New integrations: `diffnav` (file-tree diff navigator for the `G` git diff preview), `xleak` (`.xlsx`/`.xls`/`.ods` spreadsheets), `doxx` (`.docx` documents) and `timg` (image/video preview, preferred when installed)
+- Video playback in the preview pane via `timg` (kitty graphics protocol)
+- Integration-backed previews now render in the preview pane as well as on `Enter`: Markdown (`glow`), Mermaid (`mmdflux`), HTML (`links`), PDF (`pdftotext`), SQLite (`sqlite3`), hex (`hexyl`) and audio tag info (`soxi`)
+
+### Fixed
+- Mermaid previews (`mmdflux`) no longer hang the app on terminal queries
+
+## [0.10] - 2026-07-18
+
+### Added
+- Yazi-style Lua plugin system: drop `<name>.lua` or `<name>/main.lua` into `~/.config/sb/plugins/`; plugins can register commands, previewers and hooks, run background jobs with `sb.spawn`, and prompt with `sb.confirm`/`sb.input`
+- **Plugins** panel (`P`) to run, enable/disable and bind keys to plugins (persisted as `plugin_key_<name>` / `disabled_plugins`); `;` then `:<name>` runs a plugin by name
+- `Ctrl+G` runs a plugin named `git-commit`; ready-to-copy examples in `examples/plugins/` (`git-commit`, `touch-notify`, `linecount`, `cdlog`, `duh`)
+
+### Fixed
+- Kitty graphics commands send `q=2` so terminal acknowledgements no longer leak in as stray key presses
+
+### Changed
+- Internal code structure improvements
+
+## [0.9] - 2026-07-04
+
 ### Added
 - Custom keyboard shortcuts: a new **Shortcuts** panel tab lists all 42 rebindable browsing commands grouped by category — press `Enter` on a command to capture a new key, `Backspace` to reset it to the default; reserved structural keys (arrows, Enter, Esc, Tab, Space, etc.) and combos already used by another command are rejected with a warning; overrides persist as `shortcut_<id> = <combo>` in `~/.config/sb/config`, and the Help tab plus the footer pills automatically show the custom bindings
-- AI-generated commit messages: press `Ctrl+G` in the commit prompt (`G`) to draft a one-line message from the working-tree diff (Groq or GitHub Models), with a new Settings panel to configure provider/model/API key (live key validation), persisted to `~/.config/sb/config`
+- AI-generated commit messages: press `Ctrl+G` in the commit prompt (`G`) to draft a one-line message from the working-tree diff (Groq or GitHub Models), with a new Settings panel to configure provider/model/API key (live key validation), persisted to `~/.config/sb/config`; per-provider API keys and an optional auto-commit mode
+- AI folder organization (`Ctrl+O`): propose grouping the current folder's files into new or existing subfolders, review the plan, then confirm before anything moves
 - Four new colorful bundled theme skins: Synthwave, Coral Reef, Cyberpunk Neon, and Bubblegum Pop
+
+### Changed
+- Improved theme handling
 
 ## [0.8] - 2026-06-25
 
@@ -170,7 +215,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Keyboard-driven file manager with no runtime config files
 - CI setup with `cargo-dist`
 
-[Unreleased]: https://github.com/hjelev/sb/compare/v0.8.3...HEAD
+[Unreleased]: https://github.com/hjelev/sb/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/hjelev/sb/compare/v0.11.1...v0.12.0
+[0.11]: https://github.com/hjelev/sb/compare/v0.10.3...v0.11.1
+[0.10]: https://github.com/hjelev/sb/compare/v0.9.1...v0.10.3
+[0.9]: https://github.com/hjelev/sb/compare/v0.8.3...v0.9.1
 [0.8]: https://github.com/hjelev/sb/compare/v0.7.6...v0.8.3
 [0.7]: https://github.com/hjelev/sb/compare/v0.6.14...v0.7.6
 [0.6]: https://github.com/hjelev/sb/compare/v0.5.19...v0.6.14
