@@ -3,27 +3,30 @@
 use crate::*;
 
 impl App {
-    pub(crate) fn open_path_in_editor_cli(path: &PathBuf) -> io::Result<()> {
+    /// `sb -e FILE`: open `path` in an editor on the plain terminal and
+    /// return its exit code.
+    pub(crate) fn open_path_in_editor_cli(path: &PathBuf) -> io::Result<i32> {
+        use crate::util::command::run_cli;
         // Check if file is binary and use appropriate editor
         if Self::is_binary_file(path) {
             // Try hexedit first (interactive binary editor)
             if Self::integration_probe("hexedit").0 {
-                Command::new("hexedit").arg(path).status()?;
-                return Ok(());
+                return Ok(run_cli(Command::new("hexedit").arg(path)));
             }
             // Fall back to hexyl with less paging if hexedit is not available
             if Self::integration_probe("hexyl").0 {
                 let mut cmd = Command::new("hexyl");
                 cmd.arg(path);
-                let _ = crate::util::command::pipe_to_pager(cmd);
-                return Ok(());
+                return Ok(if crate::util::command::pipe_to_pager(cmd) {
+                    0
+                } else {
+                    1
+                });
             }
         }
 
         // For text files or if no binary editors available, use regular editor
-        let editor = crate::util::command::editor_command();
-        Command::new(editor).arg(path).status()?;
-        Ok(())
+        Ok(run_cli(crate::util::command::editor().arg(path)))
     }
 
     pub(crate) fn new() -> io::Result<Self> {
@@ -384,8 +387,8 @@ impl App {
                 self.folder_filter_visible = false;
             }
             self.right.dir = target;
-            if self.refresh_right_panel_entries().is_err() {
-                self.set_status("refresh failed");
+            if let Err(e) = self.refresh_right_panel_entries() {
+                self.set_status(format!("refresh failed: {e}"));
             }
         } else {
             self.try_enter_dir(target);
@@ -439,8 +442,8 @@ impl App {
         };
         if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
             self.right.folder_filter = new_filter;
-            if self.refresh_right_panel_entries().is_err() {
-                self.set_status("refresh failed");
+            if let Err(e) = self.refresh_right_panel_entries() {
+                self.set_status(format!("refresh failed: {e}"));
             }
         } else {
             self.left.folder_filter = new_filter;
@@ -454,10 +457,8 @@ impl App {
         self.clear_input_edit();
         self.mode = AppMode::Browsing;
         if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
-            if self.right.folder_filter.take().is_some()
-                && self.refresh_right_panel_entries().is_err()
-            {
-                self.set_status("refresh failed");
+            if self.right.folder_filter.take().is_some() {
+                self.refresh_right_panel_or_report();
             }
         } else if self.left.folder_filter.take().is_some() {
             self.refresh_entries_or_status();
@@ -721,8 +722,8 @@ impl App {
         self.mode = AppMode::Browsing;
         self.clear_input_edit();
         if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
-            if self.refresh_right_panel_entries().is_err() {
-                self.set_status("refresh failed");
+            if let Err(e) = self.refresh_right_panel_entries() {
+                self.set_status(format!("refresh failed: {e}"));
                 return;
             }
             if let Some(name) = last_created
@@ -988,8 +989,8 @@ impl App {
         }
         self.mode = AppMode::Browsing;
         if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
-            if self.refresh_right_panel_entries().is_err() {
-                self.set_status("refresh failed");
+            if let Err(e) = self.refresh_right_panel_entries() {
+                self.set_status(format!("refresh failed: {e}"));
             }
         } else {
             self.refresh_entries_or_status();

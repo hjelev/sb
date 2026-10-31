@@ -195,7 +195,7 @@ pub(crate) fn run_plugin_entry(
                         let edited = {
                             let _tui = tui::suspend_showing_cursor(ResumeMode::Plain)?;
                             crate::util::command::run_interactive(
-                                Command::new(crate::util::command::editor_command()).arg(&path),
+                                crate::util::command::editor().arg(&path),
                             )
                         };
                         terminal.clear()?;
@@ -206,11 +206,14 @@ pub(crate) fn run_plugin_entry(
                     }
                     PluginEffect::ViewPath(path) => {
                         let path = app.resolve_plugin_path(path);
-                        {
+                        let code = {
                             let _tui = tui::suspend(ResumeMode::Plain)?;
-                            App::open_path_in_view_mode(&path, true)?;
-                        }
+                            App::open_path_in_view_mode(&path, true)?
+                        };
                         terminal.clear()?;
+                        if code != 0 {
+                            app.set_status(format!("viewer exited with status {code}"));
+                        }
                     }
                     _ => {}
                 }
@@ -1027,7 +1030,7 @@ fn handle_edit_key(
                 {
                     Command::new("hexedit")
                 } else {
-                    Command::new(crate::util::command::editor_command())
+                    crate::util::command::editor()
                 };
                 crate::util::command::run_interactive(cmd.arg(&path))
             };

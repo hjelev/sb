@@ -12,7 +12,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::mpsc;
 
-use crate::app_ai::{post_chat_completions, provider_by_key};
+use crate::app_ai::{AiError, post_chat_completions, provider_by_key};
 use crate::util::background::{pump_once, spawn_worker};
 use crate::{App, AppMode, OrganizeMove, OrganizePlan, OrganizePlanMsg};
 
@@ -90,13 +90,12 @@ fn is_safe_segment(s: &str) -> bool {
 fn parse_organize_plan(
     value: &serde_json::Value,
     valid_names: &HashSet<String>,
-) -> Result<OrganizePlan, String> {
+) -> Result<OrganizePlan, AiError> {
     let content = value["choices"][0]["message"]["content"]
         .as_str()
-        .ok_or_else(|| "AI response missing message content".to_string())?;
+        .ok_or(AiError::MissingContent)?;
     let json_str = strip_json_fence(content);
-    let raw: serde_json::Value = serde_json::from_str(json_str)
-        .map_err(|e| format!("AI returned invalid plan JSON: {}", e))?;
+    let raw: serde_json::Value = serde_json::from_str(json_str).map_err(AiError::InvalidPlan)?;
 
     let folders: Vec<String> = raw["folders"]
         .as_array()
@@ -127,7 +126,7 @@ fn parse_organize_plan(
         .unwrap_or_default();
 
     if moves.is_empty() {
-        return Err("AI proposed no changes".to_string());
+        return Err(AiError::NoChanges);
     }
 
     // Only keep folders that are actually referenced by a surviving move, plus
@@ -155,7 +154,7 @@ fn generate_organize_plan(
     entries: &[(String, bool)],
     existing_folders: &[String],
     valid_names: &HashSet<String>,
-) -> Result<OrganizePlan, String> {
+) -> Result<OrganizePlan, AiError> {
     let body = build_organize_request_body(model, entries, existing_folders);
     let value = post_chat_completions(endpoint, api_key, body)?;
     parse_organize_plan(&value, valid_names)
@@ -239,7 +238,7 @@ impl App {
             );
             let _ = tx.send(match result {
                 Ok(plan) => OrganizePlanMsg::Ok(plan),
-                Err(err) => OrganizePlanMsg::Err(err),
+                Err(err) => OrganizePlanMsg::Err(err.to_string()),
             });
         }));
     }

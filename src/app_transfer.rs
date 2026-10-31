@@ -258,22 +258,23 @@ impl App {
             return Ok(());
         };
 
-        let Ok(tmp) = Self::create_temp_selection_path("sbrs_clipboard_edit") else {
-            self.set_status("failed to create temporary clipboard file");
-            return Ok(());
+        let tmp = match Self::create_temp_selection_path("sbrs_clipboard_edit") {
+            Ok(tmp) => tmp,
+            Err(e) => {
+                self.set_status(format!("failed to create temporary clipboard file: {e}"));
+                return Ok(());
+            }
         };
-        if fs::write(&tmp, clipboard_text.as_bytes()).is_err() {
+        if let Err(e) = fs::write(&tmp, clipboard_text.as_bytes()) {
             let _ = fs::remove_file(&tmp);
-            self.set_status("failed to create temporary clipboard file");
+            self.set_status(format!("failed to create temporary clipboard file: {e}"));
             return Ok(());
         }
 
         let edit_result = {
             let _tui = tui::suspend_showing_cursor(ResumeMode::Plain)?;
-            crate::util::command::run_interactive(
-                Command::new(crate::util::command::editor_command()).arg(&tmp),
-            )
-            .map(|()| fs::read_to_string(&tmp))
+            crate::util::command::run_interactive(crate::util::command::editor().arg(&tmp))
+                .map(|()| fs::read_to_string(&tmp))
         };
 
         let _ = fs::remove_file(&tmp);

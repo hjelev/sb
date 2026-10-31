@@ -544,7 +544,7 @@ fn main() -> io::Result<()> {
         {
             let target = PathBuf::from(path);
             if target.is_file() {
-                return App::open_path_in_view_mode(&target, true);
+                return exit_with(App::open_path_in_view_mode(&target, true));
             }
         }
         return ui::cli::list_current_directory(
@@ -558,13 +558,13 @@ fn main() -> io::Result<()> {
     if let Some((mode, path)) = ui::cli::parse_direct_file_mode_args(&args) {
         let target = PathBuf::from(path);
         if target.is_file() {
-            return match mode {
+            return exit_with(match mode {
                 ui::cli::DirectFileMode::ViewNoPager => App::open_path_in_view_mode(&target, false),
                 ui::cli::DirectFileMode::ViewWithPager => {
                     App::open_path_in_view_mode(&target, true)
                 }
                 ui::cli::DirectFileMode::Edit => App::open_path_in_editor_cli(&target),
-            };
+            });
         } else if target.is_dir() && matches!(mode, ui::cli::DirectFileMode::Edit) {
             // If -e is used with a directory, open the TUI file manager in that directory
             let _ = env::set_current_dir(&target);
@@ -617,6 +617,15 @@ fn main() -> io::Result<()> {
         }
     }
     result
+}
+
+/// Finish a CLI mode that ran an external viewer/editor, exiting with its
+/// exit code when it failed so scripts can tell (`sb -e notes.md || ...`).
+fn exit_with(code: io::Result<i32>) -> io::Result<()> {
+    match code? {
+        0 => Ok(()),
+        code => std::process::exit(code),
+    }
 }
 
 /// Exit-time cleanup that must run whether the event loop ended normally or

@@ -44,9 +44,12 @@ impl App {
             return true;
         }
 
-        let Ok(mount_path) = self.create_archive_mount_path() else {
-            self.set_status("failed to create archive mount directory");
-            return false;
+        let mount_path = match self.create_archive_mount_path() {
+            Ok(path) => path,
+            Err(e) => {
+                self.set_status(format!("failed to create archive mount directory: {e}"));
+                return false;
+            }
         };
 
         match Command::new(tool)
@@ -67,9 +70,13 @@ impl App {
                 self.try_enter_dir_on_active_panel(mount_path);
                 true
             }
-            _ => {
+            other => {
                 let _ = safe_cleanup_path(&mount_path);
-                self.set_status(format!("failed to mount archive with {}", tool));
+                let reason = match other {
+                    Ok(status) => format!("exited with {status}"),
+                    Err(e) => e.to_string(),
+                };
+                self.set_status(format!("failed to mount archive with {tool}: {reason}"));
                 false
             }
         }

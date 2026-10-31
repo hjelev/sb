@@ -311,9 +311,12 @@ impl App {
     }
 
     pub(crate) fn preview_age_file(&mut self, input: &PathBuf) -> io::Result<bool> {
-        let Ok((tmp_dir, tmp_path)) = Self::age_temp_decrypt_paths(input, "preview") else {
-            self.set_status("failed to prepare temporary file");
-            return Ok(false);
+        let (tmp_dir, tmp_path) = match Self::age_temp_decrypt_paths(input, "preview") {
+            Ok(paths) => paths,
+            Err(e) => {
+                self.set_status(format!("failed to prepare temporary file: {e}"));
+                return Ok(false);
+            }
         };
 
         let _tui = tui::suspend(ResumeMode::Cleared)?;
@@ -432,9 +435,12 @@ impl App {
     }
 
     pub(crate) fn edit_age_file(&mut self, input: &PathBuf) -> io::Result<bool> {
-        let Ok((tmp_dir, tmp_path)) = Self::age_temp_decrypt_paths(input, "edit") else {
-            self.set_status("failed to prepare temporary file");
-            return Ok(false);
+        let (tmp_dir, tmp_path) = match Self::age_temp_decrypt_paths(input, "edit") {
+            Ok(paths) => paths,
+            Err(e) => {
+                self.set_status(format!("failed to prepare temporary file: {e}"));
+                return Ok(false);
+            }
         };
 
         let _tui = tui::suspend_showing_cursor(ResumeMode::Plain)?;
@@ -450,8 +456,8 @@ impl App {
             return Ok(false);
         }
 
-        let editor = crate::util::command::editor_command();
-        let edited = crate::util::command::run_interactive(Command::new(editor).arg(&tmp_path));
+        let edited =
+            crate::util::command::run_interactive(crate::util::command::editor().arg(&tmp_path));
 
         let result = Self::age_encrypt_file_interactive(&tmp_path, input);
         drop(_tui);

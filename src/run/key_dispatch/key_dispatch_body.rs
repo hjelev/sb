@@ -340,7 +340,7 @@ pub(crate) fn handle_app_key_event_body(
                 {
                     let _tui = tui::suspend_showing_cursor(ResumeMode::Plain)?;
                     if let Err(msg) = crate::util::command::run_interactive(
-                        Command::new(crate::util::command::editor_command()).arg(&config_path),
+                        crate::util::command::editor().arg(&config_path),
                     ) {
                         app.set_status(msg);
                     }

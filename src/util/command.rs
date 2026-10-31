@@ -226,6 +226,86 @@ pub fn editor_command() -> String {
     std::env::var("EDITOR").unwrap_or_else(|_| "nano".to_string())
 }
 
+/// A `Command` that launches `$EDITOR`. Like git, the variable may carry
+/// arguments (`EDITOR="code -w"`, `EDITOR="nvim -u NONE"`); a bare
+/// `Command::new("code -w")` would look for a binary literally named that.
+pub fn editor() -> Command {
+    let mut words = editor_argv().into_iter();
+    let mut cmd = Command::new(words.next().unwrap_or_else(|| "nano".to_string()));
+    cmd.args(words);
+    cmd
+}
+
+/// Program name of `$EDITOR` (its first word), for PATH probing.
+pub fn editor_program() -> String {
+    editor_argv()
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| "nano".to_string())
+}
+
+fn editor_argv() -> Vec<String> {
+    let raw = editor_command();
+    split_shell_words(&raw).unwrap_or_else(|| vec![raw])
+}
+
+/// Minimal POSIX-ish word splitting: whitespace separates words, single
+/// quotes are literal, double quotes allow `\"`/`\\` escapes, and a bare
+/// backslash escapes the next char. Returns `None` on an unterminated quote.
+fn split_shell_words(s: &str) -> Option<Vec<String>> {
+    let mut words = Vec::new();
+    let mut cur = String::new();
+    let mut in_word = false;
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            c if c.is_whitespace() => {
+                if in_word {
+                    words.push(std::mem::take(&mut cur));
+                    in_word = false;
+                }
+            }
+            '\'' => {
+                in_word = true;
+                loop {
+                    match chars.next()? {
+                        '\'' => break,
+                        c => cur.push(c),
+                    }
+                }
+            }
+            '"' => {
+                in_word = true;
+                loop {
+                    match chars.next()? {
+                        '"' => break,
+                        '\\' => match chars.next()? {
+                            c @ ('"' | '\\' | '$' | '`') => cur.push(c),
+                            c => {
+                                cur.push('\\');
+                                cur.push(c);
+                            }
+                        },
+                        c => cur.push(c),
+                    }
+                }
+            }
+            '\\' => {
+                in_word = true;
+                cur.push(chars.next()?);
+            }
+            c => {
+                in_word = true;
+                cur.push(c);
+            }
+        }
+    }
+    if in_word {
+        words.push(cur);
+    }
+    Some(words)
+}
+
 /// Run an interactive program (viewer, pager, editor) to completion on the
 /// inherited terminal.
 ///
@@ -233,12 +313,52 @@ pub fn editor_command() -> String {
 /// returned as a short message for the status line instead: missing binary,
 /// spawn error, or non-zero exit.
 pub fn run_interactive(cmd: &mut Command) -> Result<(), String> {
-    let tool = Path::new(cmd.get_program())
+    let tool = program_name(cmd);
+    describe_exit(&tool, cmd.status())
+}
+
+/// Run `cmd` on the inherited terminal for the non-TUI CLI modes (`sb FILE`,
+/// `sb -l FILE`, `sb -e FILE`) and return a shell-style exit code for sb to
+/// exit with.
+/// Launch failures are reported on stderr the way shells do: 127 when the
+/// program isn't found, 126 for other spawn errors.
+pub fn run_cli(cmd: &mut Command) -> i32 {
+    let tool = program_name(cmd);
+    cli_exit_code(&tool, cmd.status())
+}
+
+pub fn cli_exit_code(tool: &str, status: io::Result<std::process::ExitStatus>) -> i32 {
+    match status {
+        Ok(s) => exit_status_code(s),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            eprintln!("sb: {tool}: command not found");
+            127
+        }
+        Err(e) => {
+            eprintln!("sb: {tool}: {e}");
+            126
+        }
+    }
+}
+
+/// The exit code a shell would report: the code itself, or 128+signal.
+fn exit_status_code(status: std::process::ExitStatus) -> i32 {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(sig) = status.signal() {
+            return 128 + sig;
+        }
+    }
+    status.code().unwrap_or(1)
+}
+
+fn program_name(cmd: &Command) -> String {
+    Path::new(cmd.get_program())
         .file_name()
         .unwrap_or(cmd.get_program())
         .to_string_lossy()
-        .into_owned();
-    describe_exit(&tool, cmd.status())
+        .into_owned()
 }
 
 fn describe_exit(tool: &str, status: io::Result<std::process::ExitStatus>) -> Result<(), String> {
@@ -333,7 +453,7 @@ impl CommandBuilder {
             }
         }
 
-        Err(io::Error::other(format!("Failed to unmount {}", path_str)))
+        Err(io::Error::other(format!("failed to unmount {}", path_str)))
     }
 
     /// Append the `wget`/`curl` arguments that download `url` to `output_path`,
@@ -504,6 +624,20 @@ mod timeout_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn split_shell_words_handles_args_and_quotes() {
+        let w = |s: &str| split_shell_words(s).unwrap();
+        assert_eq!(w("nano"), ["nano"]);
+        assert_eq!(w("  code   -w "), ["code", "-w"]);
+        assert_eq!(w("nvim -u 'my init.lua'"), ["nvim", "-u", "my init.lua"]);
+        assert_eq!(
+            w(r#""/opt/My Editor/ed" --wait"#),
+            ["/opt/My Editor/ed", "--wait"]
+        );
+        assert_eq!(w(r"/opt/My\ Editor/ed"), ["/opt/My Editor/ed"]);
+        assert_eq!(split_shell_words("vim 'oops"), None);
+    }
 
     #[test]
     fn run_interactive_reports_missing_binary() {

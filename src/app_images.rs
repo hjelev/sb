@@ -26,6 +26,24 @@ use ratatui::{
 use crate::util::tui::{self, ResumeMode};
 use crate::{App, integration::probe::TerminalImageProtocol};
 
+/// Failure while rendering a full-screen image preview. `Display` is the
+/// reason shown after "image preview failed: ".
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum ImageError {
+    #[error("no images to preview")]
+    NoImages,
+    #[error("SVG could not be rendered with resvg")]
+    SvgRender,
+    #[error("unsupported protocol")]
+    UnsupportedProtocol,
+    #[error("sixel encode error: {0}")]
+    Sixel(String),
+    #[error(transparent)]
+    Decode(#[from] image::ImageError),
+    #[error(transparent)]
+    Io(#[from] io::Error),
+}
+
 /// Kitty Graphics Protocol image IDs for the app's two independent, concurrently
 /// visible native-protocol overlays. Distinct IDs let each be cleared with
 /// `clear_kitty_pane_image` without deleting the other's placement.
@@ -91,10 +109,9 @@ impl App {
             .collect()
     }
 
-    fn renderable_image_path(path: &PathBuf) -> Result<PathBuf, String> {
+    fn renderable_image_path(path: &PathBuf) -> Result<PathBuf, ImageError> {
         if Self::is_svg_file(path) {
-            return Self::svg_to_temp_png(path)
-                .ok_or_else(|| "SVG could not be rendered with resvg".to_string());
+            return Self::svg_to_temp_png(path).ok_or(ImageError::SvgRender);
         }
         Ok(path.clone())
     }
@@ -205,34 +222,31 @@ impl App {
     fn render_halfblock_fullscreen_slideshow(
         images: &[PathBuf],
         start_idx: usize,
-    ) -> Result<usize, String> {
+    ) -> Result<usize, ImageError> {
         if images.is_empty() {
-            return Err("no images to preview".to_string());
+            return Err(ImageError::NoImages);
         }
 
-        enable_raw_mode().map_err(|e| e.to_string())?;
-        let run_result = (|| -> Result<usize, String> {
+        enable_raw_mode()?;
+        let run_result = (|| -> Result<usize, ImageError> {
             let mut idx = start_idx.min(images.len() - 1);
 
             loop {
-                execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))
-                    .map_err(|e| e.to_string())?;
+                execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
 
-                let (tw, th) = crossterm::terminal::size().map_err(|e| e.to_string())?;
+                let (tw, th) = crossterm::terminal::size()?;
                 let image_rows = th.saturating_sub(1).max(1);
                 let render_path = Self::renderable_image_path(&images[idx])?;
 
                 if let Some((rgb, iw, ih)) = Self::decode_image_to_rgb_scaled(&render_path) {
-                    Self::draw_halfblock_terminal(&rgb, iw, ih, tw, image_rows)
-                        .map_err(|e| e.to_string())?;
+                    Self::draw_halfblock_terminal(&rgb, iw, ih, tw, image_rows)?;
                 } else {
                     execute!(
                         io::stdout(),
                         MoveTo(0, 0),
                         ResetColor,
                         Print("[image could not be decoded]")
-                    )
-                    .map_err(|e| e.to_string())?;
+                    )?;
                 }
 
                 let help_row = th.saturating_sub(1);
@@ -245,14 +259,12 @@ impl App {
                         idx + 1,
                         images.len()
                     ))
-                )
-                .map_err(|e| e.to_string())?;
-                io::stdout().flush().map_err(|e| e.to_string())?;
+                )?;
+                io::stdout().flush()?;
 
                 let key = loop {
-                    if event::poll(std::time::Duration::from_millis(120))
-                        .map_err(|e| e.to_string())?
-                        && let Event::Key(k) = event::read().map_err(|e| e.to_string())?
+                    if event::poll(std::time::Duration::from_millis(120))?
+                        && let Event::Key(k) = event::read()?
                     {
                         break k;
                     }
@@ -706,18 +718,17 @@ impl App {
         images: &[PathBuf],
         start_idx: usize,
         protocol: TerminalImageProtocol,
-    ) -> Result<usize, String> {
+    ) -> Result<usize, ImageError> {
         if images.is_empty() {
-            return Err("no images to preview".to_string());
+            return Err(ImageError::NoImages);
         }
 
-        enable_raw_mode().map_err(|e| e.to_string())?;
-        let run_result = (|| -> Result<usize, String> {
+        enable_raw_mode()?;
+        let run_result = (|| -> Result<usize, ImageError> {
             let mut idx = start_idx.min(images.len() - 1);
 
             loop {
-                execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))
-                    .map_err(|e| e.to_string())?;
+                execute!(io::stdout(), TermClear(ClearType::All), MoveTo(0, 0))?;
                 let render_path = Self::renderable_image_path(&images[idx])?;
                 Self::emit_native_image_protocol(&render_path, protocol, 2400)?;
 
@@ -727,12 +738,11 @@ impl App {
                     idx + 1,
                     images.len()
                 );
-                io::stdout().flush().map_err(|e| e.to_string())?;
+                io::stdout().flush()?;
 
                 let key = loop {
-                    if event::poll(std::time::Duration::from_millis(120))
-                        .map_err(|e| e.to_string())?
-                        && let Event::Key(k) = event::read().map_err(|e| e.to_string())?
+                    if event::poll(std::time::Duration::from_millis(120))?
+                        && let Event::Key(k) = event::read()?
                     {
                         break k;
                     }
@@ -768,32 +778,37 @@ impl App {
         path: &PathBuf,
         protocol: TerminalImageProtocol,
         max_edge: u32,
-    ) -> Result<(), String> {
+    ) -> Result<(), ImageError> {
         match protocol {
             TerminalImageProtocol::Kitty => Self::emit_kitty(path, max_edge),
             TerminalImageProtocol::Iterm2Inline => Self::emit_iterm2(path, max_edge),
             TerminalImageProtocol::Sixel => Self::emit_sixel(path, max_edge),
-            TerminalImageProtocol::Unsupported => Err("unsupported protocol".to_string()),
+            TerminalImageProtocol::Unsupported => Err(ImageError::UnsupportedProtocol),
         }
     }
 
-    fn decode_to_png_bytes(path: &PathBuf, max_edge: u32) -> Result<(Vec<u8>, u32, u32), String> {
-        let reader = ImageReader::open(path).map_err(|e| e.to_string())?;
-        let mut img = reader.decode().map_err(|e| e.to_string())?;
+    fn decode_to_png_bytes(
+        path: &PathBuf,
+        max_edge: u32,
+    ) -> Result<(Vec<u8>, u32, u32), ImageError> {
+        let reader = ImageReader::open(path)?;
+        let mut img = reader.decode()?;
         let (w, h) = img.dimensions();
         if w > max_edge || h > max_edge {
             img = img.resize(max_edge, max_edge, FilterType::Triangle);
         }
         let (sw, sh) = img.dimensions();
         let mut buf = Cursor::new(Vec::new());
-        img.write_to(&mut buf, ImageFormat::Png)
-            .map_err(|e| e.to_string())?;
+        img.write_to(&mut buf, ImageFormat::Png)?;
         Ok((buf.into_inner(), sw, sh))
     }
 
-    fn decode_to_rgb_bytes(path: &PathBuf, max_edge: u32) -> Result<(Vec<u8>, u32, u32), String> {
-        let reader = ImageReader::open(path).map_err(|e| e.to_string())?;
-        let mut img = reader.decode().map_err(|e| e.to_string())?;
+    fn decode_to_rgb_bytes(
+        path: &PathBuf,
+        max_edge: u32,
+    ) -> Result<(Vec<u8>, u32, u32), ImageError> {
+        let reader = ImageReader::open(path)?;
+        let mut img = reader.decode()?;
         let (w, h) = img.dimensions();
         if w > max_edge || h > max_edge {
             img = img.resize(max_edge, max_edge, FilterType::Triangle);
@@ -803,7 +818,7 @@ impl App {
         Ok((rgb.into_raw(), sw, sh))
     }
 
-    fn emit_kitty(path: &PathBuf, max_edge: u32) -> Result<(), String> {
+    fn emit_kitty(path: &PathBuf, max_edge: u32) -> Result<(), ImageError> {
         let (png_data, w, h) = Self::decode_to_png_bytes(path, max_edge)?;
         let payload = BASE64_STANDARD.encode(&png_data);
 
@@ -828,23 +843,21 @@ impl App {
                     h,
                     more,
                     std::str::from_utf8(chunk).unwrap_or("")
-                )
-                .map_err(|e| e.to_string())?;
+                )?;
             } else {
                 write!(
                     out,
                     "\x1b_Gm={};{}\x1b\\",
                     more,
                     std::str::from_utf8(chunk).unwrap_or("")
-                )
-                .map_err(|e| e.to_string())?;
+                )?;
             }
             offset = end;
         }
-        out.flush().map_err(|e| e.to_string())
+        Ok(out.flush()?)
     }
 
-    fn emit_iterm2(path: &PathBuf, max_edge: u32) -> Result<(), String> {
+    fn emit_iterm2(path: &PathBuf, max_edge: u32) -> Result<(), ImageError> {
         let (png_data, _, _) = Self::decode_to_png_bytes(path, max_edge)?;
         let payload = BASE64_STANDARD.encode(&png_data);
         let mut out = io::stdout();
@@ -852,12 +865,11 @@ impl App {
             out,
             "\x1b]1337;File=inline=1;preserveAspectRatio=1;width=auto;height=auto:{}\x07",
             payload
-        )
-        .map_err(|e| e.to_string())?;
-        out.flush().map_err(|e| e.to_string())
+        )?;
+        Ok(out.flush()?)
     }
 
-    fn emit_sixel(path: &PathBuf, max_edge: u32) -> Result<(), String> {
+    fn emit_sixel(path: &PathBuf, max_edge: u32) -> Result<(), ImageError> {
         let (rgb, w, h) = Self::decode_to_rgb_bytes(path, max_edge)?;
 
         let mut rgba: Vec<u8> = Vec::with_capacity((w as usize) * (h as usize) * 4);
@@ -869,15 +881,14 @@ impl App {
         }
 
         let image = icy_sixel::SixelImage::try_from_rgba(rgba, w as usize, h as usize)
-            .map_err(|e| format!("sixel image error: {}", e))?;
+            .map_err(|e| ImageError::Sixel(e.to_string()))?;
         let sixel_out = image
             .encode()
-            .map_err(|e| format!("sixel encode error: {}", e))?;
+            .map_err(|e| ImageError::Sixel(e.to_string()))?;
 
         let mut out = io::stdout();
-        out.write_all(sixel_out.as_bytes())
-            .map_err(|e| e.to_string())?;
-        out.flush().map_err(|e| e.to_string())
+        out.write_all(sixel_out.as_bytes())?;
+        Ok(out.flush()?)
     }
 
     pub(crate) fn preview_images_with_timg(&mut self, start_path: PathBuf) -> io::Result<()> {

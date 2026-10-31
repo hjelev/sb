@@ -81,9 +81,7 @@ impl App {
             }
             PluginEffect::RefreshDir => {
                 if self.is_dual_panel_mode() && self.active_panel == DualPanelSide::Right {
-                    if self.refresh_right_panel_entries().is_err() {
-                        self.set_status("refresh failed");
-                    }
+                    self.refresh_right_panel_or_report();
                 } else {
                     self.refresh_entries_or_status();
                 }

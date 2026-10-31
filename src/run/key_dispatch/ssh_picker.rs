@@ -45,8 +45,8 @@ pub(crate) fn handle_ssh_picker_key(
                                 app.mount_ssh_host(&host)
                             };
                             terminal.clear()?;
-                            if result.is_err() {
-                                app.set_status(format!("Failed to mount {}", alias));
+                            if let Err(e) = result {
+                                app.set_status(format!("failed to mount {alias}: {e}"));
                                 app.mode = AppMode::Browsing;
                             }
                         }
@@ -63,8 +63,10 @@ pub(crate) fn handle_ssh_picker_key(
                                 app.mount_rclone_remote(&name, &rtype)
                             };
                             terminal.clear()?;
-                            if result.is_err() {
-                                app.set_status(format!("Failed to mount rclone remote {}", name));
+                            if let Err(e) = result {
+                                app.set_status(format!(
+                                    "failed to mount rclone remote {name}: {e}"
+                                ));
                                 app.mode = AppMode::Browsing;
                             }
                         }

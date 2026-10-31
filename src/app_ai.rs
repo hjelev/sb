@@ -89,12 +89,36 @@ pub(crate) fn truncate_diff(diff: &str) -> String {
     out
 }
 
+/// Failure of an AI (chat-completions) request, shared with
+/// [`crate::app_organize`]. `Display` is the status-line message.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum AiError {
+    /// Network/TLS/timeout — the request never got an HTTP response.
+    #[error("AI request failed: {0}")]
+    Transport(#[source] Box<ureq::Error>),
+    /// The API answered with a non-2xx status.
+    #[error("AI API error {status}: {detail}")]
+    Api { status: u16, detail: String },
+    #[error("invalid AI response: {0}")]
+    InvalidResponse(#[source] std::io::Error),
+    #[error("AI response missing message content")]
+    MissingContent,
+    #[error("AI ran out of tokens before answering (reasoning model?)")]
+    OutOfTokens,
+    #[error("AI returned an empty message")]
+    EmptyMessage,
+    #[error("AI returned invalid plan JSON: {0}")]
+    InvalidPlan(#[source] serde_json::Error),
+    #[error("AI proposed no changes")]
+    NoChanges,
+}
+
 /// Validate an API key with a tiny authenticated request, classifying the
 /// outcome by HTTP status. A 401/403 is a clear rejection; any other status
 /// (success, bad model, rate limit, …) still means the credentials were
 /// accepted. Transport errors are reported separately so they don't masquerade
 /// as a rejected key.
-fn check_api_key(endpoint: &str, api_key: &str, model: &str) -> Result<bool, String> {
+fn check_api_key(endpoint: &str, api_key: &str, model: &str) -> Result<bool, AiError> {
     let body = serde_json::json!({
         "model": model,
         "messages": [{ "role": "user", "content": "ping" }],
@@ -109,7 +133,7 @@ fn check_api_key(endpoint: &str, api_key: &str, model: &str) -> Result<bool, Str
         Ok(_) => Ok(true),
         Err(ureq::Error::Status(401, _)) | Err(ureq::Error::Status(403, _)) => Ok(false),
         Err(ureq::Error::Status(_, _)) => Ok(true),
-        Err(e) => Err(format!("key check failed: {}", e)),
+        Err(e) => Err(AiError::Transport(Box::new(e))),
     }
 }
 
@@ -137,10 +161,10 @@ fn build_request_body(model: &str, diff: &str) -> serde_json::Value {
 }
 
 /// Extract the assistant message content from a chat-completions response.
-fn parse_commit_message(value: &serde_json::Value) -> Result<String, String> {
+fn parse_commit_message(value: &serde_json::Value) -> Result<String, AiError> {
     let content = value["choices"][0]["message"]["content"]
         .as_str()
-        .ok_or_else(|| "AI response missing message content".to_string())?;
+        .ok_or(AiError::MissingContent)?;
     let msg = content
         .trim()
         .lines()
@@ -152,9 +176,9 @@ fn parse_commit_message(value: &serde_json::Value) -> Result<String, String> {
         .to_string();
     if msg.is_empty() {
         if value["choices"][0]["finish_reason"].as_str() == Some("length") {
-            return Err("AI ran out of tokens before answering (reasoning model?)".to_string());
+            return Err(AiError::OutOfTokens);
         }
-        Err("AI returned an empty message".to_string())
+        Err(AiError::EmptyMessage)
     } else {
         Ok(msg)
     }
@@ -167,26 +191,24 @@ pub(crate) fn post_chat_completions(
     endpoint: &str,
     api_key: &str,
     body: serde_json::Value,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, AiError> {
     match ureq::post(endpoint)
         .timeout(REQUEST_TIMEOUT)
         .set("Authorization", &format!("Bearer {}", api_key))
         .set("Content-Type", "application/json")
         .send_json(body)
     {
-        Ok(resp) => resp
-            .into_json()
-            .map_err(|e| format!("invalid AI response: {}", e)),
-        Err(ureq::Error::Status(code, resp)) => {
+        Ok(resp) => resp.into_json().map_err(AiError::InvalidResponse),
+        Err(ureq::Error::Status(status, resp)) => {
             let detail: String = resp
                 .into_string()
                 .unwrap_or_default()
                 .chars()
                 .take(200)
                 .collect();
-            Err(format!("AI API error {}: {}", code, detail))
+            Err(AiError::Api { status, detail })
         }
-        Err(e) => Err(format!("AI request failed: {}", e)),
+        Err(e) => Err(AiError::Transport(Box::new(e))),
     }
 }
 
@@ -197,13 +219,12 @@ fn generate_commit_message(
     model: &str,
     default_model: &str,
     diff: &str,
-) -> Result<String, String> {
+) -> Result<String, AiError> {
     let mut result = post_chat_completions(endpoint, api_key, build_request_body(model, diff));
     // A custom model that no longer exists comes back as a 404; retry once
     // with the provider default so generation keeps working.
     if model != default_model
-        && let Err(e) = &result
-        && e.starts_with("AI API error 404")
+        && let Err(AiError::Api { status: 404, .. }) = &result
     {
         result = post_chat_completions(endpoint, api_key, build_request_body(default_model, diff));
     }
@@ -269,7 +290,7 @@ impl App {
                 generate_commit_message(&endpoint, &api_key, &model, &default_model, &diff);
             let _ = tx.send(match result {
                 Ok(msg) => AiCommitMsg::Ok(msg),
-                Err(err) => AiCommitMsg::Err(err),
+                Err(err) => AiCommitMsg::Err(err.to_string()),
             });
         }));
     }
@@ -400,7 +421,10 @@ impl App {
         self.ai.key_check_rx = Some(spawn_worker(move |tx| {
             let msg = match check_api_key(&endpoint, &key, &model) {
                 Ok(valid) => AiKeyCheckMsg::Result { key, valid },
-                Err(message) => AiKeyCheckMsg::Error { key, message },
+                Err(err) => AiKeyCheckMsg::Error {
+                    key,
+                    message: format!("key check failed: {err}"),
+                },
             };
             let _ = tx.send(msg);
         }));
@@ -498,6 +522,19 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ai_error_messages_are_status_line_ready() {
+        let e = AiError::Api {
+            status: 404,
+            detail: "model not found".into(),
+        };
+        assert_eq!(e.to_string(), "AI API error 404: model not found");
+        assert_eq!(
+            AiError::MissingContent.to_string(),
+            "AI response missing message content"
+        );
+    }
 
     #[test]
     fn truncate_diff_passes_small_diffs_through() {

@@ -2,7 +2,6 @@ use std::{
     collections::{HashMap, HashSet},
     env, fs, io,
     path::{Path, PathBuf},
-    process::Command,
 };
 
 use crate::util::background::{drain_channel, spawn_worker};
@@ -308,10 +307,9 @@ impl App {
             return Ok(());
         }
 
-        let editor = crate::util::command::editor_command();
         let edited = {
             let _tui = tui::suspend_showing_cursor(ResumeMode::Plain)?;
-            crate::util::command::run_interactive(Command::new(editor).arg(&todo_path))
+            crate::util::command::run_interactive(crate::util::command::editor().arg(&todo_path))
         };
         self.refresh_entries_or_status();
         match edited {
