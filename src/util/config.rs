@@ -208,6 +208,9 @@ pub struct SbPersistConfig {
     pub shortcuts: std::collections::HashMap<String, String>,
     /// Plugin names the user has explicitly disabled.
     pub disabled_plugins: Vec<String>,
+    /// Bundled plugins already copied into the plugins dir once. Tracked so a
+    /// plugin the user deletes is not re-seeded on the next start.
+    pub seeded_plugins: Vec<String>,
     /// Key bindings for plugin commands (plugin name → combo string, stored
     /// as `plugin_key_<name> = <combo>`). Combo syntax matches shortcuts.
     pub plugin_bindings: std::collections::HashMap<String, String>,
@@ -232,10 +235,20 @@ impl Default for SbPersistConfig {
             ai_auto_commit: false,
             shortcuts: std::collections::HashMap::new(),
             disabled_plugins: Vec::new(),
+            seeded_plugins: Vec::new(),
             plugin_bindings: std::collections::HashMap::new(),
             unknown: std::collections::HashMap::new(),
         }
     }
+}
+
+/// Splits a comma-separated config value into trimmed, non-empty items.
+fn split_list(val: &str) -> Vec<String> {
+    val.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .collect()
 }
 
 impl SbPersistConfig {
@@ -320,12 +333,10 @@ impl SbPersistConfig {
                         }
                     }
                     "disabled_plugins" => {
-                        cfg.disabled_plugins = val
-                            .split(',')
-                            .map(str::trim)
-                            .filter(|s| !s.is_empty())
-                            .map(String::from)
-                            .collect();
+                        cfg.disabled_plugins = split_list(val);
+                    }
+                    "seeded_plugins" => {
+                        cfg.seeded_plugins = split_list(val);
                     }
                     k if k.starts_with("plugin_key_") => {
                         let name = &k["plugin_key_".len()..];
@@ -424,6 +435,12 @@ impl SbPersistConfig {
             lines.push(format!(
                 "disabled_plugins = {}",
                 self.disabled_plugins.join(",")
+            ));
+        }
+        if !self.seeded_plugins.is_empty() {
+            lines.push(format!(
+                "seeded_plugins = {}",
+                self.seeded_plugins.join(",")
             ));
         }
         let mut sorted_plugin_bindings: Vec<(&String, &String)> =

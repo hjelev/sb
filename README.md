@@ -404,6 +404,8 @@ Effects are applied after the Lua call returns (a plugin cannot observe its own 
 
 Ready-to-copy samples live in [`examples/plugins/`](examples/plugins): `touch-notify` (command), `linecount` (previewer), `cdlog` (hooks + data dir), `duh` (background `sb.spawn`), and `git-commit` (`sb.confirm`/`sb.input` + a shelled-out git workflow).
 
+These samples are built into the binary and copied into `~/.config/sb/plugins/` the first time sb starts, whether you installed it with Homebrew, `cargo install` or the shell installer. `cdlog` and `linecount` start out disabled because they act on their own (logging every `cd`, taking over `.txt`/`.log` previews); turn them on in the Plugins panel (`P`). Each sample is copied only once, so a plugin you delete stays deleted, and a file you already have with the same name is never overwritten.
+
 </details>
 
 <details>

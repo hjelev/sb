@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Bundle the example Lua plugins into the binary and copy them to `~/.config/sb/plugins/` on first start, so Homebrew and `cargo install` users get them too (`cdlog` and `linecount` start disabled)
+
 ## [0.12.2] - 2026-10-31
 
 ### Fixed

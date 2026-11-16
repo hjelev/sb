@@ -170,7 +170,7 @@ impl App {
         app.request_notes_for_right_panel_once();
         app.request_git_info_for_current_dir_once();
         // Restore persisted view mode from ~/.config/sb/config
-        let persist = util::config::SbPersistConfig::load();
+        let mut persist = util::config::SbPersistConfig::load();
         match persist.view_mode.as_str() {
             "Preview" => app.cycle_view_mode(),
             "DualPanel" => {
@@ -222,7 +222,11 @@ impl App {
         }
         // Load Lua plugins and fire their on_start hooks. Load/hook errors
         // are recorded per-plugin and surfaced in the Plugins panel.
-        let sources = plugin::discovery::discover(&plugin::discovery::plugins_dir());
+        let plugins_dir = plugin::discovery::plugins_dir();
+        if plugin::discovery::seed_bundled_plugins(&plugins_dir, &mut persist) {
+            let _ = persist.save();
+        }
+        let sources = plugin::discovery::discover(&plugins_dir);
         if !sources.is_empty() {
             app.plugins = plugin::runtime::PluginRuntime::init(
                 sources,

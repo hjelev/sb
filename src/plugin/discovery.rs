@@ -3,10 +3,68 @@
 use std::path::{Path, PathBuf};
 
 use super::PluginSource;
+use crate::util::config::SbPersistConfig;
 
 /// The default plugins directory: `~/.config/sb/plugins`.
 pub(crate) fn plugins_dir() -> PathBuf {
     crate::util::config::config_dir().join("plugins")
+}
+
+/// Example plugins shipped inside the binary, so installs that only deliver
+/// the executable (cargo, Homebrew, the shell installer) still get them.
+/// Seeded into [`plugins_dir`] once per plugin by [`seed_bundled_plugins`].
+const BUNDLED_PLUGINS: &[(&str, &str)] = &[
+    ("cdlog", include_str!("../../examples/plugins/cdlog.lua")),
+    ("duh", include_str!("../../examples/plugins/duh.lua")),
+    (
+        "git-commit",
+        include_str!("../../examples/plugins/git-commit.lua"),
+    ),
+    (
+        "linecount",
+        include_str!("../../examples/plugins/linecount.lua"),
+    ),
+    (
+        "touch-notify",
+        include_str!("../../examples/plugins/touch-notify.lua"),
+    ),
+];
+
+/// Bundled plugins that change behavior just by being loaded (event hooks
+/// that write files, a previewer that takes over `.txt`/`.log`). They are
+/// seeded disabled; the user opts in from the Plugins panel (`P`). The rest
+/// only expose `entry()` commands and do nothing until invoked.
+const SEED_DISABLED: &[&str] = &["cdlog", "linecount"];
+
+/// Copies each bundled plugin into `dir` as `<name>.lua` unless it was seeded
+/// before (recorded in `cfg.seeded_plugins`, so a deleted plugin stays
+/// deleted) or a plugin of that name already exists in either form. Returns
+/// true when `cfg` changed and should be saved.
+pub(crate) fn seed_bundled_plugins(dir: &Path, cfg: &mut SbPersistConfig) -> bool {
+    let pending: Vec<&(&str, &str)> = BUNDLED_PLUGINS
+        .iter()
+        .filter(|(name, _)| !cfg.seeded_plugins.iter().any(|s| s == name))
+        .collect();
+    if pending.is_empty() || std::fs::create_dir_all(dir).is_err() {
+        return false;
+    }
+    let mut changed = false;
+    for (name, content) in pending {
+        let flat = dir.join(format!("{name}.lua"));
+        let exists = flat.exists() || dir.join(name).join("main.lua").exists();
+        if !exists {
+            if std::fs::write(&flat, content).is_err() {
+                // Leave it unrecorded so the next start retries.
+                continue;
+            }
+            if SEED_DISABLED.contains(name) && !cfg.disabled_plugins.iter().any(|d| d == name) {
+                cfg.disabled_plugins.push(name.to_string());
+            }
+        }
+        cfg.seeded_plugins.push(name.to_string());
+        changed = true;
+    }
+    changed
 }
 
 /// Per-plugin state directory (`~/.config/sb/plugin-data/<name>`), exposed to
@@ -67,6 +125,33 @@ fn valid_name(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn seeds_bundled_plugins_once_and_respects_deletions() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("plugins");
+        // A user-authored plugin with a bundled name must not be overwritten.
+        std::fs::create_dir_all(dir.join("duh")).unwrap();
+        std::fs::write(dir.join("duh/main.lua"), "-- mine").unwrap();
+
+        let mut cfg = SbPersistConfig::default();
+        assert!(seed_bundled_plugins(&dir, &mut cfg));
+        for (name, _) in BUNDLED_PLUGINS {
+            assert!(cfg.seeded_plugins.iter().any(|s| s == name), "{name}");
+        }
+        assert!(!dir.join("duh.lua").exists());
+        assert!(dir.join("git-commit.lua").is_file());
+        assert_eq!(cfg.disabled_plugins, vec!["cdlog", "linecount"]);
+
+        // Second run is a no-op, and a deleted plugin is not restored.
+        std::fs::remove_file(dir.join("touch-notify.lua")).unwrap();
+        assert!(!seed_bundled_plugins(&dir, &mut cfg));
+        assert!(!dir.join("touch-notify.lua").exists());
+
+        // All seeded plugins load without errors.
+        let names: Vec<String> = discover(&dir).into_iter().map(|p| p.name).collect();
+        assert!(names.contains(&"git-commit".to_string()));
+    }
 
     #[test]
     fn discovers_flat_and_dir_forms_sorted() {
