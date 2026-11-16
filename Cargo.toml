@@ -6,13 +6,11 @@ edition = "2024"
 rust-version = "1.88"
 description = "Shell Buddy (sb)"
 repository = "https://github.com/hjelev/sb"
-homepage = "https://github.com/hjelev/sb"
 keywords = ["terminal", "file-manager", "tui", "preview", "images"]
 categories = ["command-line-utilities", "filesystem"]
 license = "MIT"
 
 [dependencies]
-clap = { version = "4.6.0", features = ["derive"] }
 ratatui = "0.29"
 crossterm = "0.28"
 chrono = "0.4"

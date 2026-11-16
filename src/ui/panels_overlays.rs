@@ -1689,3 +1689,44 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod help_layout_tests {
+    use ratatui::{Terminal, backend::TestBackend, layout::Rect};
+
+    /// The native-protocol logo is placed assuming each help `Line` occupies
+    /// exactly one row; the title must land on the row the logo rect targets
+    /// (inner top + 1), i.e. blank lines must not render as two rows.
+    #[test]
+    fn help_title_row_matches_logo_row() {
+        let mut t = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        let km = crate::util::keymap::KeyMap::default();
+        let mut zones = Vec::new();
+        let anchor = Rect::new(10, 3, 100, 31);
+        t.draw(|f| {
+            super::render_help_overlay(
+                f,
+                anchor,
+                0,
+                crate::ui::theme::THEMES[0].id,
+                0,
+                true,
+                &km,
+                &mut zones,
+            );
+        })
+        .unwrap();
+        let buf = t.backend().buffer().clone();
+        let row_text = |y: u16| -> String {
+            (anchor.x..anchor.x + anchor.width)
+                .map(|x| buf[(x, y)].symbol().to_string())
+                .collect()
+        };
+        // Border at anchor.y, blank line at +1, title at +2.
+        assert!(
+            row_text(anchor.y + 2).contains("Shell Buddy"),
+            "title row: {:?}",
+            row_text(anchor.y + 2)
+        );
+    }
+}

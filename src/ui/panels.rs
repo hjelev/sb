@@ -175,6 +175,12 @@ pub(crate) fn indent_lines<'a>(lines: &[Line<'a>]) -> Vec<Line<'a>> {
     lines
         .iter()
         .map(|line| {
+            // Leave blank lines empty: ratatui's word wrapper (`trim: false`)
+            // renders a whitespace-only line as two rows, which desyncs the
+            // one-row-per-`Line` math (help logo placement, scroll bounds).
+            if line.width() == 0 {
+                return line.clone();
+            }
             let mut spans: Vec<Span> = Vec::with_capacity(line.spans.len() + 1);
             spans.push(Span::raw(" "));
             spans.extend(line.spans.iter().cloned());

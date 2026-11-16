@@ -65,13 +65,17 @@ pub(crate) fn run_tui_body(
         // deferred until playback stops (any keypress stops it).
         let video_playing = app.pane_video_is_playing();
         let should_draw = (app.needs_redraw || clock_changed || had_async_work) && !video_playing;
+        // Cells ratatui just drew under the on-screen help logo. When the logo
+        // has to go away (sixel/iTerm2 have no delete command), these are
+        // repainted over it instead of clearing the whole screen (which blinks).
+        let mut logo_under_cells: Option<Vec<(u16, u16, ratatui::buffer::Cell)>> = None;
         if should_draw {
             if text_input_cursor {
                 execute!(terminal.backend_mut(), SetCursorStyle::BlinkingBar)?;
             } else {
                 execute!(terminal.backend_mut(), SetCursorStyle::DefaultUserShape)?;
             }
-            terminal.draw(|f| {
+            let completed = terminal.draw(|f| {
                 // Footer pill hit-zones are rebuilt every frame. Overlay footers
                 // append during render_overlays and the main footer appends in
                 // render_footer, so clear once here before any of them run.
@@ -121,6 +125,16 @@ pub(crate) fn run_tui_body(
                 render_overlays(f, app, &ctx);
                 render_footer(f, app, &ctx);
             })?;
+            if let Some(area) = app.help.logo_native_last_area {
+                let buf = &completed.buffer;
+                let area = area.intersection(buf.area);
+                logo_under_cells = Some(
+                    area.rows()
+                        .flat_map(|row| row.columns())
+                        .map(|p| (p.x, p.y, buf[(p.x, p.y)].clone()))
+                        .collect(),
+                );
+            }
             app.needs_redraw = false;
         }
 
@@ -265,9 +279,7 @@ pub(crate) fn run_tui_body(
                     }
                     crate::integration::probe::TerminalImageProtocol::Iterm2Inline
                     | crate::integration::probe::TerminalImageProtocol::Sixel => {
-                        if let Some(area) = app.help.logo_native_last_area {
-                            let _ = App::clear_preview_pane_area(area);
-                        }
+                        erase_help_logo(terminal, app, logo_under_cells.take())?;
                     }
                     _ => {}
                 }
@@ -283,9 +295,7 @@ pub(crate) fn run_tui_body(
                 }
                 crate::integration::probe::TerminalImageProtocol::Iterm2Inline
                 | crate::integration::probe::TerminalImageProtocol::Sixel => {
-                    if let Some(area) = app.help.logo_native_last_area {
-                        let _ = App::clear_preview_pane_area(area);
-                    }
+                    erase_help_logo(terminal, app, logo_under_cells.take())?;
                 }
                 _ => {}
             }
@@ -372,5 +382,33 @@ pub(crate) fn run_tui_body(
 
     app.discard_pane_video();
 
+    Ok(())
+}
+
+/// Remove a sixel/iTerm2 help logo from the screen. Those protocols have no
+/// delete command, so the image is overwritten with the cells ratatui drew
+/// under it this frame — in sync with ratatui's back buffer, no full repaint.
+/// Without a fresh frame to copy from, fall back to blanking the area and
+/// forcing a full redraw (ratatui would otherwise never repaint those cells).
+fn erase_help_logo<B: ratatui::backend::Backend>(
+    terminal: &mut ratatui::Terminal<B>,
+    app: &mut App,
+    under: Option<Vec<(u16, u16, ratatui::buffer::Cell)>>,
+) -> std::io::Result<()> {
+    match under {
+        Some(cells) if !cells.is_empty() => {
+            let backend = terminal.backend_mut();
+            backend.draw(cells.iter().map(|(x, y, c)| (*x, *y, c)))?;
+            ratatui::backend::Backend::flush(backend)?;
+        }
+        _ => {
+            if let Some(area) = app.help.logo_native_last_area {
+                let _ = App::clear_preview_pane_area(area);
+                terminal.clear()?;
+                app.preview.native_last_key = None;
+                app.needs_redraw = true;
+            }
+        }
+    }
     Ok(())
 }
