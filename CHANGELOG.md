@@ -7,8 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.3] - 2026-11-17
+
 ### Added
 - Bundle the example Lua plugins into the binary and copy them to `~/.config/sb/plugins/` on first start, so Homebrew and `cargo install` users get them too (`cdlog` and `linecount` start disabled)
+- "Hide notes" toggle in the View tab hides per-file notes in the file list (persisted as `hide_notes` in `~/.config/sb/config`)
+
+### Changed
+- Tabbed overlay reorganized into Search, Bookmarks, Remote Mounts, View (Themes + Sorting), Settings, Extensions (Plugins + Integrations), Shortcuts and Help; `Tab`/`Shift+Tab` cycle tabs and `Left`/`Right` switch between screens inside a grouped tab
+- Theme panel toggles (Nerd Fonts, Filename colors, Disable clock, Hide notes) are navigated with `Up`/`Down` above the theme list
+- Folder filter resets the selection to the first match and hides the highlight while typing
+
+### Fixed
+- Closing help no longer blinks the screen on sixel/iTerm2 terminals: the logo area is repainted from the last frame instead of clearing the whole terminal
+
+### Removed
+- Unused `clap` dependency
 
 ## [0.12.2] - 2026-10-31
 
@@ -231,7 +245,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Keyboard-driven file manager with no runtime config files
 - CI setup with `cargo-dist`
 
-[Unreleased]: https://github.com/hjelev/sb/compare/v0.12.2...HEAD
+[Unreleased]: https://github.com/hjelev/sb/compare/v0.12.3...HEAD
+[0.12.3]: https://github.com/hjelev/sb/compare/v0.12.2...v0.12.3
 [0.12.2]: https://github.com/hjelev/sb/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/hjelev/sb/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/hjelev/sb/compare/v0.11.1...v0.12.0
