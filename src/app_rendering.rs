@@ -108,6 +108,14 @@ impl App {
         });
     }
 
+    /// Flip "hide notes" (per-file `.sb` notes in the file list) and persist it.
+    /// Notes stay loaded, so turning them back on shows them immediately.
+    pub(crate) fn toggle_hide_notes(&mut self) {
+        self.hide_notes = !self.hide_notes;
+        let v = self.hide_notes;
+        let _ = crate::util::config::SbPersistConfig::update(|cfg| cfg.hide_notes = v);
+    }
+
     /// Cycle the filename-color mode (Full → Less → White), re-render the file
     /// list, and persist the choice to `~/.config/sb/config`.
     pub(crate) fn cycle_filename_color_mode(&mut self) {

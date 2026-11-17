@@ -172,6 +172,7 @@ pub fn render_integrations_overlay(
         ("Space", "toggle"),
         ("Enter", "install missing"),
         ("/", "search"),
+        ("←→", "plugins"),
         ("Tab", "switch tabs"),
         ("Esc", "close"),
     ];
@@ -825,6 +826,7 @@ pub fn render_sort_overlay(
     let footer_entries: &[(&'static str, &'static str)] = &[
         ("↑↓", "navigate"),
         ("Enter", "apply"),
+        ("←→", "themes"),
         ("Tab", "switch tabs"),
         ("Esc", "close"),
     ];
@@ -1299,6 +1301,7 @@ pub fn render_plugins_overlay(
         ("Space", "on/off"),
         ("b", "bind key"),
         ("Bksp", "unbind"),
+        ("←→", "integrations"),
         ("Esc", "close"),
     ];
     f.render_widget(
@@ -1316,13 +1319,21 @@ pub fn render_plugins_overlay(
     ));
 }
 
+/// Toggle rows shown above the theme list, in focus order. Indices are what
+/// `ThemePanelState::toggle_focus` stores (and what Enter dispatches on).
+pub const THEME_TOGGLES: &[&str] = &[
+    "Nerd Fonts",
+    "Filename colors",
+    "Disable clock",
+    "Hide notes",
+];
+
 pub struct ThemesOverlayState {
     pub selected: usize,
-    pub nerd_focus: bool,
+    pub toggle_focus: Option<usize>,
     pub color_mode: crate::FilenameColorMode,
-    pub color_focus: bool,
     pub disable_clock: bool,
-    pub clock_focus: bool,
+    pub hide_notes: bool,
 }
 
 pub fn render_themes_overlay(
@@ -1339,135 +1350,65 @@ pub fn render_themes_overlay(
     } = chrome;
     let ThemesOverlayState {
         selected,
-        nerd_focus,
+        toggle_focus,
         color_mode,
-        color_focus,
         disable_clock,
-        clock_focus,
+        hide_notes,
     } = state;
     let current = theme_spec(theme_id);
     let theme_w = tab_overlay_anchor.width;
     let theme_content_w = theme_w.saturating_sub(2) as usize;
     let theme_row_inner_w = theme_content_w.saturating_sub(2);
-    const NERD_LABEL: &str = "Nerd Fonts";
-    const COLOR_LABEL: &str = "Filename colors";
-    const CLOCK_LABEL: &str = "Disable clock";
-    // Width of the name column = longest theme name (display width), so the
-    // checkboxes line up regardless of how long custom skin names are.
+    // Width of the name column = longest theme name / toggle label (display
+    // width), so the checkboxes line up regardless of custom skin names.
     let name_col_w = themes()
         .iter()
         .map(|t| UnicodeWidthStr::width(t.name))
+        .chain(THEME_TOGGLES.iter().map(|l| UnicodeWidthStr::width(*l)))
         .max()
         .unwrap_or(0)
-        .max(8)
-        .max(UnicodeWidthStr::width(NERD_LABEL))
-        .max(UnicodeWidthStr::width(COLOR_LABEL))
-        .max(UnicodeWidthStr::width(CLOCK_LABEL));
+        .max(8);
 
-    // Top toggle row: enable/disable Nerd Font glyphs (persisted to config).
-    let nerd_base_style = if nerd_focus {
-        Style::default()
-            .bg(current.bg_selected)
-            .fg(current.selected_fg)
-    } else {
-        Style::default().fg(current.text_normal)
-    };
-    let nerd_pad = name_col_w.saturating_sub(UnicodeWidthStr::width(NERD_LABEL));
-    let nerd_text = format!(
-        " {}{} {}",
-        NERD_LABEL,
-        " ".repeat(nerd_pad),
-        if nerd_font { "[x]" } else { "[ ]" }
-    );
-    let (nerd_left_cap, nerd_right_cap) = selector_edge_spans(nerd_focus, current, nerd_font);
-    let mut nerd_row = vec![
-        nerd_left_cap,
-        Span::styled(nerd_text.clone(), nerd_base_style),
+    let checkbox = |on: bool| if on { "[x]" } else { "[ ]" }.to_string();
+    let toggle_values = [
+        checkbox(nerd_font),
+        format!("[{}]", color_mode.label()),
+        checkbox(disable_clock),
+        checkbox(hide_notes),
     ];
-    if nerd_focus {
-        let used_w = UnicodeWidthStr::width(nerd_text.as_str());
-        if theme_row_inner_w > used_w {
-            nerd_row.push(Span::styled(
-                " ".repeat(theme_row_inner_w - used_w),
-                Style::default().bg(current.bg_selected),
-            ));
+
+    let mut lines: Vec<Line> = vec![Line::from("")];
+    // Toggle rows (all persisted to config); the focused one gets the
+    // full-width selection pill.
+    for (i, (label, value)) in THEME_TOGGLES.iter().zip(toggle_values.iter()).enumerate() {
+        let focused = toggle_focus == Some(i);
+        let base_style = if focused {
+            Style::default()
+                .bg(current.bg_selected)
+                .fg(current.selected_fg)
+        } else {
+            Style::default().fg(current.text_normal)
+        };
+        let pad = name_col_w.saturating_sub(UnicodeWidthStr::width(*label));
+        let text = format!(" {}{} {}", label, " ".repeat(pad), value);
+        let (left_cap, right_cap) = selector_edge_spans(focused, current, nerd_font);
+        let mut row = vec![left_cap, Span::styled(text.clone(), base_style)];
+        if focused {
+            let used_w = UnicodeWidthStr::width(text.as_str());
+            if theme_row_inner_w > used_w {
+                row.push(Span::styled(
+                    " ".repeat(theme_row_inner_w - used_w),
+                    Style::default().bg(current.bg_selected),
+                ));
+            }
         }
+        row.push(right_cap);
+        lines.push(Line::from(row));
     }
-    nerd_row.push(nerd_right_cap);
-
-    // Second toggle row: filename-color mode (Full / Less / White), persisted.
-    let color_base_style = if color_focus {
-        Style::default()
-            .bg(current.bg_selected)
-            .fg(current.selected_fg)
-    } else {
-        Style::default().fg(current.text_normal)
-    };
-    let color_pad = name_col_w.saturating_sub(UnicodeWidthStr::width(COLOR_LABEL));
-    let color_text = format!(
-        " {}{} [{}]",
-        COLOR_LABEL,
-        " ".repeat(color_pad),
-        color_mode.label()
-    );
-    let (color_left_cap, color_right_cap) = selector_edge_spans(color_focus, current, nerd_font);
-    let mut color_row = vec![
-        color_left_cap,
-        Span::styled(color_text.clone(), color_base_style),
-    ];
-    if color_focus {
-        let used_w = UnicodeWidthStr::width(color_text.as_str());
-        if theme_row_inner_w > used_w {
-            color_row.push(Span::styled(
-                " ".repeat(theme_row_inner_w - used_w),
-                Style::default().bg(current.bg_selected),
-            ));
-        }
-    }
-    color_row.push(color_right_cap);
-
-    // Third toggle row: disable the header clock (show the disk-usage pill
-    // instead), persisted to config.
-    let clock_base_style = if clock_focus {
-        Style::default()
-            .bg(current.bg_selected)
-            .fg(current.selected_fg)
-    } else {
-        Style::default().fg(current.text_normal)
-    };
-    let clock_pad = name_col_w.saturating_sub(UnicodeWidthStr::width(CLOCK_LABEL));
-    let clock_text = format!(
-        " {}{} {}",
-        CLOCK_LABEL,
-        " ".repeat(clock_pad),
-        if disable_clock { "[x]" } else { "[ ]" }
-    );
-    let (clock_left_cap, clock_right_cap) = selector_edge_spans(clock_focus, current, nerd_font);
-    let mut clock_row = vec![
-        clock_left_cap,
-        Span::styled(clock_text.clone(), clock_base_style),
-    ];
-    if clock_focus {
-        let used_w = UnicodeWidthStr::width(clock_text.as_str());
-        if theme_row_inner_w > used_w {
-            clock_row.push(Span::styled(
-                " ".repeat(theme_row_inner_w - used_w),
-                Style::default().bg(current.bg_selected),
-            ));
-        }
-    }
-    clock_row.push(clock_right_cap);
-
-    let mut lines: Vec<Line> = vec![
-        Line::from(""),
-        Line::from(nerd_row),
-        Line::from(color_row),
-        Line::from(clock_row),
-        Line::from(""),
-    ];
-    // When a checkbox row holds focus, the theme list shows no cursor highlight
-    // (so the selection fully moves to the checkbox, not duplicated in the list).
-    let theme_list_focus = !nerd_focus && !color_focus && !clock_focus;
+    lines.push(Line::from(""));
+    // When a toggle row holds focus, the theme list shows no cursor highlight
+    // (so the selection fully moves to the toggle, not duplicated in the list).
+    let theme_list_focus = toggle_focus.is_none();
     for (idx, theme) in themes().iter().enumerate() {
         let is_selected = theme_list_focus && idx == selected;
         let is_applied = theme.id == theme_id;
@@ -1539,14 +1480,9 @@ pub fn render_themes_overlay(
     // than the available height; draw a scrollbar on the right edge if it overflows.
     let total_lines = lines.len();
     let content_h = theme_chunks[0].height as usize;
-    let cursor_line = if nerd_focus {
-        1
-    } else if color_focus {
-        2
-    } else if clock_focus {
-        3
-    } else {
-        5 + selected
+    let cursor_line = match toggle_focus {
+        Some(i) => 1 + i,
+        None => THEME_TOGGLES.len() + 2 + selected,
     };
     let max_offset = total_lines.saturating_sub(content_h);
     let offset = if cursor_line >= content_h {
@@ -1573,6 +1509,7 @@ pub fn render_themes_overlay(
     let footer_entries: &[(&'static str, &'static str)] = &[
         ("↑↓", "select"),
         ("Enter/Space", "apply/toggle"),
+        ("←→", "sorting"),
         ("Esc", "close"),
     ];
     f.render_widget(
@@ -1591,24 +1528,41 @@ mod tests {
     use super::*;
     use crossterm::event::{KeyCode, KeyModifiers};
 
+    // Screen ids (what `App::panel_tab` stores) used by these tests.
+    const SEARCH: u8 = 1;
+    const SORTING: u8 = 4;
+    const INTEGRATIONS: u8 = 5;
+    const THEMES: u8 = 6;
+    const PLUGINS: u8 = 9;
+    const HELP: u8 = 0;
+
     // Full padded width of all tabs plus single-column separators between them.
-    fn full_width() -> usize {
-        (0..PANEL_TABS.len()).map(tab_label_width).sum::<usize>() + PANEL_TABS.len() - 1
+    fn full_width(active: u8) -> usize {
+        (0..PANEL_TABS.len())
+            .map(|i| tab_label_width(i, active))
+            .sum::<usize>()
+            + PANEL_TABS.len()
+            - 1
     }
 
     #[test]
     fn window_shows_all_tabs_when_space_is_ample() {
         let last = PANEL_TABS.len() - 1;
-        let avail = full_width();
-        assert_eq!(visible_tab_window(3, avail), (0, last, false, false));
-        assert_eq!(visible_tab_window(0, avail + 50), (0, last, false, false));
+        assert_eq!(
+            visible_tab_window(THEMES, full_width(THEMES)),
+            (0, last, false, false)
+        );
+        assert_eq!(
+            visible_tab_window(SEARCH, full_width(SEARCH) + 50),
+            (0, last, false, false)
+        );
     }
 
     #[test]
     fn window_keeps_active_visible_and_flags_hidden_edges() {
         let last = PANEL_TABS.len() - 1;
-        // Narrow bar: active at the far right must stay in view.
-        let (lo, hi, more_left, more_right) = visible_tab_window(last as u8 as usize, 30);
+        // Narrow bar: active at the far right (Help) must stay in view.
+        let (lo, hi, more_left, more_right) = visible_tab_window(HELP, 30);
         assert!(
             lo <= last && hi == last,
             "active {last} must be visible: {lo}..={hi}"
@@ -1616,8 +1570,8 @@ mod tests {
         assert!(more_left, "tabs are hidden to the left");
         assert!(!more_right, "nothing hidden past the last tab");
 
-        // Active at the far left.
-        let (lo, hi, more_left, more_right) = visible_tab_window(0, 30);
+        // Active at the far left (Search).
+        let (lo, hi, more_left, more_right) = visible_tab_window(SEARCH, 30);
         assert_eq!(lo, 0);
         assert!(hi < last);
         assert!(!more_left);
@@ -1627,17 +1581,47 @@ mod tests {
     #[test]
     fn hit_test_maps_visible_tabs_and_chevrons() {
         // Wide: behaves like a plain, fully-rendered bar.
-        let avail = full_width() as u16;
-        assert_eq!(panel_tab_hit_test(0, 0, avail), Some(0)); // " Help "
-        assert_eq!(panel_tab_hit_test(6, 0, avail), None); // separator
-        assert_eq!(panel_tab_hit_test(7, 0, avail), Some(1)); // " Search "
+        let avail = full_width(SEARCH) as u16;
+        assert_eq!(panel_tab_hit_test(0, SEARCH, avail), Some(SEARCH)); // " Search "
+        assert_eq!(panel_tab_hit_test(8, SEARCH, avail), None); // separator
+        assert_eq!(panel_tab_hit_test(9, SEARCH, avail), Some(2)); // " Bookmarks "
 
-        // Narrow + active=last → a left chevron at x0, then the trailing tabs.
-        let last = PANEL_TABS.len() - 1;
-        let (lo, hi, more_left, more_right) = visible_tab_window(last, 30);
-        assert!(more_left && !more_right && hi == last && lo > 0);
-        assert_eq!(panel_tab_hit_test(0, last as u8, 30), Some((lo - 1) as u8)); // left chevron
-        assert_eq!(panel_tab_hit_test(1, last as u8, 30), Some(lo as u8)); // first visible tab
+        // Narrow + active=Help (last) → a left chevron at x0, then the trailing tabs.
+        let (lo, hi, more_left, more_right) = visible_tab_window(HELP, 30);
+        assert!(more_left && !more_right && hi == PANEL_TABS.len() - 1 && lo > 0);
+        assert_eq!(
+            panel_tab_hit_test(0, HELP, 30),
+            Some(PANEL_TABS[lo - 1].1[0])
+        ); // left chevron
+        assert_eq!(panel_tab_hit_test(1, HELP, 30), Some(PANEL_TABS[lo].1[0])); // first visible tab
+    }
+
+    #[test]
+    fn grouped_tabs_cycle_and_label_active_screen() {
+        // Tab order: Search, Bookmarks, Remote, View, Settings, Extensions, Shortcuts, Help.
+        assert_eq!(cycle_tab_screen(HELP, true), SEARCH);
+        assert_eq!(cycle_tab_screen(SEARCH, false), HELP);
+        // Leaving a group from any of its screens goes to the neighbouring tab.
+        assert_eq!(cycle_tab_screen(SORTING, true), 7); // Settings
+        assert_eq!(cycle_tab_screen(7, true), PLUGINS); // Extensions opens on Plugins
+        assert_eq!(cycle_tab_screen(INTEGRATIONS, false), 7);
+        // Left/Right switch inside a group; single-screen tabs have no sub-tabs.
+        assert_eq!(cycle_subtab_screen(THEMES, true), Some(SORTING));
+        assert_eq!(cycle_subtab_screen(SORTING, true), Some(THEMES));
+        assert_eq!(cycle_subtab_screen(PLUGINS, false), Some(INTEGRATIONS));
+        assert_eq!(cycle_subtab_screen(SEARCH, true), None);
+        // The active group's pill names its screen; inactive groups don't.
+        let view = tab_index_of_screen(THEMES);
+        assert_eq!(tab_label(view, SORTING), " View: Sorting ");
+        assert_eq!(tab_label(view, SEARCH), " View ");
+        // Clicking the active group's tab moves to its next screen.
+        let x = (0..view)
+            .map(|i| tab_label_width(i, THEMES) + 1)
+            .sum::<usize>() as u16;
+        assert_eq!(
+            panel_tab_hit_test(x, THEMES, full_width(THEMES) as u16),
+            Some(SORTING)
+        );
     }
 
     #[test]

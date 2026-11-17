@@ -397,6 +397,7 @@ pub(crate) fn render_scrollbar_and_preview(
                         .notes
                         .right_by_name
                         .get(&entry_cache.raw_name)
+                        .filter(|_| !app.hide_notes)
                         .map(|s| s.as_str())
                         .unwrap_or("");
                     let name = truncate_with_ellipsis(&entry_cache.raw_name, available_name_width);

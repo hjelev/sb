@@ -323,11 +323,10 @@ pub(crate) fn render_overlays(f: &mut Frame, app: &mut App, ctx: &RenderCtx) {
             },
             ui::panels::ThemesOverlayState {
                 selected: app.themes.selected,
-                nerd_focus: app.themes.nerd_selected,
+                toggle_focus: app.themes.toggle_focus,
                 color_mode: app.filename_color_mode,
-                color_focus: app.themes.color_selected,
                 disable_clock: app.disable_clock,
-                clock_focus: app.themes.clock_selected,
+                hide_notes: app.hide_notes,
             },
             &mut app.footer_shortcut_zones,
         );

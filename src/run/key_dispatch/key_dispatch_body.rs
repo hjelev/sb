@@ -298,9 +298,7 @@ pub(crate) fn handle_app_key_event_body(
             KeyCode::Esc | KeyCode::Char('h') | KeyCode::Char('q') => {
                 app.mode = AppMode::Browsing;
             }
-            KeyCode::BackTab => {
-                app.open_plugins_panel();
-            }
+            KeyCode::BackTab => app.cycle_panel_tab(false),
             KeyCode::Up => {
                 app.help.scroll_offset = app.help.scroll_offset.saturating_sub(1);
             }
@@ -319,10 +317,7 @@ pub(crate) fn handle_app_key_event_body(
             KeyCode::End => {
                 app.help.scroll_offset = app.help.max_offset;
             }
-            KeyCode::Tab => {
-                app.panel_tab = 1;
-                app.start_internal_search();
-            }
+            KeyCode::Tab => app.cycle_panel_tab(true),
             KeyCode::Char('c') => {
                 let config_path = std::env::var("XDG_CONFIG_HOME")
                     .ok()
@@ -388,10 +383,12 @@ pub(crate) fn handle_app_key_event_body(
                 KeyCode::Char('/') => {
                     app.integration.search_active = true;
                 }
-                KeyCode::BackTab => {
-                    app.reset_integration_search();
-                    app.refresh_integration_rows_cache();
-                    app.begin_sort_menu();
+                KeyCode::BackTab => app.cycle_panel_tab(false),
+                KeyCode::Left => {
+                    app.cycle_panel_subtab(false);
+                }
+                KeyCode::Right => {
+                    app.cycle_panel_subtab(true);
                 }
                 KeyCode::Up => {
                     cursor_up(&mut app.integration.selected);
@@ -432,98 +429,43 @@ pub(crate) fn handle_app_key_event_body(
                 KeyCode::Enter => {
                     app.begin_integration_install_prompt_for_selected();
                 }
-                KeyCode::Tab => {
-                    app.reset_integration_search();
-                    app.refresh_integration_rows_cache();
-                    app.panel_tab = 6;
-                    app.themes.selected = theme::themes()
-                        .iter()
-                        .position(|theme| theme.id == app.active_theme)
-                        .unwrap_or(0);
-                    app.themes.nerd_selected = false;
-                    app.themes.color_selected = false;
-                    app.themes.clock_selected = false;
-                    app.mode = AppMode::Themes;
-                }
+                KeyCode::Tab => app.cycle_panel_tab(true),
                 _ => {}
             }
         }
-        AppMode::Themes => {
-            match key.code {
-                KeyCode::Esc | KeyCode::Char('q') => {
-                    app.mode = AppMode::Browsing;
-                }
-                KeyCode::BackTab => {
-                    app.panel_tab = 5;
-                    app.integration.selected = 0;
-                    app.reset_integration_search();
-                    app.refresh_integration_rows_cache();
-                    app.mode = AppMode::Integrations;
-                }
-                KeyCode::Tab => {
-                    app.panel_tab = 7;
-                    app.settings_selected = 0;
-                    app.mode = AppMode::Settings;
-                    app.maybe_check_api_key();
-                }
-                KeyCode::Up => {
-                    // Focus order: Nerd Fonts → Filename colors → Disable clock → theme list.
-                    if app.themes.nerd_selected {
-                        // Already at the top row; nothing above.
-                    } else if app.themes.color_selected {
-                        app.themes.color_selected = false;
-                        app.themes.nerd_selected = true;
-                    } else if app.themes.clock_selected {
-                        app.themes.clock_selected = false;
-                        app.themes.color_selected = true;
-                    } else if app.themes.selected == 0 {
-                        app.themes.clock_selected = true;
-                    } else {
-                        app.themes.selected -= 1;
-                    }
-                }
-                KeyCode::Down => {
-                    if app.themes.nerd_selected {
-                        app.themes.nerd_selected = false;
-                        app.themes.color_selected = true;
-                    } else if app.themes.color_selected {
-                        app.themes.color_selected = false;
-                        app.themes.clock_selected = true;
-                    } else if app.themes.clock_selected {
-                        app.themes.clock_selected = false;
-                    } else {
-                        let max_idx = theme::themes().len().saturating_sub(1);
-                        app.themes.selected = (app.themes.selected + 1).min(max_idx);
-                    }
-                }
-                KeyCode::Enter | KeyCode::Char(' ') => {
-                    if app.themes.nerd_selected {
-                        app.toggle_nerd_font();
-                    } else if app.themes.color_selected {
-                        app.cycle_filename_color_mode();
-                    } else if app.themes.clock_selected {
-                        app.toggle_disable_clock();
-                    } else {
-                        app.apply_selected_theme();
-                    }
-                }
-                _ => {}
+        AppMode::Themes => match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                app.mode = AppMode::Browsing;
             }
-        }
+            KeyCode::BackTab => app.cycle_panel_tab(false),
+            KeyCode::Tab => app.cycle_panel_tab(true),
+            KeyCode::Left => {
+                app.cycle_panel_subtab(false);
+            }
+            KeyCode::Right => {
+                app.cycle_panel_subtab(true);
+            }
+            KeyCode::Up => app.themes.focus_up(),
+            KeyCode::Down => app.themes.focus_down(theme::themes().len()),
+            KeyCode::Enter | KeyCode::Char(' ') => match app.themes.toggle_focus {
+                Some(0) => app.toggle_nerd_font(),
+                Some(1) => app.cycle_filename_color_mode(),
+                Some(2) => app.toggle_disable_clock(),
+                Some(3) => app.toggle_hide_notes(),
+                _ => app.apply_selected_theme(),
+            },
+            _ => {}
+        },
         AppMode::SortMenu => match key.code {
-            KeyCode::BackTab => {
-                app.panel_tab = 3;
-                app.refresh_remote_entries();
-                app.mode = AppMode::SshPicker;
+            KeyCode::BackTab => app.cycle_panel_tab(false),
+            KeyCode::Tab => app.cycle_panel_tab(true),
+            KeyCode::Left => {
+                app.cycle_panel_subtab(false);
             }
-            KeyCode::Tab => {
-                app.panel_tab = 5;
-                app.integration.selected = 0;
-                app.reset_integration_search();
-                app.refresh_integration_rows_cache();
-                app.mode = AppMode::Integrations;
+            KeyCode::Right => {
+                app.cycle_panel_subtab(true);
             }
-            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Left => {
+            KeyCode::Esc | KeyCode::Char('q') => {
                 app.mode = AppMode::Browsing;
             }
             KeyCode::Up => {
@@ -532,7 +474,7 @@ pub(crate) fn handle_app_key_event_body(
             KeyCode::Down => {
                 cursor_down(&mut app.sort_menu_selected, App::sort_mode_options().len());
             }
-            KeyCode::Enter | KeyCode::Right => {
+            KeyCode::Enter => {
                 app.commit_sort_menu_choice();
             }
             _ => {}
@@ -542,25 +484,8 @@ pub(crate) fn handle_app_key_event_body(
                 app.maybe_check_api_key();
                 app.mode = AppMode::Browsing;
             }
-            KeyCode::BackTab => {
-                app.maybe_check_api_key();
-                app.panel_tab = 6;
-                app.themes.selected = theme::themes()
-                    .iter()
-                    .position(|theme| theme.id == app.active_theme)
-                    .unwrap_or(0);
-                app.themes.nerd_selected = false;
-                app.themes.color_selected = false;
-                app.themes.clock_selected = false;
-                app.mode = AppMode::Themes;
-            }
-            KeyCode::Tab => {
-                app.maybe_check_api_key();
-                app.panel_tab = 8;
-                app.shortcuts_panel.selected = 0;
-                app.shortcuts_panel.capture = false;
-                app.mode = AppMode::Shortcuts;
-            }
+            KeyCode::BackTab => app.cycle_panel_tab(false),
+            KeyCode::Tab => app.cycle_panel_tab(true),
             KeyCode::Up => {
                 let was_key = app.settings_selected == 2;
                 cursor_up(&mut app.settings_selected);
@@ -615,15 +540,8 @@ pub(crate) fn handle_app_key_event_body(
                     KeyCode::Esc | KeyCode::Char('q') => {
                         app.mode = AppMode::Browsing;
                     }
-                    KeyCode::BackTab => {
-                        app.panel_tab = 7;
-                        app.settings_selected = 0;
-                        app.mode = AppMode::Settings;
-                        app.maybe_check_api_key();
-                    }
-                    KeyCode::Tab => {
-                        app.open_plugins_panel();
-                    }
+                    KeyCode::BackTab => app.cycle_panel_tab(false),
+                    KeyCode::Tab => app.cycle_panel_tab(true),
                     KeyCode::Up => {
                         cursor_up(&mut app.shortcuts_panel.selected);
                     }
@@ -673,16 +591,13 @@ pub(crate) fn handle_app_key_event_body(
                     KeyCode::Esc | KeyCode::Char('q') => {
                         app.mode = AppMode::Browsing;
                     }
-                    KeyCode::BackTab => {
-                        app.panel_tab = 8;
-                        app.shortcuts_panel.selected = 0;
-                        app.shortcuts_panel.capture = false;
-                        app.mode = AppMode::Shortcuts;
+                    KeyCode::BackTab => app.cycle_panel_tab(false),
+                    KeyCode::Tab => app.cycle_panel_tab(true),
+                    KeyCode::Left => {
+                        app.cycle_panel_subtab(false);
                     }
-                    KeyCode::Tab => {
-                        app.panel_tab = 0;
-                        app.help.scroll_offset = 0;
-                        app.mode = AppMode::Help;
+                    KeyCode::Right => {
+                        app.cycle_panel_subtab(true);
                     }
                     KeyCode::Up => {
                         cursor_up(&mut app.plugins_panel.selected);
@@ -722,15 +637,8 @@ pub(crate) fn handle_app_key_event_body(
             KeyCode::Esc | KeyCode::Char('b') | KeyCode::Char('q') => {
                 app.mode = AppMode::Browsing;
             }
-            KeyCode::BackTab => {
-                app.panel_tab = 1;
-                app.start_internal_search();
-            }
-            KeyCode::Tab => {
-                app.panel_tab = 3;
-                app.refresh_remote_entries();
-                app.mode = AppMode::SshPicker;
-            }
+            KeyCode::BackTab => app.cycle_panel_tab(false),
+            KeyCode::Tab => app.cycle_panel_tab(true),
             KeyCode::Up => {
                 cursor_up(&mut app.bookmarks.selected);
             }

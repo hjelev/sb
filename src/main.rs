@@ -217,9 +217,31 @@ struct ConfirmDeleteState {
 #[derive(Default)]
 struct ThemePanelState {
     selected: usize,
-    nerd_selected: bool,
-    color_selected: bool,
-    clock_selected: bool,
+    /// Focused toggle row above the theme list (index into
+    /// `ui::panels::THEME_TOGGLES`), or `None` when the theme list has focus.
+    toggle_focus: Option<usize>,
+}
+
+impl ThemePanelState {
+    /// Move focus up: theme list → last toggle → … → first toggle.
+    fn focus_up(&mut self) {
+        match self.toggle_focus {
+            Some(i) => self.toggle_focus = Some(i.saturating_sub(1)),
+            None if self.selected == 0 => {
+                self.toggle_focus = Some(ui::panels::THEME_TOGGLES.len() - 1)
+            }
+            None => self.selected -= 1,
+        }
+    }
+
+    /// Move focus down: first toggle → … → last toggle → theme list.
+    fn focus_down(&mut self, theme_count: usize) {
+        match self.toggle_focus {
+            Some(i) if i + 1 < ui::panels::THEME_TOGGLES.len() => self.toggle_focus = Some(i + 1),
+            Some(_) => self.toggle_focus = None,
+            None => self.selected = (self.selected + 1).min(theme_count.saturating_sub(1)),
+        }
+    }
 }
 
 /// AI commit-message settings + runtime state: provider/model/key edit buffers,
@@ -433,6 +455,8 @@ struct App {
     /// When true, the top-right header clock is replaced by the disk-usage pill
     /// (without the recursive folder-size prefix). Persisted to config.
     disable_clock: bool,
+    /// Hide per-file notes in the file list (persisted `hide_notes`).
+    hide_notes: bool,
     size: SizeState,
     /// Tree-view per-directory expansion depths and the last +/- tap (for
     /// double-tap detection).

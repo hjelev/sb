@@ -273,6 +273,11 @@ impl App {
                 }
                 if is_empty {
                     self.set_status(format!("cleared note for {} item(s)", count));
+                } else if self.hide_notes {
+                    self.set_status(format!(
+                        "saved note for {} item(s) (notes are hidden: View tab)",
+                        count
+                    ));
                 } else {
                     self.set_status(format!("saved note for {} item(s)", count));
                 }

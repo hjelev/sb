@@ -56,6 +56,22 @@ impl App {
             return;
         }
 
+        // Leaving the current screen: stop its background work / pending input.
+        match self.mode {
+            AppMode::InternalSearch => {
+                self.cancel_internal_search_candidate_scan();
+                self.cancel_internal_search_content_request();
+            }
+            AppMode::Integrations => {
+                self.reset_integration_search();
+                self.refresh_integration_rows_cache();
+            }
+            AppMode::Settings => self.maybe_check_api_key(),
+            _ => {}
+        }
+        self.shortcuts_panel.capture = false;
+        self.plugins_panel.key_capture = false;
+
         match tab {
             0 => {
                 self.panel_tab = 0;
@@ -92,9 +108,7 @@ impl App {
                     .position(|theme| theme.id == self.active_theme)
                     .unwrap_or(0);
                 self.panel_tab = 6;
-                self.themes.nerd_selected = false;
-                self.themes.color_selected = false;
-                self.themes.clock_selected = false;
+                self.themes.toggle_focus = None;
                 self.mode = AppMode::Themes;
             }
             7 => {
@@ -113,6 +127,23 @@ impl App {
                 self.open_plugins_panel();
             }
             _ => {}
+        }
+    }
+
+    /// Tab / BackTab: open the next (previous) visible tab's first screen.
+    pub(crate) fn cycle_panel_tab(&mut self, forward: bool) {
+        self.open_panel_tab(ui::panels::cycle_tab_screen(self.panel_tab, forward));
+    }
+
+    /// Left / Right inside a grouped tab (View, Extensions): switch to the
+    /// next (previous) screen of the group. Returns false for single-screen tabs.
+    pub(crate) fn cycle_panel_subtab(&mut self, forward: bool) -> bool {
+        match ui::panels::cycle_subtab_screen(self.panel_tab, forward) {
+            Some(screen) => {
+                self.open_panel_tab(screen);
+                true
+            }
+            None => false,
         }
     }
 
@@ -579,27 +610,16 @@ impl App {
                 // Move focus to the clicked row, then synthesize Enter so the
                 // existing key handler applies/toggles the focused item.
                 let offset = row.saturating_sub(content.y) as usize;
+                // Rows: blank, toggles (1..=N), blank, theme list.
+                let toggles = ui::panels::THEME_TOGGLES.len();
+                let list_start = toggles + 2;
                 match offset {
-                    1 => {
-                        self.themes.nerd_selected = true;
-                        self.themes.color_selected = false;
-                        self.themes.clock_selected = false;
+                    o if (1..=toggles).contains(&o) => {
+                        self.themes.toggle_focus = Some(o - 1);
                     }
-                    2 => {
-                        self.themes.nerd_selected = false;
-                        self.themes.color_selected = true;
-                        self.themes.clock_selected = false;
-                    }
-                    3 => {
-                        self.themes.nerd_selected = false;
-                        self.themes.color_selected = false;
-                        self.themes.clock_selected = true;
-                    }
-                    o if o >= 5 && (o - 5) < themes.len() => {
-                        self.themes.nerd_selected = false;
-                        self.themes.color_selected = false;
-                        self.themes.clock_selected = false;
-                        self.themes.selected = o - 5;
+                    o if o >= list_start && (o - list_start) < themes.len() => {
+                        self.themes.toggle_focus = None;
+                        self.themes.selected = o - list_start;
                     }
                     _ => return None, // blank separator rows
                 }
@@ -717,33 +737,11 @@ impl App {
                 }
             }
             AppMode::Themes => {
-                // Mirror the keyboard Up/Down focus order:
-                // Nerd Fonts → Filename colors → Disable clock → theme list.
+                // Mirror the keyboard Up/Down focus order (toggles → theme list).
                 if scroll_up {
-                    if self.themes.nerd_selected {
-                        // already at the top row
-                    } else if self.themes.color_selected {
-                        self.themes.color_selected = false;
-                        self.themes.nerd_selected = true;
-                    } else if self.themes.clock_selected {
-                        self.themes.clock_selected = false;
-                        self.themes.color_selected = true;
-                    } else if self.themes.selected == 0 {
-                        self.themes.clock_selected = true;
-                    } else {
-                        self.themes.selected -= 1;
-                    }
-                } else if self.themes.nerd_selected {
-                    self.themes.nerd_selected = false;
-                    self.themes.color_selected = true;
-                } else if self.themes.color_selected {
-                    self.themes.color_selected = false;
-                    self.themes.clock_selected = true;
-                } else if self.themes.clock_selected {
-                    self.themes.clock_selected = false;
+                    self.themes.focus_up();
                 } else {
-                    let max_idx = crate::ui::theme::themes().len().saturating_sub(1);
-                    self.themes.selected = (self.themes.selected + 1).min(max_idx);
+                    self.themes.focus_down(crate::ui::theme::themes().len());
                 }
             }
             AppMode::ConfirmDelete => {

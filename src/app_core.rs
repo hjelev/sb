@@ -89,6 +89,7 @@ impl App {
             confirm_integration_install_button_focus: 0,
             git: GitInfoState::default(),
             disable_clock: false,
+            hide_notes: false,
             size: SizeState::default(),
             tree: TreeState::default(),
             sort_menu_selected: 0,
@@ -189,6 +190,7 @@ impl App {
         if let Some(dc) = persist.disable_clock {
             app.disable_clock = dc;
         }
+        app.hide_notes = persist.hide_notes;
         // Persisted filename-color mode; applied before set_active_theme so the
         // first render-cache build uses it.
         app.filename_color_mode = persist.filename_color_mode;

@@ -7,26 +7,88 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-pub(crate) const PANEL_TABS: &[(&str, u8)] = &[
-    (" Help ", 0),
-    (" Search ", 1),
-    (" Bookmarks ", 2),
-    (" Remote Mounts ", 3),
-    (" Sorting ", 4),
-    (" Integrations ", 5),
-    (" Themes ", 6),
-    (" Settings ", 7),
-    (" Shortcuts ", 8),
-    (" Plugins ", 9),
+/// Visible tabs of the tabbed overlay, each listing the screens it groups.
+/// Screens keep their historical ids (what `App::panel_tab` stores):
+/// 0 Help, 1 Search, 2 Bookmarks, 3 Remote Mounts, 4 Sorting,
+/// 5 Integrations, 6 Themes, 7 Settings, 8 Shortcuts, 9 Plugins.
+/// A tab grouping several screens shows the active one in its pill
+/// (" View: Themes ") and switches between them with Left/Right.
+pub(crate) const PANEL_TABS: &[(&str, &[u8])] = &[
+    (" Search ", &[1]),
+    (" Bookmarks ", &[2]),
+    (" Remote Mounts ", &[3]),
+    (" View ", &[6, 4]),
+    (" Settings ", &[7]),
+    (" Extensions ", &[9, 5]),
+    (" Shortcuts ", &[8]),
+    (" Help ", &[0]),
 ];
 
 // Scroll indicators shown when the tab bar is wider than the available space.
 const TAB_MORE_LEFT: &str = "‹";
 const TAB_MORE_RIGHT: &str = "›";
 
+/// Display name of a screen inside a grouped tab.
+pub(crate) fn panel_screen_name(screen: u8) -> &'static str {
+    match screen {
+        4 => "Sorting",
+        5 => "Integrations",
+        6 => "Themes",
+        9 => "Plugins",
+        _ => "",
+    }
+}
+
+/// Index into `PANEL_TABS` of the tab that contains `screen`.
+pub(crate) fn tab_index_of_screen(screen: u8) -> usize {
+    PANEL_TABS
+        .iter()
+        .position(|(_, screens)| screens.contains(&screen))
+        .unwrap_or(0)
+}
+
+/// First screen of the next (or previous) tab, wrapping around: Tab/BackTab.
+pub(crate) fn cycle_tab_screen(screen: u8, forward: bool) -> u8 {
+    let n = PANEL_TABS.len();
+    let i = tab_index_of_screen(screen);
+    let next = if forward {
+        (i + 1) % n
+    } else {
+        (i + n - 1) % n
+    };
+    PANEL_TABS[next].1[0]
+}
+
+/// Next (or previous) screen within the active tab's group, wrapping around:
+/// Left/Right. `None` when the tab holds a single screen.
+pub(crate) fn cycle_subtab_screen(screen: u8, forward: bool) -> Option<u8> {
+    let screens = PANEL_TABS[tab_index_of_screen(screen)].1;
+    if screens.len() < 2 {
+        return None;
+    }
+    let n = screens.len();
+    let j = screens.iter().position(|&s| s == screen).unwrap_or(0);
+    let next = if forward {
+        (j + 1) % n
+    } else {
+        (j + n - 1) % n
+    };
+    Some(screens[next])
+}
+
+/// Label of tab `index` (padded). The active grouped tab names its screen.
+pub(crate) fn tab_label(index: usize, active_screen: u8) -> String {
+    let (label, screens) = PANEL_TABS[index];
+    if screens.len() > 1 && screens.contains(&active_screen) {
+        format!(" {}: {} ", label.trim(), panel_screen_name(active_screen))
+    } else {
+        label.to_string()
+    }
+}
+
 /// Rendered width of a single tab label (its full padded text).
-pub(crate) fn tab_label_width(index: usize) -> usize {
-    PANEL_TABS[index].0.chars().count()
+pub(crate) fn tab_label_width(index: usize, active_screen: u8) -> usize {
+    tab_label(index, active_screen).chars().count()
 }
 
 /// Decide which contiguous run of tabs is visible for the given `active` tab and
@@ -34,11 +96,12 @@ pub(crate) fn tab_label_width(index: usize) -> usize {
 /// `lo..=hi` is the visible range (always including `active`) and the booleans
 /// indicate hidden tabs beyond each edge (drawn as `‹` / `›`). When everything
 /// fits, the full range is returned and no indicators are shown.
-pub(crate) fn visible_tab_window(active: usize, avail: usize) -> (usize, usize, bool, bool) {
+pub(crate) fn visible_tab_window(active_screen: u8, avail: usize) -> (usize, usize, bool, bool) {
     let n = PANEL_TABS.len();
-    let active = active.min(n - 1);
+    let active = tab_index_of_screen(active_screen);
+    let width = |i: usize| tab_label_width(i, active_screen);
 
-    let full: usize = (0..n).map(tab_label_width).sum::<usize>() + n.saturating_sub(1);
+    let full: usize = (0..n).map(width).sum::<usize>() + n.saturating_sub(1);
     if full <= avail {
         return (0, n - 1, false, false);
     }
@@ -48,7 +111,7 @@ pub(crate) fn visible_tab_window(active: usize, avail: usize) -> (usize, usize, 
     let mut best_count = 0usize;
     for lo in 0..=active {
         for hi in active..n {
-            let mut w: usize = (lo..=hi).map(tab_label_width).sum::<usize>() + (hi - lo);
+            let mut w: usize = (lo..=hi).map(width).sum::<usize>() + (hi - lo);
             if lo > 0 {
                 w += TAB_MORE_LEFT.chars().count();
             }
@@ -85,17 +148,19 @@ pub fn panel_tab_bar_line(
         .bg(pill_bg)
         .add_modifier(Modifier::BOLD);
 
-    let (lo, hi, more_left, more_right) = visible_tab_window(active as usize, avail_width as usize);
+    let (lo, hi, more_left, more_right) = visible_tab_window(active, avail_width as usize);
+    let active_idx = tab_index_of_screen(active);
 
     let mut spans: Vec<Span<'static>> = Vec::new();
     if more_left {
         spans.push(Span::styled(TAB_MORE_LEFT, indicator_style));
     }
-    for (i, &(label, idx)) in PANEL_TABS.iter().enumerate().take(hi + 1).skip(lo) {
+    for i in lo..=hi {
+        let label = tab_label(i, active);
         if i > lo {
             spans.push(Span::styled("─", sep_style));
         }
-        if idx == active {
+        if i == active_idx {
             // Active tab: a rounded pill with the selected background. The cap
             // glyphs replace the label's existing padding spaces so the rendered
             // width is unchanged — keeping `panel_tab_hit_test` aligned.
@@ -189,20 +254,31 @@ pub(crate) fn indent_lines<'a>(lines: &[Line<'a>]) -> Vec<Line<'a>> {
         .collect()
 }
 
+/// Map a click at `relative_x` on the tab bar to the screen to open. Clicking
+/// the active grouped tab cycles to its next screen; other tabs open their
+/// first screen; chevrons open the first hidden tab beyond them.
 pub fn panel_tab_hit_test(relative_x: u16, active: u8, avail_width: u16) -> Option<u8> {
-    let (lo, hi, more_left, more_right) = visible_tab_window(active as usize, avail_width as usize);
+    let (lo, hi, more_left, more_right) = visible_tab_window(active, avail_width as usize);
+    let active_idx = tab_index_of_screen(active);
+    let screen_for = |i: usize| -> u8 {
+        if i == active_idx {
+            cycle_subtab_screen(active, true).unwrap_or(active)
+        } else {
+            PANEL_TABS[i].1[0]
+        }
+    };
 
     let mut cursor = 0u16;
 
     // Clicking the left chevron scrolls by selecting the tab just before the window.
     if more_left {
         if relative_x == cursor {
-            return Some((lo - 1) as u8);
+            return Some(screen_for(lo - 1));
         }
         cursor = cursor.saturating_add(1);
     }
 
-    for (i, &(_, idx)) in PANEL_TABS.iter().enumerate().take(hi + 1).skip(lo) {
+    for i in lo..=hi {
         if i > lo {
             if relative_x == cursor {
                 return None;
@@ -210,16 +286,16 @@ pub fn panel_tab_hit_test(relative_x: u16, active: u8, avail_width: u16) -> Opti
             cursor = cursor.saturating_add(1);
         }
 
-        let width = tab_label_width(i) as u16;
+        let width = tab_label_width(i, active) as u16;
         if relative_x >= cursor && relative_x < cursor.saturating_add(width) {
-            return Some(idx);
+            return Some(screen_for(i));
         }
         cursor = cursor.saturating_add(width);
     }
 
     // Clicking the right chevron scrolls by selecting the tab just after the window.
     if more_right && relative_x == cursor {
-        return Some((hi + 1) as u8);
+        return Some(screen_for(hi + 1));
     }
 
     None

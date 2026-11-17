@@ -196,6 +196,7 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
                 .notes
                 .by_name
                 .get(&entry_cache.raw_name)
+                .filter(|_| !app.hide_notes)
                 .map(|s| s.as_str())
                 .unwrap_or("");
             let tree_prefix = app
@@ -475,6 +476,7 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
                         .notes
                         .by_name
                         .get(entry_cache.raw_name.as_str())
+                        .filter(|_| !app.hide_notes)
                         .map(|s| s.as_str())
                         .unwrap_or("");
                     let note_suffix = if note_text.is_empty() {

@@ -181,6 +181,8 @@ pub struct SbPersistConfig {
     /// When `Some(true)`, the header clock is replaced by the disk-usage pill.
     /// `None` means unset (clock shown by default).
     pub disable_clock: Option<bool>,
+    /// Hide per-file notes (the `.sb` notes) in the file list.
+    pub hide_notes: bool,
     /// How file (not folder) names are colored in the list.
     pub(crate) filename_color_mode: FilenameColorMode,
     /// Whether folder size calculation (the `s` toggle) is enabled on launch.
@@ -225,6 +227,7 @@ impl Default for SbPersistConfig {
             current_theme: "original".to_string(),
             nerd_font: None,
             disable_clock: None,
+            hide_notes: false,
             filename_color_mode: FilenameColorMode::Full,
             folder_size_enabled: false,
             disabled_integrations: Vec::new(),
@@ -283,6 +286,9 @@ impl SbPersistConfig {
                             "0" | "false" => Some(false),
                             _ => None,
                         };
+                    }
+                    "hide_notes" => {
+                        cfg.hide_notes = matches!(val.to_ascii_lowercase().as_str(), "1" | "true");
                     }
                     "disable_clock" => {
                         cfg.disable_clock = match val.to_ascii_lowercase().as_str() {
@@ -393,6 +399,9 @@ impl SbPersistConfig {
         }
         if let Some(dc) = self.disable_clock {
             lines.push(format!("disable_clock = {}", dc));
+        }
+        if self.hide_notes {
+            lines.push("hide_notes = true".to_string());
         }
         lines.push(format!(
             "filename_colors = {}",

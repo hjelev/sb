@@ -435,8 +435,7 @@ fn dispatch_action(
                 .iter()
                 .position(|theme| theme.id == app.active_theme)
                 .unwrap_or(0);
-            app.themes.nerd_selected = false;
-            app.themes.color_selected = false;
+            app.themes.toggle_focus = None;
             app.mode = AppMode::Themes;
         }
         Action::RemoteMounts => {

@@ -72,20 +72,8 @@ pub(crate) fn handle_internal_search_key(
             app.clear_input_edit();
             app.mode = AppMode::Browsing;
         }
-        KeyCode::BackTab => {
-            app.cancel_internal_search_candidate_scan();
-            app.cancel_internal_search_content_request();
-            app.panel_tab = 0;
-            app.help.scroll_offset = 0;
-            app.mode = AppMode::Help;
-        }
-        KeyCode::Tab => {
-            app.cancel_internal_search_candidate_scan();
-            app.cancel_internal_search_content_request();
-            app.panel_tab = 2;
-            app.refresh_bookmarks_cache();
-            app.mode = AppMode::Bookmarks;
-        }
+        KeyCode::BackTab => app.cycle_panel_tab(false),
+        KeyCode::Tab => app.cycle_panel_tab(true),
         KeyCode::Enter => {
             let selected_path = app.selected_internal_search_path();
             app.cancel_internal_search_candidate_scan();
