@@ -25,7 +25,16 @@ impl App {
         }
     }
 
+    /// Replace each folder's date with the newest modification time found
+    /// anywhere beneath it. This walks the whole tree under every subfolder,
+    /// so it only runs while folder size calculation is on (same cost class).
     pub(crate) fn start_recursive_mtime_scan(&mut self) {
+        if !self.size.folder_size_enabled {
+            self.size.recursive_mtime.next_scan_id();
+            self.size.recursive_mtime.abort_cancel();
+            self.size.recursive_mtime.clear_rx();
+            return;
+        }
         let scan_id = self.size.recursive_mtime.next_scan_id();
         let cancel = self.size.recursive_mtime.renew_cancel();
 
@@ -587,11 +596,46 @@ impl App {
             self.start_folder_size_scan();
             self.start_current_dir_total_size_scan();
             self.start_selected_total_size_scan();
+            self.start_recursive_mtime_scan();
         } else {
             self.set_status("folder size calculation: off");
             self.clear_current_dir_total_size_state();
             self.clear_selected_total_size_state();
+            // Stops the scan; folders show their own dates again.
+            self.start_recursive_mtime_scan();
+            self.restore_own_folder_dates();
         }
+    }
+
+    /// Undo the recursive-mtime scan's results: rewrite each folder's date
+    /// column from its own metadata, as `build_entry_render_cache` does.
+    fn restore_own_folder_dates(&mut self) {
+        for panel in [&mut self.left, &mut self.right] {
+            for (entry, cache) in panel
+                .entries
+                .iter()
+                .zip(panel.entry_render_cache.iter_mut())
+            {
+                let Ok(meta) = entry.metadata() else {
+                    continue;
+                };
+                if !meta.is_dir() {
+                    continue;
+                }
+                let modified = meta.modified().ok();
+                cache.date_col = format!(
+                    "{:>width$}",
+                    modified
+                        .map(crate::util::format::format_mtime)
+                        .unwrap_or_default(),
+                    width = 16
+                );
+                cache.modified_unix = modified
+                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs());
+            }
+        }
+        self.recompute_list_aggregates();
     }
 
     pub(crate) fn pump_folder_size_progress(&mut self) {

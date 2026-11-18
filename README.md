@@ -202,7 +202,7 @@ The keys below are the defaults — most browsing commands can be rebound from t
 - `/` (in browsing): quick-filter the current folder listing (not available in dual panel mode)
 - `Tab` (in browsing): edit current path inline; supports `/path/^prefix`, `/path/suffix$`, and `/path/~contains` filters
 - `Tab` / `Shift+Tab` in Help/Search/Bookmarks/Remote Mounts/Sorting/Integrations: cycle tabs forward/backward
-- `s`: toggle folder size calculation in listing
+- `s`: toggle folder size calculation in listing (also shows each folder's newest modification time from anywhere inside it)
 - `Ctrl+s`: open sort mode menu
 - `+`: expand selected/marked non-empty folder(s) by one tree level
 - `-`: contract selected/marked folder(s) by one tree level

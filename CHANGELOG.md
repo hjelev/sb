@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Folder dates showing the newest modification time inside each folder now follow the folder size setting (`s`); with it off, folders show their own date and no recursive scan runs on every directory load.
+
+### Performance
+
+- Tool availability checks are cached instead of spawning `which` on every preview.
+- Previews: bounded LRU cache, capped reads of large text files, superseded previews cancel their external tools, preview tools have a timeout and output cap, image PNG encoding moved off the UI thread.
+- File lists build table rows only for the visible window.
+
 ## [0.12.3] - 2026-11-17
 
 ### Added
