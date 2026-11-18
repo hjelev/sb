@@ -13,7 +13,16 @@ use std::fs;
 use std::io::{self, Read};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+
+/// Upper bound for one external preview tool run; a hung or very slow tool
+/// falls through to the next renderer instead of pinning a worker forever.
+const PREVIEW_TOOL_TIMEOUT: Duration = Duration::from_secs(10);
+/// Ceiling on captured preview-tool stdout (ANSI-heavy output like timg's
+/// can be large per line, so lines alone aren't a sufficient bound).
+const PREVIEW_TOOL_MAX_BYTES: usize = 4 * 1024 * 1024;
 
 impl App {
     pub(crate) fn cycle_view_mode(&mut self) {
@@ -93,7 +102,7 @@ impl App {
         self.preview.line_kinds.clear();
         self.preview.footer = None;
         self.preview.pending = false;
-        self.preview.rx = None;
+        self.cancel_preview_job();
         self.preview.native_area = None;
         self.preview.native_last_key = None;
         self.preview.image_rgb = None;
@@ -217,6 +226,21 @@ impl App {
         self.preview.scroll_offset = next.min(self.preview_max_scroll());
     }
 
+    /// Stop the in-flight preview build (its tools are killed, directory
+    /// walks bail out) and forget its channel.
+    pub(crate) fn cancel_preview_job(&mut self) {
+        self.preview.cancel.store(true, Ordering::Relaxed);
+        self.preview.rx = None;
+    }
+
+    /// Cancel the previous preview build and hand out a fresh flag for the
+    /// next one.
+    fn renew_preview_cancel(&mut self) -> Arc<AtomicBool> {
+        self.preview.cancel.store(true, Ordering::Relaxed);
+        self.preview.cancel = Arc::new(AtomicBool::new(false));
+        Arc::clone(&self.preview.cancel)
+    }
+
     pub(crate) fn request_preview_for_selected(&mut self) {
         if !self.is_preview_mode() {
             return;
@@ -232,7 +256,7 @@ impl App {
             self.preview.footer = None;
             self.preview.target_path = None;
             self.preview.pending = false;
-            self.preview.rx = None;
+            self.cancel_preview_job();
             self.preview.image_rgb = None;
             self.preview.image_png = None;
             return;
@@ -256,9 +280,11 @@ impl App {
         if !Self::is_image_file(&path)
             && !Self::is_video_file(&path)
             && let Some(stamp) = stamp
-            && let Some((cached_stamp, cached)) = self.preview.cache.get(&path).cloned()
-            && cached_stamp == stamp
+            && let Some(cached) = self.preview.cache.get(&path, stamp)
         {
+            // Drop any in-flight build: its result would carry the current
+            // `request_id` (a cache hit doesn't bump it) and overwrite this.
+            self.cancel_preview_job();
             self.preview.target_path = Some(path);
             self.preview.target_stamp = Some(stamp);
             self.preview.lines = cached.0;
@@ -324,8 +350,25 @@ impl App {
         // Plugin previewer registrations are plain data (`Send`); the worker
         // instantiates its own Lua to run a matching plugin's `peek()`.
         let plugin_regs = self.plugins.previewer_regs();
+        let cancel = self.renew_preview_cancel();
         self.preview.rx = Some(spawn_worker(move |tx| {
-            let msg = App::build_preview_content_with_plugins(request_id, path, opts, &plugin_regs);
+            let mut msg = App::build_preview_content_with_plugins(
+                request_id,
+                path,
+                opts,
+                &plugin_regs,
+                &cancel,
+            );
+            // PNG-encode decoded images here rather than on the UI thread:
+            // a 2048² encode takes long enough to stall input handling.
+            if let PreviewContentMsg::Ready {
+                image_rgb: Some((rgb, w, h)),
+                image_png,
+                ..
+            } = &mut msg
+            {
+                *image_png = App::encode_rgb_to_png(rgb, *w, *h);
+            }
             let _ = tx.send(msg);
         }));
     }
@@ -340,12 +383,21 @@ impl App {
             Some(PreviewContentMsg::Ready {
                 request_id,
                 path,
-                lines,
-                line_kinds,
+                mut lines,
+                mut line_kinds,
                 footer,
                 image_rgb,
+                image_png,
             }) => {
                 if request_id == self.preview.request_id {
+                    // `request_preview_for_selected` treats "no lines, no image,
+                    // not pending" as "nothing loaded yet" and re-requests on
+                    // every tick; never leave a finished preview in that state
+                    // (e.g. a plugin `peek()` returning an empty string).
+                    if lines.is_empty() && image_rgb.is_none() {
+                        lines = vec!["[no preview output]".to_string()];
+                        line_kinds = vec![PreviewLineKind::Plain];
+                    }
                     self.preview.target_path = Some(path.clone());
                     // Cache under the stamp taken when the request was made: if
                     // the file changed while building, the entry is already
@@ -357,17 +409,15 @@ impl App {
                     {
                         self.preview.cache.insert(
                             path.clone(),
-                            (stamp, (lines.clone(), line_kinds.clone(), footer.clone())),
+                            stamp,
+                            (lines.clone(), line_kinds.clone(), footer.clone()),
                         );
                     }
                     self.preview.lines = lines;
                     self.preview.line_kinds = line_kinds;
                     self.preview.footer = footer;
-                    if let Some((ref rgb, w, h)) = image_rgb {
-                        self.preview.image_png = App::encode_rgb_to_png(rgb, w, h);
-                    } else {
-                        self.preview.image_png = None;
-                    }
+                    // Encoded on the worker thread (see `request_preview_for_selected`).
+                    self.preview.image_png = image_png;
                     self.preview.image_rgb = image_rgb;
                     self.preview.pending = false;
                     self.preview.scroll_offset = 0;
@@ -408,6 +458,7 @@ impl App {
         path: PathBuf,
         opts: PreviewBuildOptions,
         regs: &[crate::plugin::PreviewerReg],
+        cancel: &AtomicBool,
     ) -> PreviewContentMsg {
         if !path.is_dir()
             && let Some(reg) = crate::plugin::preview::match_previewer(regs, &path)
@@ -420,6 +471,7 @@ impl App {
                     lines,
                     footer: footer.or_else(|| Some(format!("{} preview", reg.plugin))),
                     image_rgb: None,
+                    image_png: None,
                 },
                 Err(message) => PreviewContentMsg::Failed {
                     request_id,
@@ -428,13 +480,14 @@ impl App {
                 },
             };
         }
-        Self::build_preview_content(request_id, path, opts)
+        Self::build_preview_content(request_id, path, opts, cancel)
     }
 
     fn build_preview_content(
         request_id: u64,
         path: PathBuf,
         opts: PreviewBuildOptions,
+        cancel: &AtomicBool,
     ) -> PreviewContentMsg {
         let PreviewBuildOptions {
             use_bat,
@@ -569,7 +622,7 @@ impl App {
                 line_kinds.push(PreviewLineKind::Plain);
             }
 
-            let footer = App::compute_total_display_bytes(&path, None)
+            let footer = App::compute_total_display_bytes(&path, Some(cancel))
                 .ok()
                 .map(|bytes| format!("Total: {}", App::format_size(bytes)));
             return PreviewContentMsg::Ready {
@@ -579,6 +632,7 @@ impl App {
                 line_kinds,
                 footer,
                 image_rgb: None,
+                image_png: None,
             };
         }
 
@@ -617,6 +671,7 @@ impl App {
                 line_kinds: vec![PreviewLineKind::Plain],
                 footer,
                 image_rgb: None,
+                image_png: None,
             };
         }
 
@@ -627,7 +682,7 @@ impl App {
         // kitty/iterm2/sixel pane renderer.
         if use_timg
             && (App::is_video_file(&path) || (!native_pane && App::is_image_file(&path)))
-            && let Some(lines) = App::render_preview_with_timg(&path, pane_cols, pane_rows)
+            && let Some(lines) = App::render_preview_with_timg(&path, pane_cols, pane_rows, cancel)
         {
             let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             let footer = Some(format!("Size: {}", App::format_size(size)));
@@ -639,6 +694,7 @@ impl App {
                 line_kinds,
                 footer,
                 image_rgb: None,
+                image_png: None,
             };
         }
 
@@ -659,6 +715,7 @@ impl App {
                 line_kinds,
                 footer,
                 image_rgb,
+                image_png: None,
             };
         }
 
@@ -668,7 +725,8 @@ impl App {
             // GraphicsMagick backend can still render them as block art.
             if image_rgb.is_none()
                 && use_timg
-                && let Some(lines) = App::render_preview_with_timg(&path, pane_cols, pane_rows)
+                && let Some(lines) =
+                    App::render_preview_with_timg(&path, pane_cols, pane_rows, cancel)
             {
                 let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
                 let footer = Some(format!("Size: {}", App::format_size(size)));
@@ -680,6 +738,7 @@ impl App {
                     line_kinds,
                     footer,
                     image_rgb: None,
+                    image_png: None,
                 };
             }
             let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
@@ -697,6 +756,7 @@ impl App {
                 line_kinds,
                 footer,
                 image_rgb,
+                image_png: None,
             };
         }
 
@@ -713,6 +773,7 @@ impl App {
                     .arg(&path)
                     .arg("-"),
                 400,
+                cancel,
             )
         {
             return Self::tool_preview_ready(request_id, path, lines, "pdftotext");
@@ -725,14 +786,18 @@ impl App {
                     .args(["--export", "ansi", "-w"])
                     .arg(pane_cols.to_string()),
                 400,
+                cancel,
             )
         {
             return Self::tool_preview_ready(request_id, path, lines, "doxx");
         }
         if use_xleak
             && App::is_excel_file(&path)
-            && let Some(lines) =
-                App::capture_preview_tool(Command::new("xleak").arg(&path).args(["-n", "100"]), 400)
+            && let Some(lines) = App::capture_preview_tool(
+                Command::new("xleak").arg(&path).args(["-n", "100"]),
+                400,
+                cancel,
+            )
         {
             return Self::tool_preview_ready(request_id, path, lines, "xleak");
         }
@@ -744,7 +809,8 @@ impl App {
         }
         if use_sox
             && App::is_audio_file(&path)
-            && let Some(lines) = App::capture_preview_tool(Command::new("soxi").arg(&path), 60)
+            && let Some(lines) =
+                App::capture_preview_tool(Command::new("soxi").arg(&path), 60, cancel)
         {
             return Self::tool_preview_ready(request_id, path, lines, "soxi");
         }
@@ -757,14 +823,18 @@ impl App {
                     .args(["-f", "text", "--color", "always"])
                     .arg(&path),
                 400,
+                cancel,
             )
         {
             return Self::tool_preview_ready(request_id, path, lines, "mmdflux");
         }
         if use_links
             && App::is_html_file(&path)
-            && let Some(lines) =
-                App::capture_preview_tool(Command::new("links").arg("-dump").arg(&path), 400)
+            && let Some(lines) = App::capture_preview_tool(
+                Command::new("links").arg("-dump").arg(&path),
+                400,
+                cancel,
+            )
         {
             return Self::tool_preview_ready(request_id, path, lines, "links");
         }
@@ -778,25 +848,34 @@ impl App {
                     .arg(pane_cols.min(120).to_string())
                     .arg(&path),
                 400,
+                cancel,
             )
         {
             return Self::tool_preview_ready(request_id, path, lines, "glow");
         }
         if let Some(kind) = App::archive_kind(&path) {
             let listed = match kind {
-                crate::ArchiveKind::Zip if use_zip_list => {
-                    App::capture_preview_tool(Command::new("unzip").arg("-l").arg(&path), 220)
-                }
-                crate::ArchiveKind::Tar if use_tar_list => {
-                    App::capture_preview_tool(Command::new("tar").arg("-tvf").arg(&path), 220)
-                }
+                crate::ArchiveKind::Zip if use_zip_list => App::capture_preview_tool(
+                    Command::new("unzip").arg("-l").arg(&path),
+                    220,
+                    cancel,
+                ),
+                crate::ArchiveKind::Tar if use_tar_list => App::capture_preview_tool(
+                    Command::new("tar").arg("-tvf").arg(&path),
+                    220,
+                    cancel,
+                ),
                 crate::ArchiveKind::SevenZip if use_7z_list => {
                     Self::seven_zip_tool().and_then(|tool| {
-                        App::capture_preview_tool(Command::new(tool).arg("l").arg(&path), 220)
+                        App::capture_preview_tool(
+                            Command::new(tool).arg("l").arg(&path),
+                            220,
+                            cancel,
+                        )
                     })
                 }
                 crate::ArchiveKind::Rar if use_rar_list => Self::rar_tool().and_then(|tool| {
-                    App::capture_preview_tool(Command::new(tool).arg("l").arg(&path), 220)
+                    App::capture_preview_tool(Command::new(tool).arg("l").arg(&path), 220, cancel)
                 }),
                 _ => None,
             };
@@ -809,7 +888,13 @@ impl App {
 
         if App::is_binary_file(&path) {
             lines.push("[binary file]".to_string());
-            if use_file && let Ok(out) = Command::new("file").arg("-b").arg(&path).output() {
+            if use_file
+                && let Some(out) = Self::run_preview_tool(
+                    Command::new("file").arg("-b").arg(&path),
+                    Some(4),
+                    cancel,
+                )
+            {
                 let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 if !text.is_empty() {
                     lines.push(text);
@@ -821,6 +906,7 @@ impl App {
                         .args(["-n", "1024", "--color=always"])
                         .arg(&path),
                     80,
+                    cancel,
                 )
             {
                 lines.push(String::new());
@@ -836,6 +922,7 @@ impl App {
                 line_kinds,
                 footer,
                 image_rgb: None,
+                image_png: None,
             };
         }
 
@@ -849,16 +936,19 @@ impl App {
         let header_len = lines.len();
 
         if use_bat
-            && let Ok(out) = Command::new("bat")
-                .args([
-                    "--paging=never",
-                    "--style=numbers",
-                    "--color=always",
-                    "--line-range",
-                    "1:220",
-                ])
-                .arg(&path)
-                .output()
+            && let Some(out) = Self::run_preview_tool(
+                Command::new("bat")
+                    .args([
+                        "--paging=never",
+                        "--style=numbers",
+                        "--color=always",
+                        "--line-range",
+                        "1:220",
+                    ])
+                    .arg(&path),
+                Some(220),
+                cancel,
+            )
             && out.status.success()
         {
             let text = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -868,9 +958,12 @@ impl App {
         // Fall back to reading the file directly when bat is unavailable or
         // produced no content, prepending our own line-number gutter.
         if lines.len() == header_len {
+            // Only the first 220 lines are shown: cap the read so selecting a
+            // multi-GB file doesn't pull it all into memory.
+            const TEXT_PREVIEW_MAX_BYTES: u64 = 256 * 1024;
             let mut bytes = Vec::new();
-            if let Ok(mut file) = fs::File::open(&path) {
-                let _ = file.read_to_end(&mut bytes);
+            if let Ok(file) = fs::File::open(&path) {
+                let _ = file.take(TEXT_PREVIEW_MAX_BYTES).read_to_end(&mut bytes);
             }
             let text = String::from_utf8_lossy(&bytes).into_owned();
             lines.extend(
@@ -894,18 +987,44 @@ impl App {
             line_kinds,
             footer,
             image_rgb: None,
+            image_png: None,
         }
+    }
+
+    /// Runs a preview tool detached from the tty with bounded resources: a
+    /// timeout, a cap on captured stdout (`max_lines`, plus a byte ceiling for
+    /// ANSI-heavy output), and the request's cancel flag so a superseded
+    /// preview stops its tool instead of running to completion.
+    fn run_preview_tool(
+        cmd: &mut Command,
+        max_lines: Option<usize>,
+        cancel: &AtomicBool,
+    ) -> Option<std::process::Output> {
+        let cmd = std::mem::replace(cmd, Command::new("true"));
+        crate::util::command::output_with_limits(
+            cmd,
+            crate::util::command::CaptureLimits {
+                timeout: PREVIEW_TOOL_TIMEOUT,
+                max_lines,
+                max_bytes: Some(PREVIEW_TOOL_MAX_BYTES),
+                cancel: Some(cancel),
+            },
+        )
+        .ok()
     }
 
     /// Runs a preview tool that prints capturable text/ANSI to stdout and
     /// returns up to `max_lines` lines; None on spawn failure, non-zero exit,
     /// or blank output so callers fall through to the next renderer.
-    fn capture_preview_tool(cmd: &mut Command, max_lines: usize) -> Option<Vec<String>> {
-        // Detached from the tty: even with stdin null some tools (mmdflux)
-        // open /dev/tty for a terminal query whose reply sb's event loop
-        // eats, stalling the tool — and flip the tty's termios while at it.
-        crate::util::command::detach_from_tty(cmd);
-        let out = cmd.stdin(Stdio::null()).output().ok()?;
+    fn capture_preview_tool(
+        cmd: &mut Command,
+        max_lines: usize,
+        cancel: &AtomicBool,
+    ) -> Option<Vec<String>> {
+        // Detached from the tty (inside `run_preview_tool`): even with stdin
+        // null some tools (mmdflux) open /dev/tty for a terminal query whose
+        // reply sb's event loop eats, stalling the tool.
+        let out = Self::run_preview_tool(cmd, Some(max_lines), cancel)?;
         if !out.status.success() {
             return None;
         }
@@ -939,6 +1058,7 @@ impl App {
             line_kinds,
             footer,
             image_rgb: None,
+            image_png: None,
         }
     }
 
@@ -946,14 +1066,20 @@ impl App {
     /// sized to the preview pane. `-pq` keeps the output plain capturable text
     /// (never kitty/sixel escapes); returns None on any failure so callers can
     /// fall back to the built-in renderers.
-    fn render_preview_with_timg(path: &PathBuf, cols: u16, rows: u16) -> Option<Vec<String>> {
-        let out = Command::new("timg")
-            .arg(format!("-g{}x{}", cols.max(4), rows.max(2)))
-            .args(["-pq", "--frames=1", "--loops=1"])
-            .arg(path)
-            .stdin(Stdio::null())
-            .output()
-            .ok()?;
+    fn render_preview_with_timg(
+        path: &PathBuf,
+        cols: u16,
+        rows: u16,
+        cancel: &AtomicBool,
+    ) -> Option<Vec<String>> {
+        let out = Self::run_preview_tool(
+            Command::new("timg")
+                .arg(format!("-g{}x{}", cols.max(4), rows.max(2)))
+                .args(["-pq", "--frames=1", "--loops=1"])
+                .arg(path),
+            None,
+            cancel,
+        )?;
         if !out.status.success() {
             return None;
         }

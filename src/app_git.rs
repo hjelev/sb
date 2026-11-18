@@ -106,11 +106,30 @@ impl App {
             _ => return None,
         };
 
-        let has_untracked =
-            CommandBuilder::git_command(path, &["ls-files", "--others", "--exclude-standard"])
-                .ok()
-                .map(|out| !out.stdout.is_empty())
-                .unwrap_or(false);
+        // Only "is there any untracked file?" matters: collapse untracked
+        // directories and stop git at the first byte of output instead of
+        // buffering the full list (huge in repos with big untracked trees).
+        // This runs every few seconds while idle.
+        let has_untracked = {
+            let mut cmd = std::process::Command::new("git");
+            cmd.current_dir(path).args([
+                "ls-files",
+                "--others",
+                "--exclude-standard",
+                "--directory",
+                "--no-empty-directory",
+            ]);
+            crate::util::command::output_with_limits(
+                cmd,
+                crate::util::command::CaptureLimits {
+                    timeout: Duration::from_secs(10),
+                    max_bytes: Some(1),
+                    ..Default::default()
+                },
+            )
+            .map(|out| !out.stdout.is_empty())
+            .unwrap_or(false)
+        };
 
         let is_dirty = tracked_dirty || has_untracked;
 

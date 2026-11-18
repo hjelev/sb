@@ -358,11 +358,24 @@ pub(crate) fn render_scrollbar_and_preview(
                 active_theme.bg_inactive_panel
             };
 
+            // Only the visible rows are built (see `visible_row_window`).
+            app.right.table_state.select(Some(app.right.selected_index));
+            let right_count = app.right.entry_render_cache.len();
+            clamp_table_selection(&mut app.right.table_state, right_count);
+            let right_window = visible_row_window(
+                right_count,
+                app.right.table_state.offset(),
+                app.right.table_state.selected(),
+                right_table_render_area.height as usize,
+            );
+            let (right_start, right_end) = right_window.unwrap_or((0, 0));
             let right_rows: Vec<Row> = app
                 .right
                 .entry_render_cache
                 .iter()
                 .enumerate()
+                .skip(right_start)
+                .take(right_end - right_start)
                 .map(|(idx, entry_cache)| {
                     let right_is_marked = app.right.marked_indices.contains(&idx);
                     let right_is_selected = idx == app.right.selected_index;
@@ -533,11 +546,12 @@ pub(crate) fn render_scrollbar_and_preview(
             let right_table = Table::new(right_rows, right_constraints)
                 .row_highlight_style(Style::default())
                 .highlight_symbol("");
-            app.right.table_state.select(Some(app.right.selected_index));
-            f.render_stateful_widget(
+            render_table_window(
+                f,
                 right_table,
                 right_table_render_area,
                 &mut app.right.table_state,
+                right_window,
             );
 
             if let Some(sel) = app.right.table_state.selected() {

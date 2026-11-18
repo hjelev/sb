@@ -64,7 +64,13 @@ pub(crate) struct EntryRenderConfig {
 }
 
 impl App {
+    /// Memoised: consulted once per entry while building the render cache.
     fn terminal_background_is_light() -> bool {
+        static LIGHT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *LIGHT.get_or_init(Self::detect_terminal_background_is_light)
+    }
+
+    fn detect_terminal_background_is_light() -> bool {
         std::env::var("COLORFGBG")
             .ok()
             .and_then(|value| {

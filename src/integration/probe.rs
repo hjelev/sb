@@ -1,6 +1,8 @@
 use std::{
+    collections::HashMap,
     env,
     process::{Command, Stdio},
+    sync::{Mutex, OnceLock},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -22,7 +24,15 @@ impl TerminalImageProtocol {
     }
 }
 
-pub fn terminal_image_protocol() -> (TerminalImageProtocol, String) {
+/// Image protocol of the hosting terminal, detected from the environment.
+/// Memoised: the environment doesn't change while sb runs, and this is
+/// consulted on every event-loop tick.
+pub fn terminal_image_protocol() -> (TerminalImageProtocol, &'static str) {
+    static DETECTED: OnceLock<(TerminalImageProtocol, &'static str)> = OnceLock::new();
+    *DETECTED.get_or_init(detect_terminal_image_protocol)
+}
+
+fn detect_terminal_image_protocol() -> (TerminalImageProtocol, &'static str) {
     let term = env::var("TERM").unwrap_or_default().to_ascii_lowercase();
     let term_program = env::var("TERM_PROGRAM")
         .unwrap_or_default()
@@ -35,33 +45,63 @@ pub fn terminal_image_protocol() -> (TerminalImageProtocol, String) {
         || term.contains("konsole")
         || term_program.contains("warp")
     {
-        return (
-            TerminalImageProtocol::Kitty,
-            "env-detected kitty protocol".to_string(),
-        );
+        return (TerminalImageProtocol::Kitty, "env-detected kitty protocol");
     }
 
     if term_program.contains("iterm") || term_program.contains("wezterm") {
         return (
             TerminalImageProtocol::Iterm2Inline,
-            "env-detected iTerm2 inline protocol".to_string(),
+            "env-detected iTerm2 inline protocol",
         );
     }
 
     if env::var_os("WT_SESSION").is_some() || term.contains("foot") {
-        return (
-            TerminalImageProtocol::Sixel,
-            "env-detected sixel protocol".to_string(),
-        );
+        return (TerminalImageProtocol::Sixel, "env-detected sixel protocol");
     }
 
     (
         TerminalImageProtocol::Unsupported,
-        "no known image protocol detected".to_string(),
+        "no known image protocol detected",
     )
 }
 
+/// Probe results keyed by command name. Probing spawns `which` (and, for a
+/// missing tool, a `--version` attempt), and callers hit this on every
+/// preview request and file open, so results are memoised until
+/// [`invalidate_probe_cache`] is called (Integrations panel open / install).
+fn probe_cache() -> &'static Mutex<HashMap<String, (bool, String)>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, (bool, String)>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Forget cached probe results so tools installed (or removed) since the
+/// last probe are picked up.
+pub fn invalidate_probe_cache() {
+    probe_cache()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
+}
+
 pub fn integration_probe(cmd: &str) -> (bool, String) {
+    if let Some(hit) = probe_cache()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(cmd)
+    {
+        return hit.clone();
+    }
+    // Probe without holding the lock: spawning can take a while and other
+    // threads (preview workers) may probe concurrently.
+    let result = probe_uncached(cmd);
+    probe_cache()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(cmd.to_string(), result.clone());
+    result
+}
+
+fn probe_uncached(cmd: &str) -> (bool, String) {
     if let Ok(out) = Command::new("which").arg(cmd).output()
         && out.status.success()
     {
@@ -187,7 +227,7 @@ pub fn integration_support_and_detail(key: &str) -> (bool, bool, String) {
         "image-native" => {
             let (protocol, detail) = terminal_image_protocol();
             if protocol != TerminalImageProtocol::Unsupported {
-                (true, false, detail)
+                (true, false, detail.to_string())
             } else {
                 (
                     false,
@@ -200,5 +240,29 @@ pub fn integration_support_and_detail(key: &str) -> (bool, bool, String) {
             let (ok, detail) = integration_probe(other);
             (ok, false, detail)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn probe_results_are_cached_until_invalidated() {
+        let cmd = "sb-definitely-not-a-real-tool-xyz";
+        assert_eq!(integration_probe(cmd), (false, String::new()));
+        assert!(
+            probe_cache()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains_key(cmd)
+        );
+        invalidate_probe_cache();
+        assert!(
+            !probe_cache()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains_key(cmd)
+        );
     }
 }

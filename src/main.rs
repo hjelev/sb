@@ -297,7 +297,9 @@ struct PreviewState {
     rx: Option<Receiver<PreviewContentMsg>>,
     request_id: u64,
     pending: bool,
-    cache: HashMap<PathBuf, (crate::app_model::FileStamp, PreviewCacheEntry)>,
+    cache: crate::app_model::PreviewCache,
+    /// Cancel flag of the in-flight preview build; set when it's superseded.
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
     native_area: Option<Rect>,
     native_last_key: Option<String>,
     image_rgb: Option<(Vec<u8>, u32, u32)>,

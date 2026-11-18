@@ -424,6 +424,7 @@ fn dispatch_action(
         }
         Action::Integrations => {
             app.integration.selected = 0;
+            App::invalidate_integration_probes();
             app.reset_integration_search();
             app.refresh_integration_rows_cache();
             app.panel_tab = 5;

@@ -146,11 +146,72 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
     // highlight a row; Down then visibly lands on the first match.
     let hide_selection = app.mode == AppMode::FolderFilter && app.folder_filter_on_left();
 
+    let table_area = if app.is_preview_mode() || app.is_dual_panel_mode() {
+        Rect::new(
+            list_frame_area.x + 1,
+            list_frame_area.y + 1,
+            list_frame_area.width.saturating_sub(2),
+            list_frame_area.height.saturating_sub(2),
+        )
+    } else {
+        content_area
+    };
+    let table_area = if app.folder_filter_on_left() {
+        render_folder_filter_box(
+            f,
+            app,
+            table_area,
+            active_theme,
+            app.mode == AppMode::FolderFilter,
+        )
+    } else {
+        table_area
+    };
+    let needs_scroll = app.left.entries.len() > table_area.height as usize;
+    let can_draw_scrollbar =
+        app.mode_shows_main_scrollbar() && table_area.width > 2 && needs_scroll;
+    let list_area = if can_draw_scrollbar {
+        Rect::new(
+            table_area.x,
+            table_area.y,
+            table_area.width.saturating_sub(1),
+            table_area.height,
+        )
+    } else {
+        table_area
+    };
+    let table_render_area = if use_main_pill {
+        Rect::new(
+            list_area.x,
+            list_area.y,
+            list_area.width.saturating_sub(1),
+            list_area.height,
+        )
+    } else {
+        list_area
+    };
+    app.page_size = (table_render_area.height as usize).saturating_sub(1).max(1);
+
+    // Build `Row`s only for the rows the table will actually show: with
+    // tens of thousands of entries, formatting every row on every frame
+    // dominated render time. The scroll window mirrors ratatui's own.
+    let entry_count = app.left.entry_render_cache.len();
+    clamp_table_selection(&mut app.left.table_state, entry_count);
+    let row_window = visible_row_window(
+        entry_count,
+        app.left.table_state.offset(),
+        app.left.table_state.selected(),
+        table_render_area.height as usize,
+    );
+    let (row_start, row_end) = row_window.unwrap_or((0, 0));
+
     let rows: Vec<Row> = app
         .left
         .entry_render_cache
         .iter()
         .enumerate()
+        .skip(row_start)
+        .take(row_end - row_start)
         .map(|(idx, entry_cache)| {
             let is_marked = app.left.marked_indices.contains(&idx);
             let is_selected = !hide_selection && idx == app.left.selected_index;
@@ -379,52 +440,13 @@ pub(crate) fn render_table(f: &mut Frame, app: &mut App, ctx: &RenderCtx) -> Tab
         .row_highlight_style(Style::default())
         .highlight_symbol("");
 
-    let table_area = if app.is_preview_mode() || app.is_dual_panel_mode() {
-        Rect::new(
-            list_frame_area.x + 1,
-            list_frame_area.y + 1,
-            list_frame_area.width.saturating_sub(2),
-            list_frame_area.height.saturating_sub(2),
-        )
-    } else {
-        content_area
-    };
-    let table_area = if app.folder_filter_on_left() {
-        render_folder_filter_box(
-            f,
-            app,
-            table_area,
-            active_theme,
-            app.mode == AppMode::FolderFilter,
-        )
-    } else {
-        table_area
-    };
-    let needs_scroll = app.left.entries.len() > table_area.height as usize;
-    let can_draw_scrollbar =
-        app.mode_shows_main_scrollbar() && table_area.width > 2 && needs_scroll;
-    let list_area = if can_draw_scrollbar {
-        Rect::new(
-            table_area.x,
-            table_area.y,
-            table_area.width.saturating_sub(1),
-            table_area.height,
-        )
-    } else {
-        table_area
-    };
-    let table_render_area = if use_main_pill {
-        Rect::new(
-            list_area.x,
-            list_area.y,
-            list_area.width.saturating_sub(1),
-            list_area.height,
-        )
-    } else {
-        list_area
-    };
-    app.page_size = (table_render_area.height as usize).saturating_sub(1).max(1);
-    f.render_stateful_widget(table, table_render_area, &mut app.left.table_state);
+    render_table_window(
+        f,
+        table,
+        table_render_area,
+        &mut app.left.table_state,
+        row_window,
+    );
 
     if app.left.entries.is_empty() {
         f.render_widget(

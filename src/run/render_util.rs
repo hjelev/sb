@@ -98,3 +98,120 @@ pub(crate) fn build_panel_title(
     }
     Line::from(title_spans)
 }
+
+/// Rows `[start, end)` that a ratatui 0.29 `Table` of one-line rows shows in
+/// `height` lines, given its previous scroll `offset` and `selected` row — a
+/// port of `Table::get_row_bounds` for uniform rows. Lets callers build only
+/// the visible `Row`s while keeping ratatui's scrolling behaviour. `None`
+/// when nothing is drawn (ratatui then leaves the offset untouched).
+pub(crate) fn visible_row_window(
+    len: usize,
+    offset: usize,
+    selected: Option<usize>,
+    height: usize,
+) -> Option<(usize, usize)> {
+    if len == 0 || height == 0 {
+        return None;
+    }
+    let mut start = offset.min(len - 1);
+    let mut end = (start + height).min(len);
+    if let Some(selected) = selected.map(|s| s.min(len - 1)) {
+        if selected >= end {
+            end = selected + 1;
+            start = start.max(end.saturating_sub(height));
+        }
+        if selected < start {
+            start = selected;
+            end = end.min(start + height);
+        }
+    }
+    Some((start, end))
+}
+
+/// The selection fix-up ratatui applies to a `TableState` before drawing:
+/// clamp to the last row, or clear it for an empty table. Applied to the
+/// real state because the widget only ever sees the visible slice.
+pub(crate) fn clamp_table_selection(state: &mut TableState, len: usize) {
+    if len == 0 {
+        state.select(None);
+    } else if state.selected().is_some_and(|s| s >= len) {
+        state.select(Some(len - 1));
+    }
+}
+
+/// Draw a `Table` holding only the rows of `window` (from
+/// [`visible_row_window`]) and record the window start as `state`'s scroll
+/// offset, so mouse hit-testing and overlays that read
+/// `state.offset()`/`state.selected()` see the same values as before.
+pub(crate) fn render_table_window(
+    f: &mut Frame,
+    table: Table,
+    area: Rect,
+    state: &mut TableState,
+    window: Option<(usize, usize)>,
+) {
+    let Some((start, _)) = window else {
+        f.render_widget(table, area);
+        return;
+    };
+    let mut view = TableState::default().with_selected(state.selected().map(|s| s - start));
+    f.render_stateful_widget(table, area, &mut view);
+    *state.offset_mut() = start;
+}
+
+#[cfg(test)]
+mod visible_row_window_tests {
+    use super::visible_row_window;
+
+    /// Reference: ratatui's own bounds, computed by rendering a real table.
+    fn ratatui_bounds(
+        len: usize,
+        offset: usize,
+        selected: Option<usize>,
+        height: u16,
+    ) -> (usize, usize) {
+        use ratatui::{buffer::Buffer, layout::Rect, widgets::*};
+        let rows: Vec<Row> = (0..len).map(|i| Row::new(vec![i.to_string()])).collect();
+        let table = Table::new(rows, [ratatui::layout::Constraint::Min(0)]);
+        let mut state = TableState::default()
+            .with_offset(offset)
+            .with_selected(selected);
+        let area = Rect::new(0, 0, 10, height);
+        let mut buf = Buffer::empty(area);
+        StatefulWidget::render(table, area, &mut buf, &mut state);
+        let start = state.offset();
+        (start, (start + height as usize).min(len))
+    }
+
+    #[test]
+    fn matches_ratatui_scrolling() {
+        for len in [1usize, 2, 5, 12, 40] {
+            for height in [1u16, 3, 10] {
+                for offset in [0usize, 1, 4, 11, 39, 60] {
+                    for selected in [None, Some(0), Some(3), Some(11), Some(39), Some(99)] {
+                        let ours =
+                            visible_row_window(len, offset, selected, height as usize).unwrap();
+                        let theirs = ratatui_bounds(len, offset, selected, height);
+                        assert_eq!(
+                            ours.0, theirs.0,
+                            "start: len={len} h={height} off={offset} sel={selected:?}"
+                        );
+                        // ratatui may show fewer rows than `height` when the
+                        // offset sits near the end; our end is the row bound.
+                        assert!(ours.1 <= len && ours.1 - ours.0 <= height as usize);
+                        if let Some(sel) = selected {
+                            let sel = sel.min(len - 1);
+                            assert!(ours.0 <= sel && sel < ours.1);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn empty_or_zero_height_draws_nothing() {
+        assert_eq!(visible_row_window(0, 0, Some(0), 10), None);
+        assert_eq!(visible_row_window(10, 3, Some(0), 0), None);
+    }
+}

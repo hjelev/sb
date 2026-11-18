@@ -29,21 +29,10 @@ impl App {
         let scan_id = self.size.recursive_mtime.next_scan_id();
         let cancel = self.size.recursive_mtime.renew_cancel();
 
-        let mut unique_dirs: HashSet<PathBuf> = self
-            .left
-            .entries
-            .iter()
-            .map(|e| e.path())
-            .filter(|p| p.is_dir())
-            .collect();
+        let mut unique_dirs: HashSet<PathBuf> =
+            self.left.entries.iter().map(|e| e.path()).collect();
         if self.is_dual_panel_mode() {
-            for path in self
-                .right
-                .entries
-                .iter()
-                .map(|e| e.path())
-                .filter(|p| p.is_dir())
-            {
+            for path in self.right.entries.iter().map(|e| e.path()) {
                 unique_dirs.insert(path);
             }
         }
@@ -55,8 +44,10 @@ impl App {
         }
 
         self.size.recursive_mtime.rx = Some(spawn_worker(move |tx| {
+            // `is_dir` stats (and follows symlinks); done here, not on the UI thread.
             let updated: Vec<(PathBuf, u64)> = dir_paths
                 .par_iter()
+                .filter(|p| p.is_dir())
                 .map(|dir| {
                     (
                         dir.clone(),
@@ -77,13 +68,18 @@ impl App {
     }
 
     pub(crate) fn pump_recursive_mtime_progress(&mut self) {
-        for msg in drain_channel(&mut self.size.recursive_mtime.rx) {
+        let msgs = drain_channel(&mut self.size.recursive_mtime.rx);
+        if msgs.is_empty() {
+            return;
+        }
+        let left_index = entry_index_by_path(&self.left.entries);
+        for msg in msgs {
             match msg {
                 RecursiveMtimeMsg::EntryMtime(scan_id, dir_path, unix_secs) => {
                     if !self.size.recursive_mtime.is_current(scan_id) {
                         continue;
                     }
-                    if let Some(idx) = self.left.entries.iter().position(|e| e.path() == dir_path) {
+                    if let Some(&idx) = left_index.get(&dir_path) {
                         self.left.entry_render_cache[idx].modified_unix = Some(unix_secs);
                         self.left.entry_render_cache[idx].date_col = format!(
                             "{:>width$}",
@@ -148,6 +144,7 @@ impl App {
         match side {
             crate::DualPanelSide::Left => {
                 self.left.selected_total_size.next_scan_id();
+                self.left.selected_total_size.abort_cancel();
                 self.left.selected_total_size.clear_rx();
                 self.left.selected_total_size_pending = false;
                 self.left.selected_total_size_bytes = None;
@@ -155,6 +152,7 @@ impl App {
             }
             crate::DualPanelSide::Right => {
                 self.right.selected_total_size.next_scan_id();
+                self.right.selected_total_size.abort_cancel();
                 self.right.selected_total_size.clear_rx();
                 self.right.selected_total_size_pending = false;
                 self.right.selected_total_size_bytes = None;
@@ -217,26 +215,35 @@ impl App {
             return;
         }
 
-        let scan_id = match side {
+        let (scan_id, cancel) = match side {
             crate::DualPanelSide::Left => {
                 self.left.selected_total_size_items = targets.len();
                 self.left.selected_total_size_pending = true;
                 self.left.selected_total_size_bytes = None;
-                self.left.selected_total_size.next_scan_id()
+                (
+                    self.left.selected_total_size.next_scan_id(),
+                    self.left.selected_total_size.renew_cancel(),
+                )
             }
             crate::DualPanelSide::Right => {
                 self.right.selected_total_size_items = targets.len();
                 self.right.selected_total_size_pending = true;
                 self.right.selected_total_size_bytes = None;
-                self.right.selected_total_size.next_scan_id()
+                (
+                    self.right.selected_total_size.next_scan_id(),
+                    self.right.selected_total_size.renew_cancel(),
+                )
             }
         };
 
         let rx = spawn_worker(move |tx| {
             let total = targets
                 .par_iter()
-                .map(|p| App::compute_total_display_bytes(p, None).unwrap_or(0))
+                .map(|p| App::compute_total_display_bytes(p, Some(&cancel)).unwrap_or(0))
                 .reduce(|| 0u64, |acc, v| acc.saturating_add(v));
+            if cancel.load(Ordering::Relaxed) {
+                return;
+            }
             let _ = tx.send(SelectedTotalSizeMsg::Finished(scan_id, total));
         });
         match side {
@@ -336,21 +343,10 @@ impl App {
         let scan_id = self.size.folder_size.next_scan_id();
         let cancel = self.size.folder_size.renew_cancel();
 
-        let mut unique_dirs: HashSet<PathBuf> = self
-            .left
-            .entries
-            .iter()
-            .map(|e| e.path())
-            .filter(|p| p.is_dir())
-            .collect();
+        let mut unique_dirs: HashSet<PathBuf> =
+            self.left.entries.iter().map(|e| e.path()).collect();
         if self.is_dual_panel_mode() {
-            for path in self
-                .right
-                .entries
-                .iter()
-                .map(|e| e.path())
-                .filter(|p| p.is_dir())
-            {
+            for path in self.right.entries.iter().map(|e| e.path()) {
                 unique_dirs.insert(path);
             }
         }
@@ -362,8 +358,10 @@ impl App {
         }
 
         self.size.folder_size.rx = Some(spawn_worker(move |tx| {
+            // `is_dir` stats (and follows symlinks); done here, not on the UI thread.
             let sized: Vec<(PathBuf, u64)> = dir_paths
                 .par_iter()
+                .filter(|p| p.is_dir())
                 .map(|dir| {
                     (
                         dir.clone(),
@@ -598,7 +596,18 @@ impl App {
 
     pub(crate) fn pump_folder_size_progress(&mut self) {
         let mut any_size_changed = false;
-        for msg in drain_channel(&mut self.size.folder_size.rx) {
+        let msgs = drain_channel(&mut self.size.folder_size.rx);
+        // One O(n) map per batch instead of a linear scan (allocating a
+        // PathBuf per entry) for every message. Skipped on idle ticks.
+        let (left_index, right_index) = if msgs.is_empty() {
+            Default::default()
+        } else {
+            (
+                entry_index_by_path(&self.left.entries),
+                entry_index_by_path(&self.right.entries),
+            )
+        };
+        for msg in msgs {
             match msg {
                 FolderSizeMsg::EntrySize(scan_id, dir_path, size) => {
                     if !self.size.folder_size_enabled || !self.size.folder_size.is_current(scan_id)
@@ -609,13 +618,12 @@ impl App {
                     if previous != Some(size) {
                         any_size_changed = true;
                     }
-                    if let Some(idx) = self.left.entries.iter().position(|e| e.path() == dir_path) {
+                    if let Some(&idx) = left_index.get(&dir_path) {
                         self.left.entry_render_cache[idx].size_col =
                             format!("{:>width$}", Self::format_size(size), width = 6);
                         self.left.entry_render_cache[idx].size_bytes = Some(size);
                     }
-                    if let Some(idx) = self.right.entries.iter().position(|e| e.path() == dir_path)
-                    {
+                    if let Some(&idx) = right_index.get(&dir_path) {
                         self.right.entry_render_cache[idx].size_col =
                             format!("{:>width$}", Self::format_size(size), width = 6);
                         self.right.entry_render_cache[idx].size_bytes = Some(size);
@@ -786,4 +794,13 @@ impl App {
             metadata.len()
         }
     }
+}
+
+/// Map each entry's path to its index, for applying batched scan results.
+fn entry_index_by_path(entries: &[fs::DirEntry]) -> std::collections::HashMap<PathBuf, usize> {
+    entries
+        .iter()
+        .enumerate()
+        .map(|(idx, e)| (e.path(), idx))
+        .collect()
 }

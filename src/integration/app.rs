@@ -212,6 +212,7 @@ impl App {
             }
         }
 
+        probe::invalidate_probe_cache();
         self.refresh_integration_rows_cache();
         self.mode = AppMode::Integrations;
         self.clear_integration_install_prompt();
@@ -222,6 +223,11 @@ impl App {
         probe::integration_probe(cmd)
     }
 
+    /// Re-probe tools on the next check (picks up installs made outside sb).
+    pub(crate) fn invalidate_integration_probes() {
+        probe::invalidate_probe_cache();
+    }
+
     pub(crate) fn integration_availability_and_detail(key: &str) -> (bool, String) {
         probe::integration_availability_and_detail(key)
     }
@@ -230,7 +236,7 @@ impl App {
         probe::integration_support_and_detail(key)
     }
 
-    pub(crate) fn terminal_image_protocol() -> (probe::TerminalImageProtocol, String) {
+    pub(crate) fn terminal_image_protocol() -> (probe::TerminalImageProtocol, &'static str) {
         probe::terminal_image_protocol()
     }
 

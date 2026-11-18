@@ -433,8 +433,6 @@ pub(crate) enum InternalSearchCandidatesMsg {
     },
 }
 
-/// Loaded preview text, styled line kinds, and an optional footer, as cached
-/// per-path in [`crate::App`]'s preview cache.
 /// Cheap change detector for a previewed path: modification time + size.
 /// Editing a file (or adding/removing entries in a directory) changes it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -453,7 +451,85 @@ impl FileStamp {
     }
 }
 
+/// Loaded preview text, styled line kinds, and an optional footer, as cached
+/// per-path in [`PreviewCache`].
 pub(crate) type PreviewCacheEntry = (Vec<String>, Vec<PreviewLineKind>, Option<String>);
+
+/// Bounded least-recently-used cache of text previews keyed by path. Each
+/// entry holds up to a few hundred ANSI lines, so an unbounded map would grow
+/// for the whole session as the user browses.
+pub(crate) struct PreviewCache {
+    map: std::collections::HashMap<PathBuf, (FileStamp, PreviewCacheEntry, u64)>,
+    /// Monotonic use counter; the entry with the smallest value is evicted.
+    tick: u64,
+    capacity: usize,
+}
+
+impl Default for PreviewCache {
+    fn default() -> Self {
+        Self::with_capacity(Self::DEFAULT_CAPACITY)
+    }
+}
+
+impl PreviewCache {
+    pub(crate) const DEFAULT_CAPACITY: usize = 256;
+
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
+        Self {
+            map: std::collections::HashMap::new(),
+            tick: 0,
+            capacity: capacity.max(1),
+        }
+    }
+
+    /// Cached preview for `path` if it was built for `stamp`; marks it as
+    /// recently used. A stale entry (file changed) is dropped.
+    pub(crate) fn get(
+        &mut self,
+        path: &std::path::Path,
+        stamp: FileStamp,
+    ) -> Option<PreviewCacheEntry> {
+        self.tick += 1;
+        let tick = self.tick;
+        match self.map.get_mut(path) {
+            Some((cached_stamp, entry, used)) if *cached_stamp == stamp => {
+                *used = tick;
+                Some(entry.clone())
+            }
+            Some(_) => {
+                self.map.remove(path);
+                None
+            }
+            None => None,
+        }
+    }
+
+    pub(crate) fn insert(&mut self, path: PathBuf, stamp: FileStamp, entry: PreviewCacheEntry) {
+        self.tick += 1;
+        if !self.map.contains_key(&path) && self.map.len() >= self.capacity {
+            // O(capacity) scan, only on inserts of new paths: fine for a few
+            // hundred entries and avoids pulling in an LRU crate.
+            if let Some(oldest) = self
+                .map
+                .iter()
+                .min_by_key(|(_, (_, _, used))| *used)
+                .map(|(p, _)| p.clone())
+            {
+                self.map.remove(&oldest);
+            }
+        }
+        self.map.insert(path, (stamp, entry, self.tick));
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.map.clear();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.map.len()
+    }
+}
 
 pub(crate) enum PreviewContentMsg {
     Ready {
@@ -463,10 +539,56 @@ pub(crate) enum PreviewContentMsg {
         line_kinds: Vec<PreviewLineKind>,
         footer: Option<String>,
         image_rgb: Option<(Vec<u8>, u32, u32)>,
+        /// `image_rgb` PNG-encoded off the UI thread (kitty/iTerm2 panes).
+        image_png: Option<Vec<u8>>,
     },
     Failed {
         request_id: u64,
         path: PathBuf,
         message: String,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stamp(len: u64) -> FileStamp {
+        FileStamp {
+            modified: None,
+            len,
+        }
+    }
+
+    fn entry(text: &str) -> PreviewCacheEntry {
+        (vec![text.to_string()], vec![PreviewLineKind::Plain], None)
+    }
+
+    #[test]
+    fn preview_cache_evicts_least_recently_used() {
+        let mut cache = PreviewCache::with_capacity(2);
+        cache.insert("a".into(), stamp(1), entry("a"));
+        cache.insert("b".into(), stamp(1), entry("b"));
+        // Touch "a" so "b" becomes the oldest.
+        assert!(cache.get(std::path::Path::new("a"), stamp(1)).is_some());
+        cache.insert("c".into(), stamp(1), entry("c"));
+        assert_eq!(cache.len(), 2);
+        assert!(cache.get(std::path::Path::new("b"), stamp(1)).is_none());
+        assert!(cache.get(std::path::Path::new("a"), stamp(1)).is_some());
+        assert!(cache.get(std::path::Path::new("c"), stamp(1)).is_some());
+    }
+
+    #[test]
+    fn preview_cache_drops_stale_entries() {
+        let mut cache = PreviewCache::with_capacity(4);
+        cache.insert("a".into(), stamp(1), entry("old"));
+        assert!(cache.get(std::path::Path::new("a"), stamp(2)).is_none());
+        assert_eq!(cache.len(), 0);
+        // Re-inserting an existing path never evicts another entry.
+        cache.insert("x".into(), stamp(1), entry("x"));
+        cache.insert("x".into(), stamp(2), entry("x2"));
+        assert_eq!(cache.len(), 1);
+        let (lines, _, _) = cache.get(std::path::Path::new("x"), stamp(2)).unwrap();
+        assert_eq!(lines, vec!["x2".to_string()]);
+    }
 }

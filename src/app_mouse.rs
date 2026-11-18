@@ -97,6 +97,7 @@ impl App {
             }
             5 => {
                 self.integration.selected = 0;
+                Self::invalidate_integration_probes();
                 self.reset_integration_search();
                 self.refresh_integration_rows_cache();
                 self.panel_tab = 5;

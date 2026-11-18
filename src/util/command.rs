@@ -8,6 +8,8 @@
 use std::io::{self, Read};
 use std::path::Path;
 use std::process::{Child, Command, Output, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 /// Spawn `cmd` with its stdout piped into `less -R`, returning whether the pager
@@ -175,64 +177,188 @@ pub fn status_ignoring_sigint(cmd: &mut Command) -> io::Result<std::process::Exi
 /// The child leads its own session ([`detach_from_tty`]), so on timeout the
 /// whole process group is killed — otherwise a `sh -c` grandchild would keep
 /// the pipes open and the reader threads would never finish.
-pub fn output_with_timeout(mut cmd: Command, timeout: Duration) -> io::Result<Output> {
+pub fn output_with_timeout(cmd: Command, timeout: Duration) -> io::Result<Output> {
+    output_with_limits(
+        cmd,
+        CaptureLimits {
+            timeout,
+            ..CaptureLimits::default()
+        },
+    )
+}
+
+/// Bounds for [`output_with_limits`].
+#[derive(Clone, Copy)]
+pub struct CaptureLimits<'a> {
+    /// Kill the process group and fail with `TimedOut` after this long.
+    pub timeout: Duration,
+    /// Stop once stdout holds this many newlines (`None` = unbounded).
+    pub max_lines: Option<usize>,
+    /// Stop once stdout holds this many bytes (`None` = unbounded).
+    pub max_bytes: Option<usize>,
+    /// Kill the process group and fail with `Interrupted` once this is set.
+    pub cancel: Option<&'a AtomicBool>,
+}
+
+impl Default for CaptureLimits<'_> {
+    fn default() -> Self {
+        Self {
+            timeout: Duration::from_secs(600),
+            max_lines: None,
+            max_bytes: None,
+            cancel: None,
+        }
+    }
+}
+
+/// Read `pipe` to the end, or until `max_lines` newlines / `max_bytes` bytes
+/// have arrived, setting `full` when a limit cut the read short.
+fn read_capped(
+    pipe: Option<Box<dyn Read + Send>>,
+    max_lines: Option<usize>,
+    max_bytes: Option<usize>,
+    full: &AtomicBool,
+) -> Vec<u8> {
+    let mut buf = Vec::new();
+    let Some(mut p) = pipe else {
+        return buf;
+    };
+    let mut chunk = [0u8; 8192];
+    let mut lines = 0usize;
+    loop {
+        let n = match p.read(&mut chunk) {
+            Ok(0) | Err(_) => return buf,
+            Ok(n) => n,
+        };
+        let mut take = n;
+        if let Some(max) = max_lines {
+            for (i, b) in chunk[..n].iter().enumerate() {
+                if *b == b'\n' {
+                    lines += 1;
+                    if lines >= max {
+                        take = i + 1;
+                        break;
+                    }
+                }
+            }
+        }
+        if let Some(max) = max_bytes {
+            take = take.min(max.saturating_sub(buf.len()));
+        }
+        buf.extend_from_slice(&chunk[..take]);
+        let hit_lines = max_lines.is_some_and(|m| lines >= m);
+        let hit_bytes = max_bytes.is_some_and(|m| buf.len() >= m);
+        if hit_lines || hit_bytes {
+            // Dropping the pipe here makes further writes fail with EPIPE;
+            // the poll loop also kills the group so a blocked tool can't linger.
+            full.store(true, Ordering::Release);
+            return buf;
+        }
+    }
+}
+
+/// Run `cmd` detached from the tty with stdout/stderr captured, bounded by
+/// `limits`: a timeout, optional caps on captured stdout, and an optional
+/// cancel flag. When a stdout cap is reached the process group is killed and
+/// the truncated output is returned as a *successful* run, so callers that
+/// only want the first N lines of e.g. `tar -tvf` don't wait for (or buffer)
+/// the whole listing.
+///
+/// The child leads its own session ([`detach_from_tty`]), so on kill the
+/// whole process group goes — otherwise a `sh -c` grandchild would keep the
+/// pipes open and the reader threads would never finish.
+pub fn output_with_limits(mut cmd: Command, limits: CaptureLimits<'_>) -> io::Result<Output> {
     detach_from_tty(&mut cmd);
     let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    let read_all = |pipe: Option<Box<dyn Read + Send>>| {
-        std::thread::spawn(move || {
-            let mut buf = Vec::new();
-            if let Some(mut p) = pipe {
-                let _ = p.read_to_end(&mut buf);
-            }
-            buf
-        })
+    let stdout_full = Arc::new(AtomicBool::new(false));
+    let stdout_pipe = child
+        .stdout
+        .take()
+        .map(|p| Box::new(p) as Box<dyn Read + Send>);
+    let stdout = {
+        let full = Arc::clone(&stdout_full);
+        let (max_lines, max_bytes) = (limits.max_lines, limits.max_bytes);
+        std::thread::spawn(move || read_capped(stdout_pipe, max_lines, max_bytes, &full))
     };
-    let stdout = read_all(
-        child
-            .stdout
-            .take()
-            .map(|p| Box::new(p) as Box<dyn Read + Send>),
-    );
-    let stderr = read_all(
-        child
-            .stderr
-            .take()
-            .map(|p| Box::new(p) as Box<dyn Read + Send>),
-    );
+    let stderr_pipe = child
+        .stderr
+        .take()
+        .map(|p| Box::new(p) as Box<dyn Read + Send>);
+    // stderr is diagnostics only: cap it so a chatty tool can't grow memory.
+    let stderr = std::thread::spawn(move || {
+        read_capped(stderr_pipe, None, Some(64 * 1024), &AtomicBool::new(false))
+    });
 
-    let deadline = Instant::now() + timeout;
-    let status = loop {
+    let kill_group = |child: &mut Child| {
+        #[cfg(unix)]
+        unsafe {
+            libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL);
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+    };
+
+    enum End {
+        Exited(std::process::ExitStatus),
+        Truncated,
+        TimedOut,
+        Cancelled,
+    }
+    let deadline = Instant::now() + limits.timeout;
+    let end = loop {
         if let Some(status) = child.try_wait()? {
-            break Some(status);
+            break End::Exited(status);
+        }
+        if stdout_full.load(Ordering::Acquire) {
+            kill_group(&mut child);
+            break End::Truncated;
+        }
+        if limits.cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
+            kill_group(&mut child);
+            break End::Cancelled;
         }
         if Instant::now() >= deadline {
-            #[cfg(unix)]
-            unsafe {
-                libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL);
-            }
-            let _ = child.kill();
-            let _ = child.wait();
-            break None;
+            kill_group(&mut child);
+            break End::TimedOut;
         }
-        std::thread::sleep(Duration::from_millis(25));
+        std::thread::sleep(Duration::from_millis(10));
     };
     let stdout = stdout.join().unwrap_or_default();
     let stderr = stderr.join().unwrap_or_default();
-    match status {
-        Some(status) => Ok(Output {
+    let ok = |status| {
+        Ok(Output {
             status,
             stdout,
             stderr,
-        }),
-        None => Err(io::Error::new(
+        })
+    };
+    match end {
+        // A tool that exited on its own after we stopped reading (EPIPE) still
+        // produced everything we wanted.
+        End::Exited(status) if !stdout_full.load(Ordering::Acquire) => ok(status),
+        End::Exited(_) | End::Truncated => ok(success_status()),
+        End::TimedOut => Err(io::Error::new(
             io::ErrorKind::TimedOut,
-            format!("timed out after {}s", timeout.as_secs()),
+            format!("timed out after {}s", limits.timeout.as_secs()),
         )),
+        End::Cancelled => Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled")),
     }
+}
+
+#[cfg(unix)]
+fn success_status() -> std::process::ExitStatus {
+    use std::os::unix::process::ExitStatusExt;
+    std::process::ExitStatus::from_raw(0)
+}
+
+#[cfg(not(unix))]
+fn success_status() -> std::process::ExitStatus {
+    use std::os::windows::process::ExitStatusExt;
+    std::process::ExitStatus::from_raw(0)
 }
 
 /// Spawn `program path [args…]` fully detached (all stdio set to null) and
@@ -721,5 +847,60 @@ mod tests {
         let err = run_interactive(Command::new("sh").args(["-c", "kill -INT $PPID; exit 4"]))
             .unwrap_err();
         assert_eq!(err, "sh exited with status 4");
+    }
+
+    #[test]
+    fn output_with_limits_stops_endless_producer_at_line_cap() {
+        let start = Instant::now();
+        let out = output_with_limits(
+            {
+                let mut c = Command::new("sh");
+                c.args(["-c", "while :; do echo line; done"]);
+                c
+            },
+            CaptureLimits {
+                timeout: Duration::from_secs(10),
+                max_lines: Some(5),
+                ..CaptureLimits::default()
+            },
+        )
+        .expect("truncated run counts as success");
+        assert!(out.status.success());
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "line\n".repeat(5));
+        assert!(start.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn output_with_limits_honours_cancel_and_timeout() {
+        let cancel = AtomicBool::new(true);
+        let err = output_with_limits(
+            {
+                let mut c = Command::new("sleep");
+                c.arg("30");
+                c
+            },
+            CaptureLimits {
+                cancel: Some(&cancel),
+                ..CaptureLimits::default()
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::Interrupted);
+
+        let start = Instant::now();
+        let err = output_with_limits(
+            {
+                let mut c = Command::new("sleep");
+                c.arg("30");
+                c
+            },
+            CaptureLimits {
+                timeout: Duration::from_millis(200),
+                ..CaptureLimits::default()
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::TimedOut);
+        assert!(start.elapsed() < Duration::from_secs(5));
     }
 }
