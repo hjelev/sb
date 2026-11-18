@@ -32,6 +32,28 @@ pub(crate) fn handle_app_key_event_body(
     key: KeyEvent,
     deferred_key: &mut Option<KeyEvent>,
 ) -> io::Result<KeyDispatchOutcome> {
+    // F1 toggles the tabbed overlay: pressing it again on any of its screens
+    // closes it (unless a key-binding capture is waiting for input).
+    if key.code == KeyCode::F(1)
+        && matches!(
+            app.mode,
+            AppMode::Help
+                | AppMode::InternalSearch
+                | AppMode::Bookmarks
+                | AppMode::SshPicker
+                | AppMode::SortMenu
+                | AppMode::Integrations
+                | AppMode::Themes
+                | AppMode::Settings
+                | AppMode::Shortcuts
+                | AppMode::Plugins
+        )
+        && !app.shortcuts_panel.capture
+        && !app.plugins_panel.key_capture
+    {
+        app.close_tabbed_overlay();
+        return Ok(KeyDispatchOutcome::ContinueLoop);
+    }
     match app.mode {
         AppMode::Browsing => return handle_browsing_key(terminal, app, key, deferred_key),
         AppMode::PathEditing => match key.code {

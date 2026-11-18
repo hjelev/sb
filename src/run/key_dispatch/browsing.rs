@@ -21,6 +21,7 @@ pub(crate) fn handle_browsing_key(
             return Ok(KeyDispatchOutcome::ContinueLoop);
         }
         KeyCode::Esc => return Ok(KeyDispatchOutcome::Quit),
+        KeyCode::F(1) => return dispatch_action(terminal, app, Action::Help),
         KeyCode::F(5) => return dispatch_action(terminal, app, Action::Copy),
         KeyCode::F(2) => return dispatch_action(terminal, app, Action::Rename),
         KeyCode::F(4) => return dispatch_action(terminal, app, Action::Edit),
@@ -248,9 +249,8 @@ fn dispatch_action(
             app.begin_input_edit(AppMode::CommandInput, String::new());
         }
         Action::Help => {
-            app.help.scroll_offset = 0;
-            app.panel_tab = 0;
-            app.mode = AppMode::Help;
+            // Reopen the tabbed overlay on the screen it was last closed on.
+            app.open_panel_tab(app.panel_tab);
         }
         Action::GitLog => return handle_git_log_key(terminal, app),
         Action::MarkAll => {

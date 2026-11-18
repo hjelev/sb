@@ -155,12 +155,18 @@ impl App {
                 self.clear_input_edit();
                 self.mode = AppMode::Browsing;
             }
+            AppMode::Integrations => {
+                self.reset_integration_search();
+                self.mode = AppMode::Browsing;
+            }
+            AppMode::Settings => {
+                self.maybe_check_api_key();
+                self.mode = AppMode::Browsing;
+            }
             AppMode::Help
             | AppMode::Bookmarks
-            | AppMode::Integrations
             | AppMode::Themes
             | AppMode::SortMenu
-            | AppMode::Settings
             | AppMode::Shortcuts
             | AppMode::Plugins
             | AppMode::SshPicker => {

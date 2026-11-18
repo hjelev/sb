@@ -576,7 +576,7 @@ pub static ACTIONS: &[ActionSpec] = &[
         label: "Open help screen",
         category: SYS,
         default: KeyCombo::char('h'),
-        fixed_alt: None,
+        fixed_alt: Some("F1"),
     },
     ActionSpec {
         action: Action::Quit,
@@ -696,6 +696,7 @@ impl KeyMap {
             | KeyCode::Backspace
             | KeyCode::Delete
             | KeyCode::Insert
+            | KeyCode::F(1)
             | KeyCode::F(2)
             | KeyCode::F(4)
             | KeyCode::F(5) => true,
